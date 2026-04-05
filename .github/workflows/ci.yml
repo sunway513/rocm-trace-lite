@@ -1,0 +1,75 @@
+name: CI (no GPU)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  source-guard:
+    name: Source dependency guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No roctracer/rocprofiler-sdk includes
+        run: |
+          if grep -rn '#include.*roctracer\|#include.*rocprofiler-sdk' src/*.cpp src/*.h; then
+            echo "FAIL: forbidden includes found"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: No forbidden linker flags
+        run: |
+          if grep -E '\-lroctracer|\-lrocprofiler-sdk|\-lroctx64' Makefile; then
+            echo "FAIL: forbidden linker flags"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: All files present
+        run: |
+          for f in src/rpd_lite.h src/rpd_lite.cpp src/hsa_intercept.cpp \
+                   src/roctx_shim.cpp src/hip_intercept.cpp \
+                   tools/rpd2trace.py tools/rpd_lite.sh Makefile; do
+            test -f $f || { echo "MISSING: $f"; exit 1; }
+          done
+          echo "PASS"
+
+  python-tests:
+    name: Python tests (41 tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run tests
+        working-directory: tests
+        run: pytest -v --tb=short
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Lint Python
+        run: ruff check tools/rpd2trace.py tests/ --select=E,F,W --ignore=E501
+
+      - name: Shell syntax
+        run: bash -n tools/rpd_lite.sh
