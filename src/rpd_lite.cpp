@@ -141,11 +141,19 @@ void TraceDB::create_schema() {
 }
 
 void TraceDB::begin_transaction() {
-    sqlite3_exec(db_, "BEGIN TRANSACTION", nullptr, nullptr, nullptr);
+    char* err = nullptr;
+    if (sqlite3_exec(db_, "BEGIN TRANSACTION", nullptr, nullptr, &err) != SQLITE_OK) {
+        fprintf(stderr, "rpd_lite: BEGIN failed: %s\n", err);
+        sqlite3_free(err);
+    }
 }
 
 void TraceDB::commit_transaction() {
-    sqlite3_exec(db_, "COMMIT", nullptr, nullptr, nullptr);
+    char* err = nullptr;
+    if (sqlite3_exec(db_, "COMMIT", nullptr, nullptr, &err) != SQLITE_OK) {
+        fprintf(stderr, "rpd_lite: COMMIT failed: %s\n", err);
+        sqlite3_free(err);
+    }
     batch_count_ = 0;
 }
 
@@ -161,24 +169,33 @@ bool TraceDB::open(const std::string& filename) {
 
     create_schema();
 
-    // Prepare statements
-    sqlite3_prepare_v2(db_,
-        "INSERT OR IGNORE INTO rocpd_string(string) VALUES(?1)",
-        -1, &stmt_api_, nullptr);  // reuse for string inserts
+    // Prepare statements — check each for errors
+    auto prepare = [&](const char* sql, sqlite3_stmt** stmt, const char* label) -> bool {
+        int rc = sqlite3_prepare_v2(db_, sql, -1, stmt, nullptr);
+        if (rc != SQLITE_OK) {
+            fprintf(stderr, "rpd_lite: prepare '%s' failed: %s\n", label, sqlite3_errmsg(db_));
+            return false;
+        }
+        return true;
+    };
 
-    sqlite3_prepare_v2(db_,
-        "INSERT INTO rocpd_api(pid,tid,start,end,apiName_id,args_id) "
-        "VALUES(?1,?2,?3,?4,"
-        "(SELECT id FROM rocpd_string WHERE string=?5),"
-        "(SELECT id FROM rocpd_string WHERE string=?6))",
-        -1, &stmt_kernel_, nullptr);  // reuse as api insert stmt
+    if (!prepare("INSERT OR IGNORE INTO rocpd_string(string) VALUES(?1)",
+                 &stmt_api_, "string_insert"))
+        return false;
 
-    sqlite3_prepare_v2(db_,
-        "INSERT INTO rocpd_op(gpuId,queueId,sequenceId,start,end,description_id,opType_id) "
-        "VALUES(?1,?2,0,?3,?4,"
-        "(SELECT id FROM rocpd_string WHERE string=?5),"
-        "(SELECT id FROM rocpd_string WHERE string=?6))",
-        -1, &stmt_copy_, nullptr);  // reuse as op insert stmt
+    if (!prepare("INSERT INTO rocpd_api(pid,tid,start,end,apiName_id,args_id) "
+                 "VALUES(?1,?2,?3,?4,"
+                 "(SELECT id FROM rocpd_string WHERE string=?5),"
+                 "(SELECT id FROM rocpd_string WHERE string=?6))",
+                 &stmt_kernel_, "api_insert"))
+        return false;
+
+    if (!prepare("INSERT INTO rocpd_op(gpuId,queueId,sequenceId,start,end,description_id,opType_id) "
+                 "VALUES(?1,?2,0,?3,?4,"
+                 "(SELECT id FROM rocpd_string WHERE string=?5),"
+                 "(SELECT id FROM rocpd_string WHERE string=?6))",
+                 &stmt_copy_, "op_insert"))
+        return false;
 
     begin_transaction();
     return true;
@@ -206,14 +223,25 @@ void TraceDB::close() {
     sqlite3_finalize(stmt_roctx_);
     sqlite3_close(db_);
     db_ = nullptr;
-    fprintf(stderr, "rpd_lite: trace finalized\n");
+    fprintf(stderr, "rpd_lite: trace finalized (%lu records written", records_written_);
+    if (records_dropped_ > 0) {
+        fprintf(stderr, ", %lu DROPPED", records_dropped_);
+    }
+    fprintf(stderr, ")\n");
 }
 
-static void ensure_string(sqlite3* db, sqlite3_stmt* stmt, const char* str) {
-    if (!str || !str[0]) return;
+static bool ensure_string(sqlite3* db, sqlite3_stmt* stmt, const char* str) {
+    if (!str || !str[0]) return true;
     sqlite3_reset(stmt);
     sqlite3_bind_text(stmt, 1, str, -1, SQLITE_TRANSIENT);
-    sqlite3_step(stmt);
+    int rc = sqlite3_step(stmt);
+    return (rc == SQLITE_DONE || rc == SQLITE_ROW);
+}
+
+// Helper: step a statement and return success
+static bool step_ok(sqlite3_stmt* stmt) {
+    int rc = sqlite3_step(stmt);
+    return (rc == SQLITE_DONE || rc == SQLITE_ROW);
 }
 
 void TraceDB::flush() {
@@ -241,7 +269,7 @@ void TraceDB::record_hip_api(const char* name, const char* args,
     sqlite3_bind_int64(stmt_kernel_, 4, start_ns + duration_ns);
     sqlite3_bind_text(stmt_kernel_, 5, name, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_kernel_, 6, safe_args, -1, SQLITE_TRANSIENT);
-    sqlite3_step(stmt_kernel_);
+    if (step_ok(stmt_kernel_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
         commit_transaction();
@@ -265,7 +293,7 @@ void TraceDB::record_kernel(const char* name, int device_id, uint64_t queue_id,
     sqlite3_bind_int64(stmt_copy_, 4, end_ns);
     sqlite3_bind_text(stmt_copy_, 5, name, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_copy_, 6, "KernelExecution", -1, SQLITE_STATIC);
-    sqlite3_step(stmt_copy_);
+    if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
         commit_transaction();
@@ -291,7 +319,7 @@ void TraceDB::record_copy(int src_device, int dst_device, size_t bytes,
     sqlite3_bind_int64(stmt_copy_, 4, end_ns);
     sqlite3_bind_text(stmt_copy_, 5, desc, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_copy_, 6, "CopyDeviceToDevice", -1, SQLITE_STATIC);
-    sqlite3_step(stmt_copy_);
+    if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
         commit_transaction();
@@ -314,7 +342,7 @@ void TraceDB::record_roctx(const char* message, uint64_t start_ns, uint64_t dura
     sqlite3_bind_int64(stmt_copy_, 4, start_ns + duration_ns);
     sqlite3_bind_text(stmt_copy_, 5, message, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_copy_, 6, "UserMarker", -1, SQLITE_STATIC);
-    sqlite3_step(stmt_copy_);
+    if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
         commit_transaction();

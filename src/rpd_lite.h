@@ -57,6 +57,8 @@ private:
     sqlite3_stmt* stmt_copy_ = nullptr;
     sqlite3_stmt* stmt_roctx_ = nullptr;
     int batch_count_ = 0;
+    uint64_t records_written_ = 0;
+    uint64_t records_dropped_ = 0;
 
     void create_schema();
     void begin_transaction();
