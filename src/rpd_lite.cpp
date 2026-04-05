@@ -3,6 +3,7 @@
  */
 #include "rpd_lite.h"
 
+#include <cinttypes>
 #include <cstdio>
 #include <ctime>
 #include <atomic>
@@ -143,16 +144,16 @@ void TraceDB::create_schema() {
 void TraceDB::begin_transaction() {
     char* err = nullptr;
     if (sqlite3_exec(db_, "BEGIN TRANSACTION", nullptr, nullptr, &err) != SQLITE_OK) {
-        fprintf(stderr, "rpd_lite: BEGIN failed: %s\n", err);
-        sqlite3_free(err);
+        fprintf(stderr, "rpd_lite: BEGIN failed: %s\n", err ? err : sqlite3_errmsg(db_));
+        if (err) sqlite3_free(err);
     }
 }
 
 void TraceDB::commit_transaction() {
     char* err = nullptr;
     if (sqlite3_exec(db_, "COMMIT", nullptr, nullptr, &err) != SQLITE_OK) {
-        fprintf(stderr, "rpd_lite: COMMIT failed: %s\n", err);
-        sqlite3_free(err);
+        fprintf(stderr, "rpd_lite: COMMIT failed: %s\n", err ? err : sqlite3_errmsg(db_));
+        if (err) sqlite3_free(err);
     }
     batch_count_ = 0;
 }
@@ -223,9 +224,9 @@ void TraceDB::close() {
     sqlite3_finalize(stmt_roctx_);
     sqlite3_close(db_);
     db_ = nullptr;
-    fprintf(stderr, "rpd_lite: trace finalized (%lu records written", records_written_);
+    fprintf(stderr, "rpd_lite: trace finalized (%" PRIu64 " records written", records_written_);
     if (records_dropped_ > 0) {
-        fprintf(stderr, ", %lu DROPPED", records_dropped_);
+        fprintf(stderr, ", %" PRIu64 " DROPPED", records_dropped_);
     }
     fprintf(stderr, ")\n");
 }
