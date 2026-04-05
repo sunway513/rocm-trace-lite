@@ -6,7 +6,7 @@ Non-GPU tests validate the architecture via source inspection and schema behavio
 import os
 import re
 import sqlite3
-from conftest import SCHEMA_SQL, populate_synthetic_trace
+from conftest import populate_synthetic_trace
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HSA_INTERCEPT = os.path.join(REPO_ROOT, "src", "hsa_intercept.cpp")
