@@ -73,3 +73,88 @@ jobs:
 
       - name: Shell syntax
         run: bash -n tools/rpd_lite.sh
+
+  ai-review:
+    name: GPT-5.4 Code Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install openai
+        run: pip install openai
+
+      - name: Get PR diff
+        id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr diff ${{ github.event.pull_request.number }} > /tmp/pr.diff
+          echo "diff_size=$(wc -c < /tmp/pr.diff)" >> $GITHUB_OUTPUT
+
+      - name: Review with GPT-5.4
+        if: steps.diff.outputs.diff_size != '0'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
+        run: |
+          cat > /tmp/review.py << 'PYEOF'
+          import os, sys
+          from openai import OpenAI
+
+          client = OpenAI()
+          model = os.environ.get("REVIEW_MODEL", "gpt-5.4")
+
+          with open("/tmp/pr.diff") as f:
+              diff = f.read()
+
+          # Truncate if too large (token limit)
+          if len(diff) > 80000:
+              diff = diff[:80000] + "\n\n... [diff truncated, too large for review] ..."
+
+          response = client.chat.completions.create(
+              model=model,
+              messages=[
+                  {"role": "system", "content": """You are a senior GPU systems engineer reviewing code for rocm-trace-lite,
+          a self-contained GPU kernel profiler for ROCm that must have ZERO dependency on roctracer or rocprofiler-sdk.
+
+          Review the PR diff for:
+          1. **Dependency violations** — any reference to roctracer, rocprofiler-sdk, libroctx64
+          2. **Correctness** — HSA API usage, SQLite thread safety, signal handling
+          3. **Performance** — hot-path allocations, lock contention, thread-per-dispatch concerns
+          4. **Security** — buffer overflows, format string bugs, unchecked returns
+          5. **Style** — consistency with existing code
+
+          Be concise. Flag only real issues, not style nitpicks. Use markdown.
+          Start with a one-line verdict: LGTM, MINOR ISSUES, or NEEDS CHANGES."""},
+                  {"role": "user", "content": f"Review this PR diff:\n\n```diff\n{diff}\n```"}
+              ],
+              temperature=0.2,
+              max_tokens=2000,
+          )
+
+          review = response.choices[0].message.content
+          print(review)
+
+          with open("/tmp/review.md", "w") as f:
+              f.write(f"## 🤖 GPT-5.4 Code Review\n\n{review}\n\n---\n*Model: {model}*\n")
+          PYEOF
+          python3 /tmp/review.py
+
+      - name: Post review comment
+        if: steps.diff.outputs.diff_size != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --body-file /tmp/review.md
