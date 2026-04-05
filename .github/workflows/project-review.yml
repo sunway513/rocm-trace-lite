@@ -1,0 +1,105 @@
+name: GPT-5.4 Full Project Review
+
+on:
+  workflow_dispatch:
+
+jobs:
+  review:
+    name: Full project architecture review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install openai
+        run: pip install openai
+
+      - name: Collect project and run review
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
+        run: |
+          cat > /tmp/review.py << 'PYEOF'
+          import os, glob
+          from openai import OpenAI
+
+          client = OpenAI()
+          model = os.environ.get("REVIEW_MODEL", "gpt-5.4")
+
+          # Collect all project files
+          patterns = ["**/*.cpp", "**/*.h", "**/*.py", "**/*.sh", "**/*.md",
+                      "**/*.yml", "Makefile", ".gitignore"]
+          files = {}
+          for pat in patterns:
+              for path in glob.glob(pat, recursive=True):
+                  if ".git/" in path or "__pycache__" in path:
+                      continue
+                  try:
+                      with open(path) as f:
+                          files[path] = f.read()
+                  except:
+                      pass
+
+          context = ""
+          for path in sorted(files.keys()):
+              context += f"\n{'='*60}\n{path}\n{'='*60}\n{files[path]}\n"
+
+          print(f"Sending {len(files)} files ({len(context)} chars) to {model}")
+
+          response = client.chat.completions.create(
+              model=model,
+              messages=[
+                  {"role": "system", "content": """You are a principal GPU systems architect reviewing a new open-source project.
+
+          The project is rocm-trace-lite: a self-contained GPU kernel profiler for AMD ROCm with ZERO dependency on roctracer or rocprofiler-sdk. Uses HSA runtime interception for kernel dispatch timestamps.
+
+          Perform a comprehensive review covering:
+
+          1. **Architecture & Design** — Is the HSA interception approach sound? Fundamental design flaws? Thread-per-dispatch model concerns?
+
+          2. **Code Quality** — Review all C++ and Python code for correctness, safety, maintainability. Flag real bugs, not style issues. Reference file paths.
+
+          3. **Project Structure** — Is the repo layout (src/, tools/, tests/) appropriate? Missing files? Misplaced concerns?
+
+          4. **PLANNING.md Review** — Is the roadmap realistic? Right priorities? Missing considerations?
+
+          5. **Testing** — Are the non-GPU tests sufficient? Critical gaps? Is the CI strategy sound?
+
+          6. **Packaging & Distribution** — Build system appropriate? What's needed for wider adoption?
+
+          7. **Security & Robustness** — Thread safety, memory leaks, signal handling, crash recovery.
+
+          8. **Competitive Analysis** — How does this compare to rocprofiler, NVIDIA Nsight, Intel VTune? Unique value proposition?
+
+          9. **Top 5 Risks** — Most likely things to go wrong.
+
+          10. **Top 5 Recommended Next Actions** — Ordered by priority.
+
+          Be direct, technical, specific. Reference file paths and line numbers where relevant. Output in markdown."""},
+                  {"role": "user", "content": f"Review the complete project:\n\n{context}"}
+              ],
+              temperature=0.3,
+              max_completion_tokens=8000,
+          )
+
+          review = response.choices[0].message.content
+          print(review)
+
+          with open("REVIEW.md", "w") as f:
+              f.write(f"# GPT-5.4 Full Project Review\n\n")
+              f.write(f"*Model: {model} | Files reviewed: {len(files)} | Date: {os.popen('date -u +%Y-%m-%d').read().strip()}*\n\n")
+              f.write(review)
+          PYEOF
+          python3 /tmp/review.py
+
+      - name: Upload review
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-review
+          path: REVIEW.md
+
+      - name: Print review summary
+        run: cat REVIEW.md
