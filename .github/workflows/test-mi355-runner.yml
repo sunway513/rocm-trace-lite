@@ -1,0 +1,45 @@
+name: Test MI355 Runner
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  test-1gpu:
+    runs-on: linux-rocm-trace-lite-mi355-1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GPU Check
+        run: |
+          echo "=== ROCm SMI ==="
+          rocm-smi
+          echo ""
+          echo "=== GPU Count ==="
+          rocm-smi --showid | grep -c "GPU"
+
+      - name: Environment
+        run: |
+          echo "=== Python ==="
+          python3 --version
+          echo "=== Docker ==="
+          docker --version
+          echo "=== Hostname ==="
+          hostname
+
+  test-8gpu:
+    runs-on: linux-rocm-trace-lite-mi355-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GPU Check
+        run: |
+          echo "=== ROCm SMI ==="
+          rocm-smi
+          echo ""
+          echo "=== GPU Count ==="
+          rocm-smi --showid | grep -c "GPU"
+          echo ""
+          echo "=== XGMI Topology ==="
+          rocm-smi --showtopo
