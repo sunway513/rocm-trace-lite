@@ -30,12 +30,10 @@ wget https://github.com/sunway513/rocm-trace-lite/releases/latest/download/rocm_
 pip install rocm_trace_lite-*.whl
 ```
 
-After installation, the `rtl` CLI command is available:
+After installation, the `rtl` CLI command is available. One command does everything — trace, summary, and Perfetto export:
 
 ```bash
-rtl trace -o trace.db python3 my_model.py
-rtl summary trace.db
-rtl convert trace.db -o trace.json
+rtl trace python3 my_model.py
 ```
 
 ### From source
@@ -56,17 +54,10 @@ Requirements:
 ## Quick start
 
 ```bash
-# Trace a workload
-rtl trace -o trace.db python3 my_model.py
+# Trace a workload — generates trace.db, prints summary, and creates trace.json.gz
+rtl trace python3 my_model.py
 
-# View top kernels
-rtl summary trace.db
-
-# Open timeline in browser (Perfetto JSON is auto-generated)
-# Upload trace.json.gz to https://ui.perfetto.dev
-
-# Or query the SQLite database directly
-sqlite3 trace.db "SELECT * FROM top LIMIT 10;"
+# Open trace.json.gz in https://ui.perfetto.dev for timeline visualization
 ```
 
 ## How it works

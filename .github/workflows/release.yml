@@ -79,10 +79,9 @@ jobs:
 
           ```bash
           rtl trace python3 my_model.py
-          rtl summary trace.db
-          rtl convert trace.db -o trace.json
-          rtl info trace.db
           ```
+
+          This generates the trace database, prints a kernel summary, and produces a compressed Perfetto JSON — all in one command.
 
           ## Requirements
           - ROCm 6.2+ or 7.x
