@@ -4,16 +4,22 @@ Self-contained GPU kernel profiler for ROCm. **Zero roctracer/rocprofiler-sdk de
 
 ## What it does
 
-Captures GPU kernel dispatch timestamps using only HSA runtime interception (`HSA_TOOLS_LIB`), writing to SQLite in the standard [RPD](https://github.com/ROCm/rocmProfileData) format.
+Captures GPU kernel dispatch timestamps using only HSA runtime interception (`HSA_TOOLS_LIB`), writing to SQLite in the standard [RPD](https://github.com/ROCm/rocmProfileData) format. No roctracer, no rocprofiler-sdk — works on day-0 hardware before the profiling stack is ready.
 
-| Feature | rocm-trace-lite | Original RPD |
-|---------|----------------|--------------|
-| Dependencies | libhsa-runtime64 + libsqlite3 | + roctracer or rocprofiler-sdk |
-| GPU kernel timing | HSA signal profiling | rocprofiler callback |
-| HIP API tracing | — | roctracer callback |
-| roctx markers | Built-in shim | libroctx64 |
-| Output format | SQLite (.db) | Same |
-| Perfetto/Chrome trace | `rtl convert` | rpd2tracing.py |
+### Comparison with other ROCm profiling tools
+
+| Feature | rocm-trace-lite | [RPD](https://github.com/ROCm/rocmProfileData) | [rocprofiler-sdk](https://rocm.docs.amd.com/projects/rocprofiler-sdk) | [roctracer](https://rocm.docs.amd.com/projects/roctracer) | [Triton Proton](https://github.com/triton-lang/triton/tree/main/third_party/proton) |
+|---------|----------------|-----|-----------------|-----------|---------------|
+| **Dependencies** | libhsa-runtime64 + libsqlite3 | + libroctracer64 | Full ROCm 6.0+ stack | libroctracer64 | libroctracer64 (AMD) |
+| **GPU kernel timing** | HSA signal injection | roctracer activity | Buffered/callback tracing | Activity records | roctracer / CUPTI |
+| **HIP API tracing** | — | Yes | Yes | Yes | — |
+| **HSA API tracing** | — | — | Yes | Yes | — |
+| **roctx markers** | Built-in shim | Via roctracer | Native | Yes (libroctx64) | Indirect |
+| **HW counters** | — | — | Yes (AQLprofile) | — | NVIDIA only |
+| **Output format** | SQLite (.db) | SQLite (.rpd) | CSV / JSON / Perfetto / OTF2 | Raw callbacks | JSON / Chrome Trace |
+| **Perfetto visualization** | `rtl convert` | rpd2tracing.py | Native PFTrace | — | Built-in |
+| **Works without profiler stack** | Yes | No | No | No | No |
+| **Status** | Active | Active | Active (recommended) | Legacy (EoS 2026 Q2) | Active |
 
 ## Installation
 
