@@ -50,7 +50,14 @@ def run_trace(args):
     ])
 
     if not per_process_files:
-        print("Warning: no trace files produced", file=sys.stderr)
+        print("rtl: WARNING: no trace files produced — 0 GPU ops captured", file=sys.stderr)
+        print("rtl: Possible causes:", file=sys.stderr)
+        print("rtl:   - HSA_TOOLS_LIB was not inherited by GPU worker subprocess", file=sys.stderr)
+        print("rtl:   - The workload didn't run any GPU kernels", file=sys.stderr)
+        print("rtl:   - librpd_lite.so failed to load (check warnings above)", file=sys.stderr)
+        print("rtl: Try: export HSA_TOOLS_LIB=$(python3 -c 'from rocm_trace_lite import get_lib_path; print(get_lib_path())')", file=sys.stderr)
+        print("rtl:      export RPD_LITE_OUTPUT=trace_%p.db", file=sys.stderr)
+        print("rtl:      <your command>", file=sys.stderr)
         sys.exit(result.returncode)
 
     import shutil

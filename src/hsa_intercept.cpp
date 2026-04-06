@@ -235,10 +235,57 @@ static hsa_status_t symbol_iterate_cb(hsa_executable_t exec,
     uint32_t name_len;
     if (hsa_executable_symbol_get_info(symbol, HSA_EXECUTABLE_SYMBOL_INFO_NAME_LENGTH, &name_len) != HSA_STATUS_SUCCESS)
         return HSA_STATUS_SUCCESS;
+    if (name_len == 0) return HSA_STATUS_SUCCESS;
 
     std::string name(name_len, '\0');
     if (hsa_executable_symbol_get_info(symbol, HSA_EXECUTABLE_SYMBOL_INFO_NAME, &name[0]) != HSA_STATUS_SUCCESS)
         return HSA_STATUS_SUCCESS;
+
+    // Strip trailing ".kd" suffix (HSA kernel descriptor marker)
+    if (name.size() > 3 && name.compare(name.size() - 3, 3, ".kd") == 0) {
+        name.resize(name.size() - 3);
+    }
+
+    // Demangle C++ mangled symbols (start with "_Z") for readability.
+    // Non-C++ names (Tensile Cijk, Triton, rocclr) pass through unchanged.
+    if (name.size() >= 2 && name[0] == '_' && name[1] == 'Z') {
+        int demangle_status = 0;
+        char* demangled = abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &demangle_status);
+        if (demangle_status == 0 && demangled) {
+            // Extract readable short name from demangled C++ symbol.
+            // "void ns::func<T>(args)" -> "ns::func<T>"
+            std::string full(demangled);
+            free(demangled);
+
+            // Skip leading return type ("void ", "int ", etc.)
+            size_t start = 0;
+            auto first_colon = full.find("::");
+            auto first_space = full.find(' ');
+            if (first_space != std::string::npos && first_colon != std::string::npos
+                && first_space < first_colon) {
+                start = first_space + 1;
+            }
+
+            // Find the parameter list '(' — but skip "(anonymous namespace)"
+            static constexpr const char* ANON_NS = "(anonymous namespace)";
+            static constexpr size_t ANON_NS_LEN = 21;  // strlen("(anonymous namespace)")
+            size_t end = std::string::npos;
+            size_t pos = start;
+            while (pos < full.size()) {
+                pos = full.find('(', pos);
+                if (pos == std::string::npos) break;
+                if (full.compare(pos, ANON_NS_LEN, ANON_NS) == 0) {
+                    pos += ANON_NS_LEN;
+                    continue;
+                }
+                end = pos;
+                break;
+            }
+            if (end == std::string::npos) end = full.size();
+
+            name = full.substr(start, end - start);
+        }
+    }
 
     std::lock_guard<std::mutex> lock(g_symbol_mutex);
     g_symbols[handle] = name;
@@ -361,7 +408,7 @@ static hsa_status_t my_hsa_queue_create(
     // Enable profiling on this queue
     hsa_status_t prof_status = g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(*queue, true);
     if (prof_status != HSA_STATUS_SUCCESS) {
-        fprintf(stderr, "rpd_lite: warning: failed to enable profiling on queue (status=%d)\n", (int)prof_status);
+        fprintf(stderr, "rtl: warning: failed to enable profiling on queue (status=%d)\n", (int)prof_status);
     }
 
     // Build queue info
@@ -478,7 +525,7 @@ extern "C" bool OnLoad(void* pTable,
                         uint64_t runtimeVersion,
                         uint64_t failedToolCount,
                         const char* const* pFailedToolNames) {
-    fprintf(stderr, "rpd_lite: loading (HSA runtime v%lu)\n", runtimeVersion);
+    fprintf(stderr, "rtl: loading (HSA runtime v%lu)\n", runtimeVersion);
 
     using namespace hsa_intercept;
 
@@ -497,7 +544,7 @@ extern "C" bool OnLoad(void* pTable,
 
     // Discover GPU agents (immutable after this point)
     hsa_iterate_agents(agent_iterate_cb, nullptr);
-    fprintf(stderr, "rpd_lite: found %zu GPU agent(s)\n", g_gpu_agents.size());
+    fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
     // Pre-allocate signal pool
     g_signal_pool.reserve(256);
@@ -507,11 +554,11 @@ extern "C" bool OnLoad(void* pTable,
             g_signal_pool.push_back(sig);
         }
     }
-    fprintf(stderr, "rpd_lite: signal pool initialized (%zu signals)\n", g_signal_pool.size());
+    fprintf(stderr, "rtl: signal pool initialized (%zu signals)\n", g_signal_pool.size());
 
     // Start completion worker thread
     g_worker = std::thread(completion_worker);
-    fprintf(stderr, "rpd_lite: completion worker started\n");
+    fprintf(stderr, "rtl: completion worker started\n");
 
     std::atexit(shutdown);
 
@@ -519,6 +566,6 @@ extern "C" bool OnLoad(void* pTable,
 }
 
 extern "C" void OnUnload() {
-    fprintf(stderr, "rpd_lite: unloading\n");
+    fprintf(stderr, "rtl: unloading\n");
     hsa_intercept::shutdown();
 }
