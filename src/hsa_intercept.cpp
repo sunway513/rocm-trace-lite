@@ -106,6 +106,7 @@ static std::atomic<uint64_t> g_drop_sig_fail{0};     // signal pool exhausted
 static std::atomic<uint64_t> g_drop_ts_fail{0};      // profiling_get_dispatch_time failed
 static std::atomic<uint64_t> g_drop_ts_invalid{0};   // end <= start
 static std::atomic<uint64_t> g_injected{0};           // signals injected
+static std::atomic<uint64_t> g_injected_fallback{0};  // via kernel_object fallback
 static std::atomic<uint64_t> g_recorded_ok{0};
 
 // ---- Completion worker ----
@@ -347,8 +348,21 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
         hsa_kernel_dispatch_packet_t* pkt =
             reinterpret_cast<hsa_kernel_dispatch_packet_t*>(mod_buf + i * pkt_size);
 
+        // Detect kernel dispatch packets.
+        // Primary: header type == KERNEL_DISPATCH (standard HSA).
+        // Fallback: some runtimes use type=0 (VENDOR_SPECIFIC) for kernel
+        // dispatches. Validate multiple dispatch-specific fields to avoid
+        // misclassifying non-dispatch packets.
         uint8_t type = ((pkt->header >> HSA_PACKET_HEADER_TYPE) & 0xFF);
-        if (type != HSA_PACKET_TYPE_KERNEL_DISPATCH) {
+        bool is_kernel = (type == HSA_PACKET_TYPE_KERNEL_DISPATCH);
+        if (!is_kernel
+            && pkt->kernel_object != 0
+            && pkt->workgroup_size_x > 0
+            && pkt->grid_size_x > 0) {
+            is_kernel = true;
+            g_injected_fallback.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (!is_kernel) {
             g_drop_not_kernel.fetch_add(1, std::memory_order_relaxed);
             continue;
         }
@@ -465,6 +479,9 @@ static void shutdown() {
     fprintf(stderr, "\n=== rpd_lite diagnostic (PID %d) ===\n", getpid());
     fprintf(stderr, "  intercept calls:     %lu\n", g_total_intercepts.load());
     fprintf(stderr, "  signals injected:    %lu\n", g_injected.load());
+    if (g_injected_fallback.load() > 0) {
+        fprintf(stderr, "  fallback detect:     %lu\n", g_injected_fallback.load());
+    }
     fprintf(stderr, "  drop (shutdown):     %lu\n", g_drop_shutdown.load());
     fprintf(stderr, "  drop (not kernel):   %lu\n", g_drop_not_kernel.load());
     fprintf(stderr, "  drop (no qi):        %lu\n", g_drop_no_qi.load());
