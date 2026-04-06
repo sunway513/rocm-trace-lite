@@ -25,16 +25,24 @@ def run_trace(args):
     env["HSA_TOOLS_LIB"] = lib
     env["RPD_LITE_OUTPUT"] = per_process_pattern
 
-    # Clean stale per-process files
+    # Clean stale per-process files (only those matching our PID pattern)
+    import re
     for f in glob.glob(os.path.join(trace_dir, f"{trace_base}_*.rpd")):
-        os.remove(f)
+        # Only remove files matching trace_base_DIGITS.rpd (PID pattern)
+        basename = os.path.basename(f)
+        if re.match(rf"^{re.escape(trace_base)}_\d+\.rpd$", basename):
+            os.remove(f)
     if os.path.exists(output) and os.path.isfile(output):
         os.remove(output)
 
     result = subprocess.run(cmd, env=env)
 
     # Collect per-process trace files
-    per_process_files = sorted(glob.glob(os.path.join(trace_dir, f"{trace_base}_*.rpd")))
+    # Collect per-process files (strict PID pattern: trace_DIGITS.rpd)
+    per_process_files = sorted([
+        f for f in glob.glob(os.path.join(trace_dir, f"{trace_base}_*.rpd"))
+        if re.match(rf"^{re.escape(trace_base)}_\d+\.rpd$", os.path.basename(f))
+    ])
 
     if not per_process_files:
         print("Warning: no trace files produced", file=sys.stderr)
@@ -82,7 +90,9 @@ def _merge_traces(input_files, output_path):
         alias = f"src{idx}"
         try:
             _checkpoint_wal(src_file)
-            conn.execute(f"ATTACH DATABASE '{src_file}' AS {alias}")
+            # Path is internally generated (not user input), but sanitize for safety
+            safe_path = src_file.replace("'", "''")
+            conn.execute(f"ATTACH DATABASE '{safe_path}' AS {alias}")
             src_ops = conn.execute(f"SELECT count(*) FROM {alias}.rocpd_op").fetchone()[0]
             if src_ops == 0:
                 conn.execute(f"DETACH DATABASE {alias}")
