@@ -4,7 +4,7 @@ Self-contained GPU kernel profiler for ROCm. **Zero roctracer/rocprofiler-sdk de
 
 ## What it does
 
-Captures GPU kernel dispatch timestamps using only HSA runtime interception (`HSA_TOOLS_LIB`), writing to SQLite in the standard [rocmProfileData](https://github.com/ROCm/rocmProfileData) schema. No roctracer, no rocprofiler-sdk — works on day-0 hardware before the profiling stack is ready.
+Captures GPU kernel dispatch timestamps using only HSA runtime interception (`HSA_TOOLS_LIB`), writing to a standard SQLite `.db` file. No roctracer, no rocprofiler-sdk — works on day-0 hardware before the profiling stack is ready.
 
 ### Comparison with other ROCm profiling tools
 
