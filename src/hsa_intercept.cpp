@@ -240,6 +240,47 @@ static hsa_status_t symbol_iterate_cb(hsa_executable_t exec,
     if (hsa_executable_symbol_get_info(symbol, HSA_EXECUTABLE_SYMBOL_INFO_NAME, &name[0]) != HSA_STATUS_SUCCESS)
         return HSA_STATUS_SUCCESS;
 
+    // Strip trailing ".kd" suffix (HSA kernel descriptor marker)
+    if (name.size() > 3 && name.compare(name.size() - 3, 3, ".kd") == 0) {
+        name.resize(name.size() - 3);
+    }
+
+    // Demangle C++ symbol names for readability
+    int demangle_status = 0;
+    char* demangled = abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &demangle_status);
+    if (demangle_status == 0 && demangled) {
+        // Extract readable short name from demangled C++ symbol.
+        // "void ns::func<T>(args)" -> "ns::func<T>"
+        std::string full(demangled);
+        free(demangled);
+
+        // Skip leading return type ("void ", "int ", etc.)
+        size_t start = 0;
+        auto first_colon = full.find("::");
+        auto first_space = full.find(' ');
+        if (first_space != std::string::npos && first_colon != std::string::npos
+            && first_space < first_colon) {
+            start = first_space + 1;
+        }
+
+        // Find the parameter list '(' — but skip "(anonymous namespace)"
+        size_t end = std::string::npos;
+        size_t pos = start;
+        while (pos < full.size()) {
+            pos = full.find('(', pos);
+            if (pos == std::string::npos) break;
+            if (full.compare(pos, 21, "(anonymous namespace)") == 0) {
+                pos += 21;  // skip it
+                continue;
+            }
+            end = pos;
+            break;
+        }
+        if (end == std::string::npos) end = full.size();
+
+        name = full.substr(start, end - start);
+    }
+
     std::lock_guard<std::mutex> lock(g_symbol_mutex);
     g_symbols[handle] = name;
 
