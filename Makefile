@@ -58,5 +58,5 @@ test-gpu: $(TARGET)
 	HSA_TOOLS_LIB=$(CURDIR)/$(TARGET) \
 		python3 -c "import torch; x=torch.randn(512,512,device='cuda'); y=x@x; torch.cuda.synchronize(); print('OK')"
 	@echo "=== Trace results ==="
-	sqlite3 trace.rpd "SELECT * FROM top LIMIT 10;" 2>/dev/null || true
-	sqlite3 trace.rpd "SELECT count(*) || ' kernel ops' FROM rocpd_op;" 2>/dev/null || true
+	sqlite3 trace.db "SELECT * FROM top LIMIT 10;" 2>/dev/null || true
+	sqlite3 trace.db "SELECT count(*) || ' kernel ops' FROM rocpd_op;" 2>/dev/null || true

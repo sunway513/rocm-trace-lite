@@ -1,6 +1,6 @@
 # CLI Reference
 
-rocm-trace-lite provides the `rtl` (or `rtl`) command-line tool.
+rocm-trace-lite provides the `rtl` command-line tool. (`rpd-lite` also works as an alias.)
 
 ## rtl trace
 

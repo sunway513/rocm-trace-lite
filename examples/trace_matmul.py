@@ -2,15 +2,11 @@
 """Minimal example: trace a GPU matmul with rocm-trace-lite.
 
 Usage:
-    # Option 1: launcher script
-    ./tools/rpd_lite.sh python3 examples/trace_matmul.py
-
-    # Option 2: direct env vars
-    HSA_TOOLS_LIB=./librpd_lite.so python3 examples/trace_matmul.py
+    rtl trace python3 examples/trace_matmul.py
 
     # View results
-    sqlite3 trace.db "SELECT * FROM top;"
-    python3 tools/rpd2trace.py trace.db trace.json  # open in Perfetto
+    rtl summary trace.db
+    rtl convert trace.db -o trace.json   # open in Perfetto
 """
 import torch
 

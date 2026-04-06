@@ -13,38 +13,71 @@ Captures GPU kernel dispatch timestamps using only HSA runtime interception (`HS
 | HIP API tracing | — | roctracer callback |
 | roctx markers | Built-in shim | libroctx64 |
 | Output format | SQLite (.db) | Same |
-| Perfetto/Chrome trace | rpd2trace.py | rpd2tracing.py |
+| Perfetto/Chrome trace | `rtl convert` | rpd2tracing.py |
 
-## Quick start
+## Installation
+
+### From wheel (recommended)
+
+Download the latest `.whl` from [GitHub Releases](https://github.com/sunway513/rocm-trace-lite/releases):
+
+```bash
+# Install the latest release
+pip install rocm-trace-lite --find-links https://github.com/sunway513/rocm-trace-lite/releases/latest
+
+# Or download and install manually
+wget https://github.com/sunway513/rocm-trace-lite/releases/latest/download/rocm_trace_lite-<version>-py3-none-linux_x86_64.whl
+pip install rocm_trace_lite-*.whl
+```
+
+After installation, the `rtl` CLI command is available. One command does everything — trace, summary, and Perfetto export:
+
+```bash
+rtl trace python3 my_model.py
+```
+
+### From source
 
 ```bash
 # Build (requires ROCm headers)
 make -j
 
-# Trace a workload
-HSA_TOOLS_LIB=./librpd_lite.so python3 my_model.py
-
-# Or use the launcher
-./rpd_lite.sh python3 my_model.py
-
-# Query results
-sqlite3 trace.db "SELECT * FROM top LIMIT 10;"
-
-# Convert to Perfetto timeline
-python3 rpd2trace.py trace.db trace.json
-# Open trace.json in https://ui.perfetto.dev
+# Install system-wide
+make install    # copies librpd_lite.so to /usr/local/lib, scripts to /usr/local/bin
 ```
 
-## Build requirements
-
+Requirements:
 - ROCm (for HSA headers: `hsa/hsa.h`, `hsa/hsa_api_trace.h`)
 - SQLite3 development headers (`apt install libsqlite3-dev`)
 - g++ with C++17
 
+## Quick start
+
 ```bash
-make            # builds librpd_lite.so
-make install    # copies to /usr/local/lib
-make test       # quick GPU smoke test (requires GPU)
+rtl trace python3 my_model.py
+```
+
+Sample output:
+
+```text
+rpd_lite: lazy init, writing to trace_12345.db
+
+Trace: trace.db (728 GPU ops)
+
+Kernel                                                       Calls  Total(us)  Avg(us)      %
+================================================================================================
+Cijk_Ailk_Bljk_HHS_BH_MT128x128x128                           240    28252.9    117.7   21.8
+ncclDevKernel_Generic                                          160    29747.8    185.9   23.0
+__amd_rocclr_fillBufferAligned.kd                             7900    27929.8      3.5   21.6
+
+GPU Utilization:
+  GPU 0: 0.13% (2630 ops, 17.2ms busy)
+  GPU 1: 0.11% (2430 ops, 15.0ms busy)
+
+Output files:
+  trace.db
+  trace_summary.txt
+  trace.json.gz (1.2 MB → open in https://ui.perfetto.dev)
 ```
 
 ## How it works
@@ -77,8 +110,11 @@ SELECT * FROM busy;
 ## Tests
 
 ```bash
-# Run non-GPU tests (41 tests)
-cd tests && pytest -v
+# Run CPU-only tests (no GPU required)
+make test-cpu
+
+# GPU smoke test (requires ROCm GPU)
+make test-gpu
 
 # CI runs automatically on push via GitHub Actions
 ```
