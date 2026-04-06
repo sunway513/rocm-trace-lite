@@ -314,7 +314,7 @@ def _merge_traces(input_files, output_path):
             merged_ops += len(op_rows)
             merged_count += 1
 
-        except (sqlite3.OperationalError, OSError) as e:
+        except (sqlite3.DatabaseError, OSError) as e:
             print(f"Warning: could not merge {src_file}: {e}", file=sys.stderr)
             try:
                 dst.execute("ROLLBACK")
