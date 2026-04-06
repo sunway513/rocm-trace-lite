@@ -4,10 +4,12 @@
  * Uses HSA API table replacement (OnLoad) + hsa_amd_queue_intercept to
  * capture GPU kernel execution timestamps from AQL packets.
  *
- * Completion architecture:
+ * Profiling architecture:
+ *   - Inject profiling signals into kernel dispatch packets (HIP does not
+ *     set completion_signal on most dispatches, so observe-only doesn't work)
  *   - Single worker thread processes completed dispatches from a queue
- *   - Original completion signals forwarded via HSA barrier packets
- *     (not manual signal manipulation)
+ *   - Original completion signals forwarded after profiling
+ *   - Signal pool avoids per-dispatch hsa_signal_create overhead
  *   - Clean shutdown: worker joined before DB close
  *
  * Dependencies: libhsa-runtime64 only (part of ROCm runtime)
@@ -32,6 +34,7 @@
 #include <hsa/amd_hsa_signal.h>
 
 #include <cxxabi.h>
+#include <unistd.h>
 
 using namespace rpd_lite;
 
@@ -60,11 +63,53 @@ static std::unordered_map<uint64_t, QueueInfo> g_queue_map;  // keyed by hsa_que
 
 static std::atomic<uint64_t> g_dispatch_id{0};
 
-// ---- Completion worker ----
-// Forward declarations
-static std::string lookup_kernel_name(uint64_t kernel_object);
+// ---- Profiling signal pool ----
+// Reuse HSA signals to avoid per-dispatch creation overhead.
+static std::mutex g_pool_mutex;
+static std::vector<hsa_signal_t> g_signal_pool;
+static constexpr size_t SIGNAL_POOL_MAX = 4096;
 
-// Single thread processes all completed dispatches. Replaces thread-per-dispatch.
+static hsa_signal_t acquire_signal() {
+    {
+        std::lock_guard<std::mutex> lock(g_pool_mutex);
+        if (!g_signal_pool.empty()) {
+            hsa_signal_t sig = g_signal_pool.back();
+            g_signal_pool.pop_back();
+            g_orig_core.hsa_signal_store_relaxed_fn(sig, 1);
+            return sig;
+        }
+    }
+    hsa_signal_t sig;
+    hsa_status_t st = g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig);
+    if (st != HSA_STATUS_SUCCESS) {
+        sig.handle = 0;
+    }
+    return sig;
+}
+
+static void release_signal(hsa_signal_t sig) {
+    if (sig.handle == 0) return;
+    std::lock_guard<std::mutex> lock(g_pool_mutex);
+    if (g_signal_pool.size() < SIGNAL_POOL_MAX) {
+        g_signal_pool.push_back(sig);
+    } else {
+        g_orig_core.hsa_signal_destroy_fn(sig);
+    }
+}
+
+// ---- Diagnostic counters (Issue #31 triage) ----
+static std::atomic<uint64_t> g_total_intercepts{0};
+static std::atomic<uint64_t> g_drop_shutdown{0};
+static std::atomic<uint64_t> g_drop_not_kernel{0};
+static std::atomic<uint64_t> g_drop_no_qi{0};
+static std::atomic<uint64_t> g_drop_sig_fail{0};     // signal pool exhausted
+static std::atomic<uint64_t> g_drop_ts_fail{0};      // profiling_get_dispatch_time failed
+static std::atomic<uint64_t> g_drop_ts_invalid{0};   // end <= start
+static std::atomic<uint64_t> g_injected{0};           // signals injected
+static std::atomic<uint64_t> g_recorded_ok{0};
+
+// ---- Completion worker ----
+static std::string lookup_kernel_name(uint64_t kernel_object);
 
 struct DispatchData {
     uint64_t dispatch_id;
@@ -72,7 +117,8 @@ struct DispatchData {
     uint64_t kernel_object;
     int device_id;
     uint64_t queue_id;
-    hsa_signal_t profiling_signal;
+    hsa_signal_t profiling_signal;  // injected signal (we own this)
+    hsa_signal_t original_signal;   // original from packet (may be null)
 };
 
 static std::mutex g_work_mutex;
@@ -98,41 +144,65 @@ static void completion_worker() {
         }
 
         // Wait for kernel completion with bounded timeout.
-        // HSA spec: timeout_hint is in nanoseconds (HSA Runtime Programmer's Reference 1.2+).
-        // Uses 100ms timeout + poll loop so shutdown can interrupt.
-        // Normal path: kernel completes in microseconds, first wait returns immediately.
-        // Only during shutdown does the timeout loop matter (adds <=100ms exit latency).
-        static constexpr uint64_t WAIT_TIMEOUT_NS = 100000000ULL;  // 100ms in nanoseconds
+        static constexpr uint64_t WAIT_TIMEOUT_NS = 100000000ULL;  // 100ms
         hsa_signal_value_t wait_val;
+        bool abandoned = false;
         while (true) {
             wait_val = g_orig_core.hsa_signal_wait_scacquire_fn(
                 dd->profiling_signal, HSA_SIGNAL_CONDITION_LT, 1,
                 WAIT_TIMEOUT_NS, HSA_WAIT_STATE_BLOCKED);
             if (wait_val < 1) break;  // signal completed
             if (g_shutdown.load(std::memory_order_acquire)) {
-                // Shutdown requested — abandon this dispatch, don't touch the signal
-                delete dd;
-                dd = nullptr;
+                abandoned = true;
                 break;
             }
         }
-        if (!dd) continue;  // was abandoned during shutdown
 
-        // Read GPU timestamps
+        if (abandoned) {
+            // Forward original signal even during shutdown to avoid hangs.
+            // Use subtract (decrement by 1) to match HSA packet completion semantics.
+            if (dd->original_signal.handle != 0) {
+                g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
+            }
+            release_signal(dd->profiling_signal);
+            delete dd;
+            continue;
+        }
+
+        // Read GPU timestamps from injected profiling signal
         hsa_amd_profiling_dispatch_time_t time{};
+        if (dd->device_id < 0 || (size_t)dd->device_id >= g_gpu_agents.size()) {
+            g_drop_ts_fail.fetch_add(1, std::memory_order_relaxed);
+            if (dd->original_signal.handle != 0) {
+                g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
+            }
+            release_signal(dd->profiling_signal);
+            delete dd;
+            continue;
+        }
         hsa_status_t status = g_orig_ext.hsa_amd_profiling_get_dispatch_time_fn(
             g_gpu_agents[dd->device_id], dd->profiling_signal, &time);
 
         if (status != HSA_STATUS_SUCCESS) {
-            fprintf(stderr, "rpd_lite: warning: profiling_get_dispatch_time failed (status=%d) for dispatch %lu\n",
-                    (int)status, dd->dispatch_id);
-        } else if (time.end > time.start) {
+            g_drop_ts_fail.fetch_add(1, std::memory_order_relaxed);
+        } else if (time.end <= time.start) {
+            g_drop_ts_invalid.fetch_add(1, std::memory_order_relaxed);
+        } else {
             std::string name = lookup_kernel_name(dd->kernel_object);
             get_trace_db().record_kernel(name.c_str(), dd->device_id, dd->queue_id,
                                           time.start, time.end, dd->correlation_id);
+            g_recorded_ok.fetch_add(1, std::memory_order_relaxed);
         }
 
-        // Do NOT destroy the signal — we don't own it (observe-only mode)
+        // Forward completion to original signal (if app set one).
+        // HSA spec: packet completion decrements the signal by 1.
+        // Use subtract_screlease to preserve original semantics exactly.
+        if (dd->original_signal.handle != 0) {
+            g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
+        }
+
+        // Return profiling signal to pool
+        release_signal(dd->profiling_signal);
         delete dd;
     }
 }
@@ -176,68 +246,101 @@ static hsa_status_t symbol_iterate_cb(hsa_executable_t exec,
     return HSA_STATUS_SUCCESS;
 }
 
-// Barrier/signal queue code removed — observe-only profiling doesn't need it.
-// We pass packets through unmodified and read timestamps from original signals.
-
 // ---- Queue intercept callback ----
 
 static void queue_intercept_cb(const void* in_packets, uint64_t count,
                                 uint64_t user_que_idx, void* data,
                                 hsa_amd_queue_intercept_packet_writer writer) {
+    g_total_intercepts.fetch_add(1, std::memory_order_relaxed);
+
     if (g_shutdown.load(std::memory_order_acquire)) {
+        g_drop_shutdown.fetch_add(count, std::memory_order_relaxed);
         writer(in_packets, count);
         return;
     }
 
-    // Only handle single packets
-    if (count != 1) {
-        writer(in_packets, count);
-        return;
-    }
-
-    const hsa_kernel_dispatch_packet_t* pkt =
-        reinterpret_cast<const hsa_kernel_dispatch_packet_t*>(in_packets);
-
-    // Only intercept kernel dispatch packets
-    uint8_t type = ((pkt->header >> HSA_PACKET_HEADER_TYPE) & 0xFF);
-    if (type != HSA_PACKET_TYPE_KERNEL_DISPATCH) {
-        writer(in_packets, count);
-        return;
-    }
-
-    // No completion signal → can't profile
-    if (pkt->completion_signal.handle == 0) {
-        writer(in_packets, count);
-        return;
-    }
-
-    // Look up queue info
     QueueInfo* qi = static_cast<QueueInfo*>(data);
     if (!qi) {
+        g_drop_no_qi.fetch_add(count, std::memory_order_relaxed);
         writer(in_packets, count);
         return;
     }
 
-    // Observe-only profiling: pass packet through UNMODIFIED.
-    // No signal replacement, no barrier packets, no extra queues.
-    // We read GPU timestamps from the original signal after completion.
-    writer(in_packets, count);
-
-    // Build dispatch data — use the ORIGINAL signal for timestamp readback
-    auto* dd = new DispatchData;
-    dd->dispatch_id = g_dispatch_id.fetch_add(1, std::memory_order_relaxed);
-    dd->correlation_id = next_correlation_id();
-    dd->kernel_object = pkt->kernel_object;
-    dd->device_id = qi->device_id;
-    dd->queue_id = qi->queue_handle;
-    dd->profiling_signal = pkt->completion_signal;  // observe, don't own
-
-    // Enqueue for completion worker (non-blocking)
-    {
-        std::lock_guard<std::mutex> lock(g_work_mutex);
-        g_work_queue.push_back(dd);
+    // Make a mutable copy of the packet buffer to inject profiling signals.
+    // Stack buffer for common case (count <= 64), heap fallback for large batches.
+    // HSA spec 1.2 section 2.8: all AQL packets are 64 bytes (fixed-width slots
+    // in the ring buffer), regardless of packet type. Safe to step by fixed stride.
+    const size_t pkt_size = sizeof(hsa_kernel_dispatch_packet_t);  // 64 bytes (AQL packet)
+    const size_t buf_bytes = count * pkt_size;
+    char stack_buf[64 * 64];
+    std::vector<char> heap_buf;
+    char* mod_buf;
+    if (buf_bytes <= sizeof(stack_buf)) {
+        mod_buf = stack_buf;
+    } else {
+        heap_buf.resize(buf_bytes);
+        mod_buf = heap_buf.data();
     }
-    g_work_cv.notify_one();
+    memcpy(mod_buf, in_packets, buf_bytes);
+
+    // Collect dispatch data to enqueue after writer().
+    // Stack array for common case, vector fallback for large batches.
+    DispatchData* pending_stack[64];
+    std::vector<DispatchData*> pending_vec;
+    DispatchData** dd_list;
+    if (count <= 64) {
+        dd_list = pending_stack;
+    } else {
+        pending_vec.resize(count);
+        dd_list = pending_vec.data();
+    }
+    uint64_t dd_count = 0;
+
+    for (uint64_t i = 0; i < count; i++) {
+        hsa_kernel_dispatch_packet_t* pkt =
+            reinterpret_cast<hsa_kernel_dispatch_packet_t*>(mod_buf + i * pkt_size);
+
+        uint8_t type = ((pkt->header >> HSA_PACKET_HEADER_TYPE) & 0xFF);
+        if (type != HSA_PACKET_TYPE_KERNEL_DISPATCH) {
+            g_drop_not_kernel.fetch_add(1, std::memory_order_relaxed);
+            continue;
+        }
+
+        // Acquire a profiling signal from pool
+        hsa_signal_t prof_sig = acquire_signal();
+        if (prof_sig.handle == 0) {
+            g_drop_sig_fail.fetch_add(1, std::memory_order_relaxed);
+            continue;
+        }
+
+        // Save original signal and inject profiling signal
+        hsa_signal_t orig_sig = pkt->completion_signal;
+        pkt->completion_signal = prof_sig;
+
+        auto* dd = new DispatchData;
+        dd->dispatch_id = g_dispatch_id.fetch_add(1, std::memory_order_relaxed);
+        dd->correlation_id = next_correlation_id();
+        dd->kernel_object = pkt->kernel_object;
+        dd->device_id = qi->device_id;
+        dd->queue_id = qi->queue_handle;
+        dd->profiling_signal = prof_sig;
+        dd->original_signal = orig_sig;
+
+        dd_list[dd_count++] = dd;
+        g_injected.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // Submit (potentially modified) packets to hardware
+    writer(mod_buf, count);
+
+    // Enqueue all dispatch data for completion worker
+    if (dd_count > 0) {
+        std::lock_guard<std::mutex> lock(g_work_mutex);
+        for (uint64_t i = 0; i < dd_count; i++) {
+            g_work_queue.push_back(dd_list[i]);
+        }
+        g_work_cv.notify_one();
+    }
 }
 
 // ---- HSA API table replacement ----
@@ -261,7 +364,7 @@ static hsa_status_t my_hsa_queue_create(
         fprintf(stderr, "rpd_lite: warning: failed to enable profiling on queue (status=%d)\n", (int)prof_status);
     }
 
-    // Build queue info (no extra signal queue — observe-only profiling)
+    // Build queue info
     auto* qi = new QueueInfo;
     qi->device_id = 0;
     qi->queue_handle = (uint64_t)(*queue);
@@ -311,21 +414,39 @@ static void shutdown() {
     static std::atomic<bool> shutdown_done{false};
     if (shutdown_done.exchange(true)) return;  // prevent double shutdown
 
-    // Signal worker to stop — worker checks g_shutdown in its wait loop
+    // Print diagnostic counters
+    fprintf(stderr, "\n=== rpd_lite diagnostic (PID %d) ===\n", getpid());
+    fprintf(stderr, "  intercept calls:     %lu\n", g_total_intercepts.load());
+    fprintf(stderr, "  signals injected:    %lu\n", g_injected.load());
+    fprintf(stderr, "  drop (shutdown):     %lu\n", g_drop_shutdown.load());
+    fprintf(stderr, "  drop (not kernel):   %lu\n", g_drop_not_kernel.load());
+    fprintf(stderr, "  drop (no qi):        %lu\n", g_drop_no_qi.load());
+    fprintf(stderr, "  drop (sig pool):     %lu\n", g_drop_sig_fail.load());
+    fprintf(stderr, "  drop (ts fail):      %lu\n", g_drop_ts_fail.load());
+    fprintf(stderr, "  drop (ts invalid):   %lu\n", g_drop_ts_invalid.load());
+    fprintf(stderr, "  recorded OK:         %lu\n", g_recorded_ok.load());
+    fprintf(stderr, "====================================\n\n");
+
+    // Signal worker to stop
     g_shutdown.store(true, std::memory_order_release);
     g_work_cv.notify_all();
 
-    // Join worker thread (will exit within 100ms due to timeout-based wait)
     if (g_worker.joinable()) {
         g_worker.join();
     }
 
-    // Drain any remaining items in work queue (abandoned during shutdown)
+    // Drain remaining work queue
     {
         std::lock_guard<std::mutex> lock(g_work_mutex);
         while (!g_work_queue.empty()) {
-            delete g_work_queue.front();
+            auto* dd = g_work_queue.front();
             g_work_queue.pop_front();
+            // Forward original signals to avoid app hangs
+            if (dd->original_signal.handle != 0) {
+                g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
+            }
+            release_signal(dd->profiling_signal);
+            delete dd;
         }
     }
 
@@ -333,7 +454,16 @@ static void shutdown() {
     rpd_lite::get_trace_db().flush();
     rpd_lite::get_trace_db().close();
 
-    // Clean up queue info (fixes memory leak from issue #5)
+    // Destroy signal pool
+    {
+        std::lock_guard<std::mutex> lock(g_pool_mutex);
+        for (auto& sig : g_signal_pool) {
+            g_orig_core.hsa_signal_destroy_fn(sig);
+        }
+        g_signal_pool.clear();
+    }
+
+    // Clean up queue info
     {
         std::lock_guard<std::mutex> lock(g_queue_mutex);
         g_queue_map.clear();
@@ -365,13 +495,19 @@ extern "C" bool OnLoad(void* pTable,
     table->core_->hsa_queue_create_fn = my_hsa_queue_create;
     table->core_->hsa_executable_freeze_fn = my_hsa_executable_freeze;
 
-    // Note: host timestamps (CLOCK_MONOTONIC) and GPU timestamps
-    // (hsa_amd_profiling_get_dispatch_time) are in the same domain on ROCm/Linux
-    // (both derive from TSC). This matches the original rtg_tracer approach.
-
     // Discover GPU agents (immutable after this point)
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rpd_lite: found %zu GPU agent(s)\n", g_gpu_agents.size());
+
+    // Pre-allocate signal pool
+    g_signal_pool.reserve(256);
+    for (int i = 0; i < 64; i++) {
+        hsa_signal_t sig;
+        if (g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig) == HSA_STATUS_SUCCESS) {
+            g_signal_pool.push_back(sig);
+        }
+    }
+    fprintf(stderr, "rpd_lite: signal pool initialized (%zu signals)\n", g_signal_pool.size());
 
     // Start completion worker thread
     g_worker = std::thread(completion_worker);
