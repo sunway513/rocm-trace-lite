@@ -28,7 +28,7 @@ class TestPackageImport:
 
     def test_import_version(self):
         from rocm_trace_lite import __version__
-        assert __version__ == "0.1.1"
+        assert __version__  # non-empty version string
 
     def test_import_get_lib_path(self):
         from rocm_trace_lite import get_lib_path
@@ -60,7 +60,8 @@ class TestCLIHelp:
     def test_version(self):
         rc, out, _ = _run_cli("--version")
         assert rc == 0
-        assert "0.1.1" in out
+        from rocm_trace_lite import __version__
+        assert __version__ in out
 
     def test_no_args_shows_help(self):
         rc, out, _ = _run_cli()

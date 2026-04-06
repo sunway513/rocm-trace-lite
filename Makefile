@@ -13,6 +13,7 @@ CXXFLAGS = -O3 -g -fPIC -std=c++17 \
 
 LDFLAGS = -shared -rdynamic \
           -L$(HIP_PATH)/lib \
+          -Wl,-rpath,$(HIP_PATH)/lib \
           -lhsa-runtime64 -lsqlite3 \
           -ldl -lpthread
 

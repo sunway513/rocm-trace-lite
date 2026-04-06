@@ -130,6 +130,20 @@ def run_trace(args):
     env["HSA_TOOLS_LIB"] = lib
     env["RPD_LITE_OUTPUT"] = per_process_pattern
 
+    # Ensure the subprocess can dlopen librtl.so and its dependencies.
+    # Add the .so's directory and common ROCm paths to LD_LIBRARY_PATH.
+    lib_dir = os.path.dirname(os.path.abspath(lib))
+    extra_dirs = [lib_dir]
+    for rocm_lib in ["/opt/rocm/lib", "/opt/rocm/lib64"]:
+        if os.path.isdir(rocm_lib):
+            extra_dirs.append(rocm_lib)
+    rocm_path = os.environ.get("ROCM_PATH") or os.environ.get("HIP_PATH")
+    if rocm_path:
+        extra_dirs.append(os.path.join(rocm_path, "lib"))
+    existing = env.get("LD_LIBRARY_PATH", "")
+    combined = ":".join(extra_dirs)
+    env["LD_LIBRARY_PATH"] = "{}:{}".format(combined, existing) if existing else combined
+
     # Clean stale per-process files (only those matching our PID pattern)
     import re
     for f in glob.glob(os.path.join(trace_dir, f"{trace_base}_*.db")):
