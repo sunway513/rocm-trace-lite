@@ -9,19 +9,13 @@ import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LIB_PATH = os.path.join(REPO_ROOT, "librpd_lite.so")
+LIB_PATH = os.path.join(REPO_ROOT, "librtl.so")
 
 
 def _has_gpu():
-    """Check if ROCm GPU is available."""
-    try:
-        r = subprocess.run(
-            [sys.executable, "-c", "import torch; assert torch.cuda.is_available()"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
+    """Check if ROCm GPU is available via PyTorch subprocess."""
+    from conftest import _rocm_gpu_available
+    return _rocm_gpu_available()
 
 
 def _has_lib():
@@ -44,7 +38,7 @@ def _run_traced(script, trace_path, timeout=120):
 def _skip_if_no_gpu():
     if not _has_gpu() or not _has_lib():
         import pytest
-        pytest.skip("No GPU or librpd_lite.so not built")
+        pytest.skip("No GPU or librtl.so not built")
 
 
 class TestMultiStreamSingleGPU:

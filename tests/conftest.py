@@ -149,3 +149,42 @@ def populate_synthetic_trace(rpd_path, num_kernels=100, num_gpus=1):
     conn.commit()
     conn.close()
     return rpd_path
+
+
+def _rocm_gpu_available():
+    """Check if ROCm GPU is usable (not just /dev/kfd exists).
+
+    Runs a subprocess to verify torch.cuda sees the GPU.
+    Results are cached for the session.
+    """
+    if not hasattr(_rocm_gpu_available, "_cached"):
+        import subprocess
+        import sys
+        try:
+            r = subprocess.run(
+                [sys.executable, "-c",
+                 "import torch; assert torch.cuda.is_available() and torch.cuda.device_count() > 0"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30
+            )
+            _rocm_gpu_available._cached = (r.returncode == 0)
+        except Exception:
+            _rocm_gpu_available._cached = False
+    return _rocm_gpu_available._cached
+
+
+def _rocm_gpu_count():
+    """Return number of GPUs visible to PyTorch, cached."""
+    if not hasattr(_rocm_gpu_count, "_cached"):
+        import subprocess
+        import sys
+        try:
+            r = subprocess.run(
+                [sys.executable, "-c",
+                 "import torch; print(torch.cuda.device_count())"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True, timeout=30
+            )
+            _rocm_gpu_count._cached = int(r.stdout.strip()) if r.returncode == 0 else 0
+        except Exception:
+            _rocm_gpu_count._cached = 0
+    return _rocm_gpu_count._cached

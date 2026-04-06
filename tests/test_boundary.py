@@ -56,7 +56,7 @@ class TestGetLibPath:
     def test_package_local_lib(self, tmp_path):
         fake_pkg = str(tmp_path / "pkg")
         os.makedirs(os.path.join(fake_pkg, "lib"))
-        so_path = os.path.join(fake_pkg, "lib", "librpd_lite.so")
+        so_path = os.path.join(fake_pkg, "lib", "librtl.so")
         with open(so_path, "w") as f:
             f.write("")
 
@@ -87,9 +87,9 @@ class TestGetLibPath:
             return original_abspath(p)
 
         def fake_isfile(p):
-            if p == os.path.join(fake_pkg, "lib", "librpd_lite.so"):
+            if p == os.path.join(fake_pkg, "lib", "librtl.so"):
                 return False
-            if p == "/usr/local/lib/librpd_lite.so":
+            if p == "/usr/local/lib/librtl.so":
                 return True
             return original_isfile(p)
 
@@ -97,7 +97,7 @@ class TestGetLibPath:
             with patch("os.path.isfile", side_effect=fake_isfile):
                 from rocm_trace_lite import get_lib_path
                 result = get_lib_path()
-        assert result == "/usr/local/lib/librpd_lite.so"
+        assert result == "/usr/local/lib/librtl.so"
 
     def test_not_found_raises(self, tmp_path):
         fake_pkg = str(tmp_path / "pkg")

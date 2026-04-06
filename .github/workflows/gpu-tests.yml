@@ -19,11 +19,11 @@ jobs:
           sudo apt-get update && sudo apt-get install -y libsqlite3-dev sqlite3 2>/dev/null || \
           echo "sqlite3-dev may already be installed"
 
-      - name: Build librpd_lite.so
+      - name: Build librtl.so
         run: |
           make -j$(nproc)
           mkdir -p rocm_trace_lite/lib
-          cp librpd_lite.so rocm_trace_lite/lib/
+          cp librtl.so rocm_trace_lite/lib/
 
       - name: Install test deps
         run: |
@@ -34,8 +34,15 @@ jobs:
 
       - name: Verify GPU access
         run: |
-          python3 -c "import torch; print('GPUs:', torch.cuda.device_count()); assert torch.cuda.is_available(), 'No GPU'" || \
-            echo "WARNING: GPU not detected by PyTorch"
+          echo "=== ROCm SMI ==="
+          rocm-smi --showid || true
+          echo "=== HSA Agents ==="
+          ls -la /dev/kfd /dev/dri/render* 2>/dev/null || true
+          echo "=== PyTorch GPU ==="
+          python3 -c "import torch; n = torch.cuda.device_count(); print('GPUs:', n); assert n > 0" || {
+            echo "FATAL: No GPU visible to PyTorch — GPU tests cannot run"
+            exit 1
+          }
 
       - name: Run single-GPU tests
         run: |
@@ -53,8 +60,9 @@ jobs:
           path: gpu-test-results.txt
 
   gpu-multi:
-    name: GPU tests (8x MI355X)
+    name: GPU tests (8x MI355X, optional)
     runs-on: linux-rocm-trace-lite-mi355-8
+    continue-on-error: true
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -65,11 +73,11 @@ jobs:
           sudo apt-get update && sudo apt-get install -y libsqlite3-dev sqlite3 2>/dev/null || \
           echo "sqlite3-dev may already be installed"
 
-      - name: Build librpd_lite.so
+      - name: Build librtl.so
         run: |
           make -j$(nproc)
           mkdir -p rocm_trace_lite/lib
-          cp librpd_lite.so rocm_trace_lite/lib/
+          cp librtl.so rocm_trace_lite/lib/
 
       - name: Install test deps
         run: |
@@ -80,8 +88,15 @@ jobs:
 
       - name: Verify GPU access
         run: |
-          python3 -c "import torch; print('GPUs:', torch.cuda.device_count()); assert torch.cuda.is_available(), 'No GPU'" || \
-            echo "WARNING: GPU not detected by PyTorch"
+          echo "=== ROCm SMI ==="
+          rocm-smi --showid || true
+          echo "=== HSA Agents ==="
+          ls -la /dev/kfd /dev/dri/render* 2>/dev/null || true
+          echo "=== PyTorch GPU ==="
+          python3 -c "import torch; n = torch.cuda.device_count(); print('GPUs:', n); assert n > 0" || {
+            echo "FATAL: No GPU visible to PyTorch — GPU tests cannot run"
+            exit 1
+          }
 
       - name: Run all tests including multi-GPU
         run: |

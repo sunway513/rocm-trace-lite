@@ -1,9 +1,9 @@
 """GPU E2E tests for roctx manual markers via rpd_lite shim (issue #23).
 
 Validates that roctxRangePushA, roctxRangePop, and roctxMarkA symbols
-exported by librpd_lite.so produce correct UserMarker records in the trace.
+exported by librtl.so produce correct UserMarker records in the trace.
 
-These tests require a ROCm GPU and librpd_lite.so built.
+These tests require a ROCm GPU and librtl.so built.
 Run with: pytest tests/test_roctx_e2e.py -v
 """
 import os
@@ -12,19 +12,13 @@ import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LIB_PATH = os.path.join(REPO_ROOT, "librpd_lite.so")
+LIB_PATH = os.path.join(REPO_ROOT, "librtl.so")
 
 
 def _has_gpu():
     """Check if ROCm GPU is available."""
-    try:
-        r = subprocess.run(
-            [sys.executable, "-c", "import torch; assert torch.cuda.is_available()"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
+    from conftest import _rocm_gpu_available
+    return _rocm_gpu_available()
 
 
 def _has_lib():
@@ -34,7 +28,7 @@ def _has_lib():
 def _skip_if_no_gpu():
     if not _has_gpu() or not _has_lib():
         import pytest
-        pytest.skip("No GPU or librpd_lite.so not built")
+        pytest.skip("No GPU or librtl.so not built")
 
 
 def _run_traced(script, trace_path, timeout=120):
@@ -79,7 +73,7 @@ def _get_user_markers_with_duration(trace_path):
 # -- roctx shim loader snippet used in all subprocess scripts --
 _ROCTX_LOADER = """
 import ctypes, os
-lib_path = os.environ.get("HSA_TOOLS_LIB", "librpd_lite.so")
+lib_path = os.environ.get("HSA_TOOLS_LIB", "librtl.so")
 roctx = ctypes.CDLL(lib_path)
 roctx.roctxRangePushA.argtypes = [ctypes.c_char_p]
 roctx.roctxRangePushA.restype = ctypes.c_int

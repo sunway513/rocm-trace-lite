@@ -1,6 +1,6 @@
 """Custom setup to force platform-specific wheel tag.
 
-librpd_lite.so is Linux x86_64 only. Without this, setuptools
+librtl.so is Linux x86_64 only. Without this, setuptools
 produces py3-none-any which is incorrect.
 """
 from setuptools import setup

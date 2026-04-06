@@ -12,14 +12,14 @@ class TestPreflightCheck:
 
     def test_missing_lib_returns_false(self, capsys):
         check = self._get_preflight()
-        result = check("/nonexistent/path/librpd_lite.so")
+        result = check("/nonexistent/path/librtl.so")
         assert result is False
         err = capsys.readouterr().err
         assert "not found" in err
 
     def test_existing_lib_prints_ok(self, tmp_path, capsys):
         """An existing .so prints OK for the file check."""
-        fake_so = tmp_path / "librpd_lite.so"
+        fake_so = tmp_path / "librtl.so"
         fake_so.write_text("not a real shared object")
         check = self._get_preflight()
         ldd_mock = MagicMock()
@@ -29,11 +29,11 @@ class TestPreflightCheck:
             with patch("os.path.exists", return_value=True):
                 check(str(fake_so))
         err = capsys.readouterr().err
-        assert "librpd_lite.so OK" in err
+        assert "librtl.so OK" in err
 
     def test_ldd_missing_dep_warns(self, tmp_path, capsys):
         """When ldd reports a missing dep, warn with specifics."""
-        fake_so = tmp_path / "librpd_lite.so"
+        fake_so = tmp_path / "librtl.so"
         fake_so.write_text("fake")
         ldd_mock = MagicMock()
         ldd_mock.returncode = 0
@@ -48,7 +48,7 @@ class TestPreflightCheck:
 
     def test_ldd_sqlite_missing_warns(self, tmp_path, capsys):
         """When ldd reports missing libsqlite3, show install hint."""
-        fake_so = tmp_path / "librpd_lite.so"
+        fake_so = tmp_path / "librtl.so"
         fake_so.write_text("fake")
         ldd_mock = MagicMock()
         ldd_mock.returncode = 0
@@ -62,7 +62,7 @@ class TestPreflightCheck:
 
     def test_ldd_all_found_ok(self, tmp_path, capsys):
         """When ldd finds everything, no warnings from dep check."""
-        fake_so = tmp_path / "librpd_lite.so"
+        fake_so = tmp_path / "librtl.so"
         fake_so.write_text("fake")
         ldd_mock = MagicMock()
         ldd_mock.returncode = 0
@@ -77,7 +77,7 @@ class TestPreflightCheck:
 
     def test_conflicting_hsa_tools_lib_warns(self, tmp_path, capsys):
         """Warn when HSA_TOOLS_LIB is already set to a different path."""
-        fake_so = tmp_path / "librpd_lite.so"
+        fake_so = tmp_path / "librtl.so"
         fake_so.write_text("not real")
         check = self._get_preflight()
         ldd_mock = MagicMock()
@@ -93,7 +93,7 @@ class TestPreflightCheck:
 
     def test_matching_hsa_tools_lib_no_warn(self, tmp_path, capsys):
         """No conflict warning when HSA_TOOLS_LIB matches our lib path."""
-        fake_so = tmp_path / "librpd_lite.so"
+        fake_so = tmp_path / "librtl.so"
         fake_so.write_text("not real")
         check = self._get_preflight()
         ldd_mock = MagicMock()
@@ -108,7 +108,7 @@ class TestPreflightCheck:
 
     def test_rocm_path_env_searched(self, tmp_path, capsys):
         """ROCM_PATH is used to find libhsa-runtime64.so."""
-        fake_so = tmp_path / "librpd_lite.so"
+        fake_so = tmp_path / "librtl.so"
         fake_so.write_bytes(b"\x7fELF")
         rocm_lib = tmp_path / "rocm" / "lib"
         rocm_lib.mkdir(parents=True)
@@ -125,7 +125,7 @@ class TestPreflightCheck:
 
     def test_ld_library_path_suggested_only_when_ldd_fails(self, tmp_path, capsys):
         """Only suggest LD_LIBRARY_PATH fix when ldd reports HSA not found."""
-        fake_so = tmp_path / "librpd_lite.so"
+        fake_so = tmp_path / "librtl.so"
         fake_so.write_text("fake")
         rocm_lib = tmp_path / "rocm" / "lib"
         rocm_lib.mkdir(parents=True)
@@ -146,7 +146,7 @@ class TestPreflightCheck:
 
     def test_no_ld_warning_when_ldd_resolves(self, tmp_path, capsys):
         """No LD_LIBRARY_PATH warning when ldd resolves HSA fine."""
-        fake_so = tmp_path / "librpd_lite.so"
+        fake_so = tmp_path / "librtl.so"
         fake_so.write_text("fake")
         rocm_lib = tmp_path / "rocm" / "lib"
         rocm_lib.mkdir(parents=True)

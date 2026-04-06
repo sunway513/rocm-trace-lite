@@ -13,13 +13,13 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RPD2TRACE = os.path.join(REPO_ROOT, "tools", "rpd2trace.py")
 
 
-def _find_librpd_lite():
-    """Return path to librpd_lite.so or None if not found."""
+def _find_librtl():
+    """Return path to librtl.so or None if not found."""
     candidates = [
-        os.path.join(REPO_ROOT, "librpd_lite.so"),
-        os.path.join(REPO_ROOT, "build", "librpd_lite.so"),
-        os.path.join(REPO_ROOT, "rocm_trace_lite", "lib", "librpd_lite.so"),
-        "/usr/local/lib/librpd_lite.so",
+        os.path.join(REPO_ROOT, "librtl.so"),
+        os.path.join(REPO_ROOT, "build", "librtl.so"),
+        os.path.join(REPO_ROOT, "rocm_trace_lite", "lib", "librtl.so"),
+        "/usr/local/lib/librtl.so",
     ]
     for p in candidates:
         if os.path.isfile(p):
@@ -27,10 +27,10 @@ def _find_librpd_lite():
     return None
 
 
-LIBRPD_LITE_PATH = _find_librpd_lite()
+LIBRTL_PATH = _find_librtl()
 SKIP_NO_SO = pytest.mark.skipif(
-    LIBRPD_LITE_PATH is None,
-    reason="librpd_lite.so not found (not built)",
+    LIBRTL_PATH is None,
+    reason="librtl.so not found (not built)",
 )
 
 
@@ -158,7 +158,7 @@ class TestSymbolExportGuard:
 
     @SKIP_NO_SO
     def test_roctx_symbols_exported(self):
-        """All roctx API symbols must be exported from librpd_lite.so."""
+        """All roctx API symbols must be exported from librtl.so."""
         required = [
             "roctxRangePushA",
             "roctxRangePop",
@@ -169,7 +169,7 @@ class TestSymbolExportGuard:
             "roctxRangePush",
         ]
         result = subprocess.run(
-            ["nm", "-D", LIBRPD_LITE_PATH],
+            ["nm", "-D", LIBRTL_PATH],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         symbols = result.stdout.decode()
@@ -180,7 +180,7 @@ class TestSymbolExportGuard:
     def test_onload_onunload_exported(self):
         """OnLoad and OnUnload must be exported."""
         result = subprocess.run(
-            ["nm", "-D", LIBRPD_LITE_PATH],
+            ["nm", "-D", LIBRTL_PATH],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         symbols = result.stdout.decode()
@@ -189,10 +189,10 @@ class TestSymbolExportGuard:
 
     @SKIP_NO_SO
     def test_no_roctracer_rocprofiler_symbols(self):
-        """librpd_lite.so must not export roctracer_* or rocprofiler_* symbols."""
+        """librtl.so must not export roctracer_* or rocprofiler_* symbols."""
         import re as _re
         result = subprocess.run(
-            ["nm", "-D", LIBRPD_LITE_PATH],
+            ["nm", "-D", LIBRTL_PATH],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         symbols = result.stdout.decode()

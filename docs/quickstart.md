@@ -81,7 +81,7 @@ Applications that use roctx markers are captured automatically:
 
 ```python
 import ctypes
-lib = ctypes.CDLL("librpd_lite.so")
+lib = ctypes.CDLL("librtl.so")
 
 lib.roctxRangePushA(b"forward_pass")
 # ... GPU work ...
@@ -97,7 +97,7 @@ These appear as `UserMarker` events in the trace.
 For advanced control, set environment variables directly:
 
 ```bash
-export HSA_TOOLS_LIB=/path/to/librpd_lite.so
+export HSA_TOOLS_LIB=/path/to/librtl.so
 export RPD_LITE_OUTPUT=my_trace.db
 python3 my_model.py
 ```

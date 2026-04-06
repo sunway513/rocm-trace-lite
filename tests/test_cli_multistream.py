@@ -19,14 +19,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def _has_gpu():
     """Check if ROCm GPU is available."""
-    try:
-        r = subprocess.run(
-            [sys.executable, "-c", "import torch; assert torch.cuda.is_available()"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
+    from conftest import _rocm_gpu_available
+    return _rocm_gpu_available()
 
 
 def _gpu_count():

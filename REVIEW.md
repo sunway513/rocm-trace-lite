@@ -493,19 +493,19 @@ It computes:
 
 ```bash
 SCRIPT_DIR=...
-LIB="${SCRIPT_DIR}/librpd_lite.so"
+LIB="${SCRIPT_DIR}/librtl.so"
 ```
 
-After installation, the script goes to `PREFIX/bin`, library to `PREFIX/lib`. `SCRIPT_DIR/librpd_lite.so` will not exist, so it falls back to `/usr/local/lib/librpd_lite.so`.
+After installation, the script goes to `PREFIX/bin`, library to `PREFIX/lib`. `SCRIPT_DIR/librtl.so` will not exist, so it falls back to `/usr/local/lib/librtl.so`.
 
 ### Problem
 If installed with non-default `PREFIX`, the script breaks unless the library also happens to be in `/usr/local/lib`.
 
 ### Recommendation
 Use:
-- `@PREFIX@/lib/librpd_lite.so` substitution at install time, or
+- `@PREFIX@/lib/librtl.so` substitution at install time, or
 - resolve relative to `../lib`, or
-- rely on `ldconfig` and set `HSA_TOOLS_LIB=librpd_lite.so` only if discoverable
+- rely on `ldconfig` and set `HSA_TOOLS_LIB=librtl.so` only if discoverable
 
 ---
 
@@ -717,7 +717,7 @@ But for wider adoption, you will likely need:
 As noted, `tools/rpd_lite.sh` is not relocatable.
 
 ### 6.2 No SONAME/versioning in shared library
-`librpd_lite.so` is built without version metadata. Fine for internal use, weak for packaging.
+`librtl.so` is built without version metadata. Fine for internal use, weak for packaging.
 
 ### 6.3 No `pkg-config`, no package metadata
 Needed if others will integrate or redistribute.
