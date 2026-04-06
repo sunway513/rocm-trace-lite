@@ -23,7 +23,7 @@ jobs:
         run: make -j$(nproc)
 
       - name: Install test deps
-        run: pip install pytest -e .
+        run: pip install --break-system-packages pytest -e . || pip install pytest -e .
 
       - name: Run single-GPU tests
         run: |
@@ -56,7 +56,7 @@ jobs:
         run: make -j$(nproc)
 
       - name: Install test deps
-        run: pip install pytest -e .
+        run: pip install --break-system-packages pytest -e . || pip install pytest -e .
 
       - name: Run all tests including multi-GPU
         run: |
