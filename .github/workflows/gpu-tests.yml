@@ -1,0 +1,60 @@
+name: GPU Tests
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  gpu-single:
+    name: GPU tests (single MI355X)
+    runs-on: linux-rocm-trace-lite-mi355-1
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build librpd_lite.so
+        run: make -j$(nproc)
+
+      - name: Install test deps
+        run: pip install pytest -e .
+
+      - name: Run single-GPU tests
+        run: |
+          pytest tests/ -v --tb=short \
+            -k "not multigpu" \
+            --timeout=120 \
+            2>&1 | tee gpu-test-results.txt
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-single-results
+          path: gpu-test-results.txt
+
+  gpu-multi:
+    name: GPU tests (8x MI355X)
+    runs-on: linux-rocm-trace-lite-mi355-8
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build librpd_lite.so
+        run: make -j$(nproc)
+
+      - name: Install test deps
+        run: pip install pytest -e .
+
+      - name: Run all tests including multi-GPU
+        run: |
+          pytest tests/ -v --tb=short \
+            --timeout=180 \
+            2>&1 | tee gpu-test-results.txt
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-multi-results
+          path: gpu-test-results.txt
