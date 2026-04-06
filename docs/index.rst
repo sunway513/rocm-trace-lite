@@ -117,6 +117,15 @@ Supported Hardware
    how_it_works
    comparison
 
+Acknowledgments
+----------------
+
+This project was inspired by and builds upon the work of:
+
+- **Jeff Daily**'s `ROCm Tracer for GPU (RTG) <https://github.com/ROCm/rtg_tracer>`_ — pioneered the HSA_TOOLS_LIB interception approach for lightweight GPU kernel tracing
+- **Michael Wootton**'s `rocmProfileData (RPD) <https://github.com/ROCm/rocmProfileData>`_ — established the SQLite-based trace format and ecosystem tools that rocm-trace-lite is compatible with
+
+
 .. toctree::
    :maxdepth: 2
    :caption: Development
