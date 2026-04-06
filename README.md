@@ -54,10 +54,30 @@ Requirements:
 ## Quick start
 
 ```bash
-# Trace a workload — generates trace.db, prints summary, and creates trace.json.gz
 rtl trace python3 my_model.py
+```
 
-# Open trace.json.gz in https://ui.perfetto.dev for timeline visualization
+Sample output:
+
+```text
+rpd_lite: lazy init, writing to trace_12345.db
+
+Trace: trace.db (728 GPU ops)
+
+Kernel                                                       Calls  Total(us)  Avg(us)      %
+================================================================================================
+Cijk_Ailk_Bljk_HHS_BH_MT128x128x128                           240    28252.9    117.7   21.8
+ncclDevKernel_Generic                                          160    29747.8    185.9   23.0
+__amd_rocclr_fillBufferAligned.kd                             7900    27929.8      3.5   21.6
+
+GPU Utilization:
+  GPU 0: 0.13% (2630 ops, 17.2ms busy)
+  GPU 1: 0.11% (2430 ops, 15.0ms busy)
+
+Output files:
+  trace.db
+  trace_summary.txt
+  trace.json.gz (1.2 MB → open in https://ui.perfetto.dev)
 ```
 
 ## How it works
