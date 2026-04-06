@@ -160,9 +160,9 @@ static void completion_worker() {
 
         if (abandoned) {
             // Forward original signal even during shutdown to avoid hangs.
-            // Use screlease to ensure memory visibility for any waiter.
+            // Use subtract (decrement by 1) to match HSA packet completion semantics.
             if (dd->original_signal.handle != 0) {
-                g_orig_core.hsa_signal_store_screlease_fn(dd->original_signal, 0);
+                g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
             }
             release_signal(dd->profiling_signal);
             delete dd;
@@ -171,6 +171,15 @@ static void completion_worker() {
 
         // Read GPU timestamps from injected profiling signal
         hsa_amd_profiling_dispatch_time_t time{};
+        if (dd->device_id < 0 || (size_t)dd->device_id >= g_gpu_agents.size()) {
+            g_drop_ts_fail.fetch_add(1, std::memory_order_relaxed);
+            if (dd->original_signal.handle != 0) {
+                g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
+            }
+            release_signal(dd->profiling_signal);
+            delete dd;
+            continue;
+        }
         hsa_status_t status = g_orig_ext.hsa_amd_profiling_get_dispatch_time_fn(
             g_gpu_agents[dd->device_id], dd->profiling_signal, &time);
 
@@ -186,10 +195,10 @@ static void completion_worker() {
         }
 
         // Forward completion to original signal (if app set one).
-        // HSA spec: runtime decrements signal on packet completion.
-        // Use screlease for proper memory ordering with any waiter.
+        // HSA spec: packet completion decrements the signal by 1.
+        // Use subtract_screlease to preserve original semantics exactly.
         if (dd->original_signal.handle != 0) {
-            g_orig_core.hsa_signal_store_screlease_fn(dd->original_signal, 0);
+            g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
         }
 
         // Return profiling signal to pool
@@ -259,6 +268,8 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
 
     // Make a mutable copy of the packet buffer to inject profiling signals.
     // Stack buffer for common case (count <= 64), heap fallback for large batches.
+    // HSA spec 1.2 section 2.8: all AQL packets are 64 bytes (fixed-width slots
+    // in the ring buffer), regardless of packet type. Safe to step by fixed stride.
     const size_t pkt_size = sizeof(hsa_kernel_dispatch_packet_t);  // 64 bytes (AQL packet)
     const size_t buf_bytes = count * pkt_size;
     char stack_buf[64 * 64];
@@ -432,7 +443,7 @@ static void shutdown() {
             g_work_queue.pop_front();
             // Forward original signals to avoid app hangs
             if (dd->original_signal.handle != 0) {
-                g_orig_core.hsa_signal_store_screlease_fn(dd->original_signal, 0);
+                g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
             }
             release_signal(dd->profiling_signal);
             delete dd;

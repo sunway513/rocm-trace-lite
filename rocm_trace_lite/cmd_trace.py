@@ -110,21 +110,27 @@ def _checkpoint_wal(db_path):
 def _merge_traces(input_files, output_path):
     """Merge multiple per-process RPD trace files into one.
 
-    Reads rows from each source DB and inserts into the output.
+    Copies the largest file as base, then batch-inserts rows from remaining
+    files using an in-memory string→id map (avoids per-row subqueries).
     No ATTACH needed — avoids SQLite version compatibility issues.
     """
     import shutil
+    import tempfile
 
     # Use the largest file as the base (likely the main ModelRunner)
     input_files.sort(key=lambda f: os.path.getsize(f), reverse=True)
 
     _checkpoint_wal(input_files[0])
-    shutil.move(input_files[0], output_path)
+
+    # Copy (not move) the base file so we don't lose it on merge failure
+    tmp_out = output_path + ".merging"
+    shutil.copy2(input_files[0], tmp_out)
 
     merged_ops = 0
     merged_count = 0
 
-    dst = sqlite3.connect(output_path)
+    dst = sqlite3.connect(tmp_out)
+    dst.execute("PRAGMA journal_mode=WAL")
 
     for src_file in input_files[1:]:
         try:
@@ -141,36 +147,79 @@ def _merge_traces(input_files, output_path):
                     "JOIN rocpd_string s ON o.description_id = s.id "
                     "JOIN rocpd_string ot ON o.opType_id = ot.id"
                 ).fetchall()
+                # Also merge metadata from non-base processes
+                try:
+                    src_meta = src.execute(
+                        "SELECT tag, value FROM rocpd_metadata"
+                    ).fetchall()
+                except sqlite3.OperationalError:
+                    src_meta = []
             except sqlite3.OperationalError:
                 src_ops = []
                 src_strings = []
+                src_meta = []
             finally:
                 src.close()
 
             if not src_ops:
                 continue
 
-            # Insert strings (dedup via OR IGNORE)
-            for (s,) in src_strings:
-                dst.execute("INSERT OR IGNORE INTO rocpd_string(string) VALUES(?)", (s,))
+            dst.execute("BEGIN")
 
-            # Insert ops with string remapping
+            # Batch insert strings (dedup via OR IGNORE)
+            dst.executemany(
+                "INSERT OR IGNORE INTO rocpd_string(string) VALUES(?)",
+                src_strings,
+            )
+
+            # Build in-memory string→id map for fast op insertion
+            str_map = dict(dst.execute(
+                "SELECT string, id FROM rocpd_string"
+            ).fetchall())
+
+            # Batch insert ops using pre-resolved string IDs
+            op_rows = []
             for gpuId, queueId, seqId, start, end, desc, optype in src_ops:
-                dst.execute(
-                    "INSERT INTO rocpd_op(gpuId, queueId, sequenceId, start, end, "
-                    "description_id, opType_id) VALUES(?,?,?,?,?,"
-                    "(SELECT id FROM rocpd_string WHERE string=?),"
-                    "(SELECT id FROM rocpd_string WHERE string=?))",
-                    (gpuId, queueId, seqId, start, end, desc, optype))
+                desc_id = str_map.get(desc)
+                type_id = str_map.get(optype)
+                if desc_id is not None and type_id is not None:
+                    op_rows.append((gpuId, queueId, seqId, start, end, desc_id, type_id))
 
-            merged_ops += len(src_ops)
+            dst.executemany(
+                "INSERT INTO rocpd_op(gpuId, queueId, sequenceId, start, end, "
+                "description_id, opType_id) VALUES(?,?,?,?,?,?,?)",
+                op_rows,
+            )
+
+            # Merge metadata (best-effort, OR IGNORE for dupes)
+            if src_meta:
+                dst.executemany(
+                    "INSERT OR IGNORE INTO rocpd_metadata(tag, value) VALUES(?,?)",
+                    src_meta,
+                )
+
+            dst.execute("COMMIT")
+
+            merged_ops += len(op_rows)
             merged_count += 1
 
         except (sqlite3.OperationalError, OSError) as e:
             print(f"Warning: could not merge {src_file}: {e}", file=sys.stderr)
+            try:
+                dst.execute("ROLLBACK")
+            except sqlite3.OperationalError:
+                pass
 
-    dst.commit()
     dst.close()
+
+    # Atomic replace: only overwrite output after successful merge
+    os.replace(tmp_out, output_path)
+
+    # Clean up per-process base file (others cleaned by caller)
+    try:
+        os.remove(input_files[0])
+    except OSError:
+        pass
 
     if merged_count > 0:
         print(f"Merged {merged_count + 1} process traces ({merged_ops} additional ops)",
