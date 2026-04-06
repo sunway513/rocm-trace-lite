@@ -37,13 +37,13 @@ ldd librpd_lite.so | grep -E "roctracer|rocprofiler"
 # Should produce no output (clean dependency chain)
 
 # Quick smoke test (requires GPU)
-rpd-lite trace -o test.db python3 -c "
+rtl trace -o test.db python3 -c "
 import torch
 x = torch.randn(512, 512, device='cuda')
 y = x @ x
 torch.cuda.synchronize()
 "
-rpd-lite summary test.db
+rtl summary test.db
 ```
 
 ## Build targets

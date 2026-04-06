@@ -24,7 +24,7 @@ torchrun --nproc_per_node=8 model.py
 
 ```bash
 # TP=8 inference
-rpd-lite trace -o trace.db torchrun --nproc_per_node=8 my_model.py
+rtl trace -o trace.db torchrun --nproc_per_node=8 my_model.py
 
 # Check per-GPU distribution
 sqlite3 trace.db "SELECT gpuId, count(*) FROM rocpd_op GROUP BY gpuId;"

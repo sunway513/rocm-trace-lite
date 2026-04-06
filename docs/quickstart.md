@@ -5,7 +5,7 @@
 Profile any GPU workload with a single command:
 
 ```bash
-rpd-lite trace -o trace.db python3 my_model.py
+rtl trace -o trace.db python3 my_model.py
 ```
 
 This automatically:
@@ -19,7 +19,7 @@ This automatically:
 ### Terminal summary
 
 ```bash
-rpd-lite summary trace.db
+rtl summary trace.db
 ```
 
 ```text
@@ -41,11 +41,6 @@ GPU Utilization:
 
 The `trace` command auto-generates a compressed `.json.gz` file.
 Open it in [ui.perfetto.dev](https://ui.perfetto.dev) for interactive timeline visualization.
-
-```bash
-# Or convert manually
-rpd-lite convert trace.db -o trace.json
-```
 
 ### SQL queries
 
@@ -74,7 +69,7 @@ sqlite3 trace.db "
 rocm-trace-lite automatically handles multi-process workloads (e.g., `torchrun`):
 
 ```bash
-rpd-lite trace -o trace.db torchrun --nproc_per_node=8 my_model.py
+rtl trace -o trace.db torchrun --nproc_per_node=8 my_model.py
 ```
 
 Each process writes to its own trace file (`trace_<PID>.db`), which are

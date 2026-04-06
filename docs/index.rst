@@ -9,7 +9,7 @@ One command to profile, one file to analyze.
 
 .. code-block:: bash
 
-   rpd-lite trace -o trace.db python3 my_model.py
+   rtl trace -o trace.db python3 my_model.py
 
 .. raw:: html
 
@@ -42,10 +42,10 @@ Quick Example
    pip install rocm-trace-lite
 
    # Trace a workload
-   rpd-lite trace -o trace.db python3 my_model.py
+   rtl trace -o trace.db python3 my_model.py
 
    # View top kernels
-   rpd-lite summary trace.db
+   rtl summary trace.db
 
    # Open in Perfetto
    # trace.json.gz is auto-generated, open at https://ui.perfetto.dev

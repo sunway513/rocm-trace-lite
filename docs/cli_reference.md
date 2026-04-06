@@ -1,13 +1,13 @@
 # CLI Reference
 
-rocm-trace-lite provides the `rpd-lite` (or `rtl`) command-line tool.
+rocm-trace-lite provides the `rtl` (or `rtl`) command-line tool.
 
-## rpd-lite trace
+## rtl trace
 
 Trace a GPU workload and generate profiling output.
 
 ```bash
-rpd-lite trace [-o OUTPUT] COMMAND [ARGS...]
+rtl trace [-o OUTPUT] COMMAND [ARGS...]
 ```
 
 **Options:**
@@ -28,21 +28,21 @@ rpd-lite trace [-o OUTPUT] COMMAND [ARGS...]
 
 ```bash
 # Basic tracing
-rpd-lite trace -o trace.db python3 my_model.py
+rtl trace -o trace.db python3 my_model.py
 
 # Multi-GPU with torchrun
-rpd-lite trace -o trace.db torchrun --nproc_per_node=4 train.py
+rtl trace -o trace.db torchrun --nproc_per_node=4 train.py
 
 # Trace a shell command
-rpd-lite trace -o trace.db -- ./my_hip_app --batch-size 32
+rtl trace -o trace.db -- ./my_hip_app --batch-size 32
 ```
 
-## rpd-lite summary
+## rtl summary
 
 Print top kernels and GPU utilization from a trace.
 
 ```bash
-rpd-lite summary [-n LIMIT] INPUT
+rtl summary [-n LIMIT] INPUT
 ```
 
 **Options:**
@@ -54,15 +54,15 @@ rpd-lite summary [-n LIMIT] INPUT
 **Example:**
 
 ```bash
-rpd-lite summary -n 10 trace.db
+rtl summary -n 10 trace.db
 ```
 
-## rpd-lite convert
+## rtl convert
 
 Convert an RPD trace to Perfetto/Chrome Trace JSON.
 
 ```bash
-rpd-lite convert [-o OUTPUT] INPUT
+rtl convert [-o OUTPUT] INPUT
 ```
 
 **Options:**
@@ -74,22 +74,22 @@ rpd-lite convert [-o OUTPUT] INPUT
 **Example:**
 
 ```bash
-rpd-lite convert trace.db -o trace.json
+rtl convert trace.db -o trace.json
 # Open trace.json in https://ui.perfetto.dev
 ```
 
-## rpd-lite info
+## rtl info
 
 Show structural information about a trace file.
 
 ```bash
-rpd-lite info INPUT
+rtl info INPUT
 ```
 
 **Example:**
 
 ```bash
-rpd-lite info trace.db
+rtl info trace.db
 ```
 
 ```text

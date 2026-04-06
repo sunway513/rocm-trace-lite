@@ -4,14 +4,14 @@ rocm-trace-lite generates [Perfetto](https://perfetto.dev/)-compatible trace fil
 
 ## Opening traces
 
-1. The `rpd-lite trace` command automatically generates a compressed `trace.json.gz`
+1. The `rtl trace` command automatically generates a compressed `trace.json.gz`
 2. Open [ui.perfetto.dev](https://ui.perfetto.dev) in your browser
 3. Drag and drop the `.json.gz` file (or use Open Trace File)
 
 ## Manual conversion
 
 ```bash
-rpd-lite convert trace.db -o trace.json
+rtl convert trace.db -o trace.json
 ```
 
 ## Trace structure

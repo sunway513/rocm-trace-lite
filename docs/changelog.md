@@ -20,7 +20,7 @@
 - GPU ID preservation across merged traces
 
 ### Packaging
-- Python wheel packaging with `rpd-lite` / `rtl` CLI tools
+- Python wheel packaging with `rtl` / `rtl` CLI tools
 - `pip install rocm-trace-lite` support
 
 ### Testing
