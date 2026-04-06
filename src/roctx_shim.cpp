@@ -64,7 +64,7 @@ uint64_t roctxRangeStartA(const char* message) {
 void roctxRangeStop(uint64_t id) {
     auto it = tls_roctx_ranges.find(id);
     if (it == tls_roctx_ranges.end()) {
-        fprintf(stderr, "rpd_lite: roctxRangeStop: unknown range id %lu\n", id);
+        fprintf(stderr, "rtl: roctxRangeStop: unknown range id %lu\n", id);
         return;
     }
     uint64_t now = tick();
