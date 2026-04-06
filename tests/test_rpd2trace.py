@@ -199,8 +199,8 @@ class TestConverterOutput:
         assert os.path.getsize(out_json) > 0
 
     def test_default_output_name(self, tmp_path):
-        """Default output should be input.rpd -> input.json."""
-        rpd_path = str(tmp_path / "mytrace.rpd")
+        """Default output should be input.db -> input.json."""
+        rpd_path = str(tmp_path / "mytrace.db")
         populate_synthetic_trace(rpd_path, num_kernels=5)
         subprocess.run(
             [sys.executable, RPD2TRACE, rpd_path],

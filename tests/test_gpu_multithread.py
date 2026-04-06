@@ -52,7 +52,7 @@ class TestMultiStreamSingleGPU:
 
     def test_4_streams_no_crash(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = """
 import torch, threading
 def worker(stream, n):
@@ -75,7 +75,7 @@ print("OK")
 
     def test_4_streams_captures_all_kernels(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = """
 import torch, threading
 def worker(stream, n):
@@ -102,7 +102,7 @@ torch.cuda.synchronize()
 
     def test_timing_sanity(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = """
 import torch, threading
 def worker(stream):
@@ -146,7 +146,7 @@ class TestMultiGPU:
             import pytest
             pytest.skip("Need >=2 GPUs")
 
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = """
 import torch, threading
 def worker(gpu, n):
@@ -177,7 +177,7 @@ print("OK")
             import pytest
             pytest.skip("Need >=2 GPUs")
 
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = """
 import torch, threading
 def worker(gpu, n):
@@ -212,7 +212,7 @@ class TestStress:
 
     def test_high_volume_concurrent(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = """
 import torch, threading
 def worker(stream, n):
@@ -240,7 +240,7 @@ torch.cuda.synchronize()
     def test_no_data_loss_under_pressure(self, tmp_path):
         """Verify single completion worker doesn't drop records."""
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         # Known exact count: 4 threads x 100 matmuls = 400 GEMMs
         script = """
 import torch, threading
@@ -279,7 +279,7 @@ class TestCleanShutdown:
     def test_exit_during_active_dispatch(self, tmp_path):
         """Process exits while kernels may still be in-flight."""
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         # Launch many async dispatches and exit immediately without sync
         script = """
 import torch

@@ -12,7 +12,7 @@ Captures GPU kernel dispatch timestamps using only HSA runtime interception (`HS
 | GPU kernel timing | HSA signal profiling | rocprofiler callback |
 | HIP API tracing | — | roctracer callback |
 | roctx markers | Built-in shim | libroctx64 |
-| Output format | SQLite (.rpd) | Same |
+| Output format | SQLite (.db) | Same |
 | Perfetto/Chrome trace | rpd2trace.py | rpd2tracing.py |
 
 ## Quick start
@@ -28,10 +28,10 @@ HSA_TOOLS_LIB=./librpd_lite.so python3 my_model.py
 ./rpd_lite.sh python3 my_model.py
 
 # Query results
-sqlite3 trace.rpd "SELECT * FROM top LIMIT 10;"
+sqlite3 trace.db "SELECT * FROM top LIMIT 10;"
 
 # Convert to Perfetto timeline
-python3 rpd2trace.py trace.rpd trace.json
+python3 rpd2trace.py trace.db trace.json
 # Open trace.json in https://ui.perfetto.dev
 ```
 

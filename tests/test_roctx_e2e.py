@@ -94,7 +94,7 @@ class TestRoctxPushPop:
     def test_roctx_push_pop_captured(self, tmp_path):
         """Push/Pop range around a matmul produces a UserMarker in the trace."""
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = _ROCTX_LOADER + """
 import torch
 roctx.roctxRangePushA(b"matmul_region")
@@ -118,7 +118,7 @@ class TestRoctxMark:
     def test_roctx_mark_captured(self, tmp_path):
         """roctxMarkA produces a zero-duration UserMarker."""
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = _ROCTX_LOADER + """
 import torch
 x = torch.randn(64, 64, device="cuda")
@@ -144,7 +144,7 @@ class TestRoctxNested:
     def test_roctx_nested_ranges(self, tmp_path):
         """Push outer, push inner, matmul, pop, pop — both messages captured."""
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = _ROCTX_LOADER + """
 import torch
 roctx.roctxRangePushA(b"outer")
@@ -168,7 +168,7 @@ class TestRoctxKernelCoexistence:
     def test_roctx_with_kernel_coexistence(self, tmp_path):
         """Both UserMarker and kernel ops should appear in the trace."""
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = _ROCTX_LOADER + """
 import torch
 roctx.roctxRangePushA(b"compute_block")
@@ -210,7 +210,7 @@ class TestRoctxMultithread:
         """4 threads each push a named range + matmul + pop.
         All 4 distinct marker messages must appear in the trace."""
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = _ROCTX_LOADER + """
 import torch, threading
 

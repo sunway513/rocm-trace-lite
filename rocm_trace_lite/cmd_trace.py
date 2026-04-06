@@ -19,7 +19,7 @@ def run_trace(args):
     # After the workload, we merge all per-process files into the final output.
     trace_dir = os.path.dirname(os.path.abspath(output)) or "."
     trace_base = os.path.splitext(os.path.basename(output))[0]
-    per_process_pattern = os.path.join(trace_dir, f"{trace_base}_%p.rpd")
+    per_process_pattern = os.path.join(trace_dir, f"{trace_base}_%p.db")
 
     env = os.environ.copy()
     env["HSA_TOOLS_LIB"] = lib
@@ -27,10 +27,10 @@ def run_trace(args):
 
     # Clean stale per-process files (only those matching our PID pattern)
     import re
-    for f in glob.glob(os.path.join(trace_dir, f"{trace_base}_*.rpd")):
-        # Only remove files matching trace_base_DIGITS.rpd (PID pattern)
+    for f in glob.glob(os.path.join(trace_dir, f"{trace_base}_*.db")):
+        # Only remove files matching trace_base_DIGITS.db (PID pattern)
         basename = os.path.basename(f)
-        if re.match(rf"^{re.escape(trace_base)}_\d+\.rpd$", basename):
+        if re.match(rf"^{re.escape(trace_base)}_\d+\.db$", basename):
             os.remove(f)
     if os.path.exists(output) and os.path.isfile(output):
         os.remove(output)
@@ -38,10 +38,10 @@ def run_trace(args):
     result = subprocess.run(cmd, env=env)
 
     # Collect per-process trace files
-    # Collect per-process files (strict PID pattern: trace_DIGITS.rpd)
+    # Collect per-process files (strict PID pattern: trace_DIGITS.db)
     per_process_files = sorted([
-        f for f in glob.glob(os.path.join(trace_dir, f"{trace_base}_*.rpd"))
-        if re.match(rf"^{re.escape(trace_base)}_\d+\.rpd$", os.path.basename(f))
+        f for f in glob.glob(os.path.join(trace_dir, f"{trace_base}_*.db"))
+        if re.match(rf"^{re.escape(trace_base)}_\d+\.db$", os.path.basename(f))
     ])
 
     if not per_process_files:

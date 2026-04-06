@@ -131,7 +131,7 @@ class TestGraphNoCrash:
 
     def test_graph_20_replays(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = """
 import torch
 x = torch.ones(64, 64, dtype=torch.int32, device="cuda")
@@ -149,7 +149,7 @@ print("ok")
 
     def test_graph_100_gemm_replays(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = """
 import torch
 x = torch.randn(256, 256, device="cuda")
@@ -167,7 +167,7 @@ print("ok")
 
     def test_graph_correctness(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = """
 import torch
 x = torch.ones(64, 64, dtype=torch.int32, device="cuda")
@@ -185,7 +185,7 @@ print("ok")
 
     def test_mixed_eager_and_graph(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = """
 import torch
 x = torch.randn(128, 128, device="cuda")

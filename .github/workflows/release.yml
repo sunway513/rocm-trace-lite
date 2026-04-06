@@ -79,9 +79,9 @@ jobs:
 
           ```bash
           rpd-lite trace python3 my_model.py
-          rpd-lite summary trace.rpd
-          rpd-lite convert trace.rpd -o trace.json
-          rpd-lite info trace.rpd
+          rpd-lite summary trace.db
+          rpd-lite convert trace.db -o trace.json
+          rpd-lite info trace.db
           ```
 
           ## Requirements

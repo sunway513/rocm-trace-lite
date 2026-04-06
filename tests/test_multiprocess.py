@@ -52,9 +52,9 @@ class TestMergeLogic:
         """Merge 2 per-process traces into one."""
         from rocm_trace_lite.cmd_trace import _merge_traces
 
-        f1 = str(tmp_path / "trace_100.rpd")
-        f2 = str(tmp_path / "trace_200.rpd")
-        out = str(tmp_path / "trace.rpd")
+        f1 = str(tmp_path / "trace_100.db")
+        f2 = str(tmp_path / "trace_200.db")
+        out = str(tmp_path / "trace.db")
 
         self._create_trace(f1, gpu_id=0, num_ops=50)
         self._create_trace(f2, gpu_id=1, num_ops=30)
@@ -76,9 +76,9 @@ class TestMergeLogic:
         """Empty per-process files (< 50KB) should be skipped."""
         from rocm_trace_lite.cmd_trace import _merge_traces
 
-        f1 = str(tmp_path / "trace_100.rpd")
-        f2 = str(tmp_path / "trace_200.rpd")  # empty
-        out = str(tmp_path / "trace.rpd")
+        f1 = str(tmp_path / "trace_100.db")
+        f2 = str(tmp_path / "trace_200.db")  # empty
+        out = str(tmp_path / "trace.db")
 
         self._create_trace(f1, gpu_id=0, num_ops=100)
         # Create empty trace
@@ -101,11 +101,11 @@ class TestMergeLogic:
 
         files = []
         for gpu in range(4):
-            f = str(tmp_path / f"trace_{gpu}.rpd")
+            f = str(tmp_path / f"trace_{gpu}.db")
             self._create_trace(f, gpu_id=gpu, num_ops=20)
             files.append(f)
 
-        out = str(tmp_path / "trace.rpd")
+        out = str(tmp_path / "trace.db")
         _merge_traces(files, out)
 
         conn = sqlite3.connect(out)
@@ -117,8 +117,8 @@ class TestMergeLogic:
 
     def test_single_file_no_merge(self, tmp_path):
         """Single per-process file should just be renamed, not merged."""
-        f1 = str(tmp_path / "trace_100.rpd")
-        out = str(tmp_path / "trace.rpd")
+        f1 = str(tmp_path / "trace_100.db")
+        out = str(tmp_path / "trace.db")
         self._create_trace(f1, gpu_id=0, num_ops=10)
 
         # Simulate what cmd_trace does for single file
@@ -135,9 +135,9 @@ class TestMergeLogic:
         """top view should work on merged trace."""
         from rocm_trace_lite.cmd_trace import _merge_traces
 
-        f1 = str(tmp_path / "trace_100.rpd")
-        f2 = str(tmp_path / "trace_200.rpd")
-        out = str(tmp_path / "trace.rpd")
+        f1 = str(tmp_path / "trace_100.db")
+        f2 = str(tmp_path / "trace_200.db")
+        out = str(tmp_path / "trace.db")
 
         self._create_trace(f1, gpu_id=0, num_ops=50)
         self._create_trace(f2, gpu_id=1, num_ops=30)

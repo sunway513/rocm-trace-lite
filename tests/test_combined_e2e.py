@@ -184,7 +184,7 @@ class TestCombinedE2E:
 
         script = tmp_path / "combined.py"
         script.write_text(COMBINED_SCRIPT.format(num_gpus=num_gpus))
-        trace = str(tmp_path / "combined.rpd")
+        trace = str(tmp_path / "combined.db")
 
         rc, stdout, stderr = _run_script(str(script), trace)
         assert rc == 0, f"Combined test crashed:\nstdout: {stdout[-500:]}\nstderr: {stderr[-500:]}"
@@ -196,7 +196,7 @@ class TestCombinedE2E:
         num_gpus = min(_gpu_count(), 4)
         script = tmp_path / "combined.py"
         script.write_text(COMBINED_SCRIPT.format(num_gpus=num_gpus))
-        trace = str(tmp_path / "combined.rpd")
+        trace = str(tmp_path / "combined.db")
 
         rc, _, _ = _run_script(str(script), trace)
         assert rc == 0
@@ -213,7 +213,7 @@ class TestCombinedE2E:
         num_gpus = min(_gpu_count(), 4)
         script = tmp_path / "combined.py"
         script.write_text(COMBINED_SCRIPT.format(num_gpus=num_gpus))
-        trace = str(tmp_path / "combined.rpd")
+        trace = str(tmp_path / "combined.db")
 
         rc, _, _ = _run_script(str(script), trace)
         assert rc == 0
@@ -242,7 +242,7 @@ class TestCombinedE2E:
 
         script = tmp_path / "combined.py"
         script.write_text(COMBINED_SCRIPT.format(num_gpus=num_gpus))
-        trace = str(tmp_path / "combined.rpd")
+        trace = str(tmp_path / "combined.db")
 
         rc, _, _ = _run_script(str(script), trace)
         assert rc == 0
@@ -261,7 +261,7 @@ class TestCombinedE2E:
         num_gpus = min(_gpu_count(), 2)
         script = tmp_path / "combined.py"
         script.write_text(COMBINED_SCRIPT.format(num_gpus=num_gpus))
-        trace = str(tmp_path / "combined.rpd")
+        trace = str(tmp_path / "combined.db")
 
         rc, _, _ = _run_script(str(script), trace)
         assert rc == 0
@@ -291,7 +291,7 @@ class TestCombinedE2E:
         num_gpus = min(_gpu_count(), 2)
         script = tmp_path / "combined.py"
         script.write_text(COMBINED_SCRIPT.format(num_gpus=num_gpus))
-        trace = str(tmp_path / "combined.rpd")
+        trace = str(tmp_path / "combined.db")
 
         rc, _, _ = _run_script(str(script), trace)
         assert rc == 0
@@ -310,7 +310,7 @@ class TestCombinedE2E:
         num_gpus = min(_gpu_count(), 2)
         script = tmp_path / "combined.py"
         script.write_text(COMBINED_SCRIPT.format(num_gpus=num_gpus))
-        trace = str(tmp_path / "combined.rpd")
+        trace = str(tmp_path / "combined.db")
         json_out = str(tmp_path / "combined.json")
 
         rc, _, _ = _run_script(str(script), trace)
