@@ -23,11 +23,21 @@ from rocm_trace_lite.cmd_trace import _generate_summary
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIB_PATH = os.path.join(REPO_ROOT, "librpd_lite.so")
 
-try:
-    import torch
-    HAS_GPU = torch.cuda.is_available()
-except ImportError:
-    HAS_GPU = False
+def _detect_rocm_gpu():
+    """Detect ROCm GPU via /dev/kfd or rocm-smi, independent of torch."""
+    if os.path.exists("/dev/kfd"):
+        return True
+    try:
+        result = subprocess.run(
+            ["rocm-smi", "--showid"], stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, timeout=5
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+HAS_GPU = _detect_rocm_gpu()
 
 gpu = pytest.mark.skipif(not HAS_GPU, reason="No GPU available")
 
