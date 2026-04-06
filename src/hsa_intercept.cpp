@@ -54,7 +54,6 @@ static std::mutex g_agent_mutex;
 struct QueueInfo {
     int device_id;
     uint64_t queue_handle;  // for stable queue identification
-    hsa_queue_t* signal_queue;  // per-queue signal queue for barrier forwarding
 };
 static std::mutex g_queue_mutex;
 static std::unordered_map<uint64_t, QueueInfo> g_queue_map;  // keyed by hsa_queue_t pointer
@@ -133,11 +132,7 @@ static void completion_worker() {
                                           time.start, time.end, dd->correlation_id);
         }
 
-        // Destroy our profiling signal
-        hsa_status_t destroy_status = g_orig_core.hsa_signal_destroy_fn(dd->profiling_signal);
-        if (destroy_status != HSA_STATUS_SUCCESS) {
-            fprintf(stderr, "rpd_lite: warning: signal_destroy failed (status=%d)\n", (int)destroy_status);
-        }
+        // Do NOT destroy the signal — we don't own it (observe-only mode)
         delete dd;
     }
 }
@@ -181,50 +176,8 @@ static hsa_status_t symbol_iterate_cb(hsa_executable_t exec,
     return HSA_STATUS_SUCCESS;
 }
 
-// ---- Signal queue for barrier-based completion forwarding ----
-// Instead of manually decrementing the original completion signal,
-// we submit a barrier packet to a signal queue that depends on our
-// profiling signal and forwards completion to the original signal.
-// This matches the proven rtg_tracer pattern.
-
-static const uint16_t kBarrierHeader =
-    (HSA_PACKET_TYPE_BARRIER_AND << HSA_PACKET_HEADER_TYPE) |
-    (1 << HSA_PACKET_HEADER_BARRIER) |
-    (HSA_FENCE_SCOPE_NONE << HSA_PACKET_HEADER_ACQUIRE_FENCE_SCOPE) |
-    (HSA_FENCE_SCOPE_NONE << HSA_PACKET_HEADER_RELEASE_FENCE_SCOPE);
-
-static const uint16_t kInvalidHeader =
-    (HSA_PACKET_TYPE_INVALID << HSA_PACKET_HEADER_TYPE) |
-    (1 << HSA_PACKET_HEADER_BARRIER) |
-    (HSA_FENCE_SCOPE_NONE << HSA_PACKET_HEADER_ACQUIRE_FENCE_SCOPE) |
-    (HSA_FENCE_SCOPE_NONE << HSA_PACKET_HEADER_RELEASE_FENCE_SCOPE);
-
-static void submit_barrier_to_forward_signal(hsa_queue_t* signal_queue,
-                                              hsa_signal_t dep_signal,
-                                              hsa_signal_t completion_signal) {
-    if (!signal_queue || completion_signal.handle == 0) return;
-
-    const uint32_t queue_mask = signal_queue->size - 1;
-    uint64_t index = g_orig_core.hsa_queue_add_write_index_screlease_fn(signal_queue, 1);
-
-    // Wait if queue is full
-    while ((index - g_orig_core.hsa_queue_load_read_index_scacquire_fn(signal_queue)) >= queue_mask) {
-        sched_yield();
-    }
-
-    hsa_barrier_and_packet_t* barrier =
-        &((hsa_barrier_and_packet_t*)(signal_queue->base_address))[index & queue_mask];
-
-    // Write packet with invalid header first (HSA convention)
-    memset(barrier, 0, sizeof(*barrier));
-    barrier->header = kInvalidHeader;
-    barrier->completion_signal = completion_signal;
-    barrier->dep_signal[0] = dep_signal;
-
-    // Atomically set header to valid barrier (makes packet visible to HW)
-    __atomic_store_n(&barrier->header, kBarrierHeader, __ATOMIC_RELEASE);
-    g_orig_core.hsa_signal_store_relaxed_fn(signal_queue->doorbell_signal, index);
-}
+// Barrier/signal queue code removed — observe-only profiling doesn't need it.
+// We pass packets through unmodified and read timestamps from original signals.
 
 // ---- Queue intercept callback ----
 
@@ -252,6 +205,12 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
         return;
     }
 
+    // No completion signal → can't profile
+    if (pkt->completion_signal.handle == 0) {
+        writer(in_packets, count);
+        return;
+    }
+
     // Look up queue info
     QueueInfo* qi = static_cast<QueueInfo*>(data);
     if (!qi) {
@@ -259,34 +218,19 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
         return;
     }
 
-    // Create a profiling signal
-    hsa_signal_t prof_signal;
-    hsa_status_t status = g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &prof_signal);
-    if (status != HSA_STATUS_SUCCESS) {
-        writer(in_packets, count);
-        return;
-    }
+    // Observe-only profiling: pass packet through UNMODIFIED.
+    // No signal replacement, no barrier packets, no extra queues.
+    // We read GPU timestamps from the original signal after completion.
+    writer(in_packets, count);
 
-    // Build dispatch data for the completion worker
+    // Build dispatch data — use the ORIGINAL signal for timestamp readback
     auto* dd = new DispatchData;
     dd->dispatch_id = g_dispatch_id.fetch_add(1, std::memory_order_relaxed);
     dd->correlation_id = next_correlation_id();
     dd->kernel_object = pkt->kernel_object;
     dd->device_id = qi->device_id;
     dd->queue_id = qi->queue_handle;
-    dd->profiling_signal = prof_signal;
-
-    // Rewrite packet: replace completion signal with our profiling signal
-    hsa_kernel_dispatch_packet_t modified = *pkt;
-    modified.completion_signal = prof_signal;
-
-    // Submit modified packet to GPU
-    writer(&modified, 1);
-
-    // Forward original completion via barrier packet (safe, proven pattern)
-    if (pkt->completion_signal.handle != 0) {
-        submit_barrier_to_forward_signal(qi->signal_queue, prof_signal, pkt->completion_signal);
-    }
+    dd->profiling_signal = pkt->completion_signal;  // observe, don't own
 
     // Enqueue for completion worker (non-blocking)
     {
@@ -297,19 +241,6 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
 }
 
 // ---- HSA API table replacement ----
-
-static hsa_queue_t* create_signal_queue(hsa_agent_t agent) {
-    // Create a small queue dedicated to barrier packets for signal forwarding
-    hsa_queue_t* queue = nullptr;
-    hsa_status_t status = g_orig_core.hsa_queue_create_fn(
-        agent, 128, HSA_QUEUE_TYPE_SINGLE,
-        nullptr, nullptr, UINT32_MAX, UINT32_MAX, &queue);
-    if (status != HSA_STATUS_SUCCESS) {
-        fprintf(stderr, "rpd_lite: warning: failed to create signal queue\n");
-        return nullptr;
-    }
-    return queue;
-}
 
 static hsa_status_t my_hsa_queue_create(
     hsa_agent_t agent, uint32_t size, hsa_queue_type32_t type,
@@ -330,11 +261,10 @@ static hsa_status_t my_hsa_queue_create(
         fprintf(stderr, "rpd_lite: warning: failed to enable profiling on queue (status=%d)\n", (int)prof_status);
     }
 
-    // Build queue info
+    // Build queue info (no extra signal queue — observe-only profiling)
     auto* qi = new QueueInfo;
     qi->device_id = 0;
     qi->queue_handle = (uint64_t)(*queue);
-    qi->signal_queue = create_signal_queue(agent);
 
     {
         std::lock_guard<std::mutex> lock(g_agent_mutex);

@@ -97,36 +97,33 @@ class TestShutdownCoordination:
         )
 
 
-class TestBarrierSignalForwarding:
-    """Verify barrier-based signal forwarding (not manual load+store)."""
+class TestObserveOnlyProfiling:
+    """Verify observe-only profiling — no signal replacement, no extra queues."""
 
-    def test_no_manual_signal_store_for_completion(self):
-        """Should not manually store to original_signal in completion handler."""
+    def test_no_signal_replacement(self):
+        """queue_intercept_cb should NOT create or replace signals."""
         with open(HSA_INTERCEPT) as f:
             content = f.read()
-        # Find completion_worker function
+        match = re.search(r'static void queue_intercept_cb\(.*?\n\}', content, re.DOTALL)
+        assert match
+        body = match.group()
+        assert "hsa_signal_create_fn" not in body, "Still creating profiling signals"
+        assert "modified.completion_signal" not in body, "Still replacing completion signal"
+
+    def test_no_signal_queue(self):
+        """No extra signal queues (expensive HW resource)."""
+        with open(HSA_INTERCEPT) as f:
+            content = f.read()
+        assert "create_signal_queue" not in content
+        assert "signal_queue" not in content or "signal_queue" in "// removed"
+
+    def test_no_signal_destroy_in_worker(self):
+        """Worker must not destroy signals it doesn't own."""
+        with open(HSA_INTERCEPT) as f:
+            content = f.read()
         match = re.search(r'static void completion_worker\(\).*?\n\}', content, re.DOTALL)
-        assert match, "Could not find completion_worker"
-        worker_body = match.group()
-        # Should not contain manual signal store for original signal
-        assert "original_signal" not in worker_body, (
-            "completion_worker accesses original_signal — should be handled by barrier packet"
-        )
-
-    def test_barrier_submit_function_exists(self):
-        """A barrier submission function should exist."""
-        with open(HSA_INTERCEPT) as f:
-            content = f.read()
-        assert "submit_barrier_to_forward_signal" in content or "submit_to_signal_queue" in content, (
-            "No barrier signal forwarding function found"
-        )
-
-    def test_barrier_header_constants(self):
-        """HSA barrier packet header constants should be defined."""
-        with open(HSA_INTERCEPT) as f:
-            content = f.read()
-        assert "kBarrierHeader" in content, "No barrier header constant"
-        assert "HSA_PACKET_TYPE_BARRIER_AND" in content, "Not using barrier-and packet type"
+        assert match
+        assert "signal_destroy" not in match.group()
 
 
 class TestQueueInfoTracking:
