@@ -16,21 +16,12 @@ import sys
 import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LIB_PATH = os.path.join(REPO_ROOT, "librpd_lite.so")
+LIB_PATH = os.path.join(REPO_ROOT, "librtl.so")
 
 
 def _has_gpu():
-    """Check if ROCm GPU is available via /dev/kfd or rocm-smi."""
-    if os.path.exists("/dev/kfd"):
-        return True
-    try:
-        r = subprocess.run(
-            ["rocm-smi", "--showid"], stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, timeout=5,
-        )
-        return r.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+    from conftest import _rocm_gpu_available
+    return _rocm_gpu_available()
 
 
 def _gpu_count():
