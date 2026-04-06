@@ -476,7 +476,7 @@ static void shutdown() {
     if (shutdown_done.exchange(true)) return;  // prevent double shutdown
 
     // Print diagnostic counters
-    fprintf(stderr, "\n=== rpd_lite diagnostic (PID %d) ===\n", getpid());
+    fprintf(stderr, "\n=== rtl diagnostic (PID %d) ===\n", getpid());
     fprintf(stderr, "  intercept calls:     %lu\n", g_total_intercepts.load());
     fprintf(stderr, "  signals injected:    %lu\n", g_injected.load());
     if (g_injected_fallback.load() > 0) {

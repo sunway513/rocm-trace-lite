@@ -49,12 +49,24 @@ torch.cuda.synchronize()
 rtl summary test.db
 ```
 
+### Troubleshooting
+
+If `rtl trace` reports 0 GPU ops, the HSA runtime may not be finding `librtl.so`.
+Try setting `LD_PRELOAD` explicitly:
+
+```bash
+LD_PRELOAD=$(python3 -c "from rocm_trace_lite import get_lib_path; print(get_lib_path())") \
+  rtl trace -o test.db python3 my_model.py
+```
+
+After `make install`, run `sudo ldconfig` to update the linker cache.
+
 ## Build targets
 
 ```bash
 make            # Build librtl.so
 make install    # Install to /usr/local/lib and /usr/local/bin
-make test-cpu   # Run 144 non-GPU unit tests
+make test-cpu   # Run non-GPU unit tests
 make test-gpu   # GPU smoke test (requires ROCm GPU)
 make clean      # Remove build artifacts
 ```

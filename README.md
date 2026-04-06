@@ -66,7 +66,11 @@ rtl trace python3 my_model.py
 Sample output:
 
 ```text
-rpd_lite: lazy init, writing to trace_12345.db
+rtl: loading (HSA runtime v3)
+rtl: lazy init, writing to trace_12345.db
+rtl: found 1 GPU agent(s)
+rtl: signal pool initialized (64 signals)
+rtl: completion worker started
 
 Trace: trace.db (728 GPU ops)
 

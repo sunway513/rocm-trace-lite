@@ -12,7 +12,7 @@ pip install -e .
 ## Running tests
 
 ```bash
-# CPU-only tests (no GPU required, 144 tests)
+# CPU-only tests (no GPU required, 314+ tests)
 cd tests && python3 -m pytest -v
 
 # GPU integration tests (requires ROCm GPU)
