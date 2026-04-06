@@ -16,7 +16,6 @@ This script is both the launcher helper AND the worker entry point.
 When invoked via torchrun, RANK/LOCAL_RANK/WORLD_SIZE are set automatically.
 """
 import os
-import sys
 import time
 
 
@@ -63,7 +62,7 @@ def worker():
     torch.cuda.synchronize()
 
     # Second matmul
-    d = torch.matmul(c, a)
+    _ = torch.matmul(c, a)
     torch.cuda.synchronize()
 
     # Small sleep to let profiler flush
