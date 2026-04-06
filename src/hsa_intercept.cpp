@@ -62,6 +62,9 @@ static std::unordered_map<uint64_t, QueueInfo> g_queue_map;  // keyed by hsa_que
 static std::atomic<uint64_t> g_dispatch_id{0};
 
 // ---- Completion worker ----
+// Forward declarations
+static std::string lookup_kernel_name(uint64_t kernel_object);
+
 // Single thread processes all completed dispatches. Replaces thread-per-dispatch.
 
 struct DispatchData {
