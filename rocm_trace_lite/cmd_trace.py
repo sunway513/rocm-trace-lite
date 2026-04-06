@@ -3,98 +3,6 @@ import os
 import sys
 import subprocess
 import sqlite3
-import ctypes
-
-
-def _preflight_check(lib_path):
-    """Verify the profiler library and its dependencies before tracing.
-
-    Checks:
-      1. librpd_lite.so exists and is loadable
-      2. libhsa-runtime64.so is reachable by the dynamic linker
-      3. libsqlite3.so is reachable
-      4. ROCm path looks sane
-      5. HSA_TOOLS_LIB is not already set (would conflict)
-
-    Returns True if all critical checks pass. Prints warnings to stderr
-    for any issues found.
-    """
-    ok = True
-    warn = lambda msg: print(f"rtl: WARNING: {msg}", file=sys.stderr)
-    info = lambda msg: print(f"rtl: {msg}", file=sys.stderr)
-
-    # 1. Check librpd_lite.so exists
-    if not os.path.isfile(lib_path):
-        warn(f"librpd_lite.so not found at {lib_path}")
-        return False
-
-    # 2. Try dlopen to catch missing dependencies early
-    try:
-        handle = ctypes.CDLL(lib_path)
-        info(f"librpd_lite.so OK ({lib_path})")
-        del handle
-    except OSError as e:
-        err_msg = str(e)
-        warn(f"cannot load librpd_lite.so: {err_msg}")
-        if "libhsa-runtime64" in err_msg:
-            warn("libhsa-runtime64.so not found — ROCm HSA runtime is missing")
-            _suggest_rocm_paths()
-        elif "libsqlite3" in err_msg:
-            warn("libsqlite3.so not found — install with: apt install libsqlite3-dev")
-        ok = False
-
-    # 3. Check ROCm / HSA runtime independently
-    rocm_path = os.environ.get("ROCM_PATH") or os.environ.get("HIP_PATH")
-    search_dirs = ["/opt/rocm/lib", "/opt/rocm/lib64"]
-    if rocm_path:
-        search_dirs.insert(0, os.path.join(rocm_path, "lib"))
-        search_dirs.insert(1, os.path.join(rocm_path, "lib64"))
-
-    hsa_found = False
-    for d in search_dirs:
-        hsa_lib = os.path.join(d, "libhsa-runtime64.so")
-        if os.path.exists(hsa_lib):
-            hsa_found = True
-            info(f"libhsa-runtime64.so OK ({hsa_lib})")
-            # Check if this dir is in the linker path
-            ld_path = os.environ.get("LD_LIBRARY_PATH", "")
-            rpath_dirs = ld_path.split(":") if ld_path else []
-            if d not in rpath_dirs and not os.path.exists(os.path.join("/opt/rocm", "lib")):
-                warn(f"libhsa-runtime64.so found at {d} but it may not be in LD_LIBRARY_PATH")
-                warn(f"  fix: export LD_LIBRARY_PATH={d}:$LD_LIBRARY_PATH")
-            break
-
-    if not hsa_found:
-        warn("libhsa-runtime64.so not found in any standard ROCm path")
-        _suggest_rocm_paths()
-        ok = False
-
-    # 4. Check for conflicting HSA_TOOLS_LIB
-    existing = os.environ.get("HSA_TOOLS_LIB")
-    if existing and existing != lib_path:
-        warn(f"HSA_TOOLS_LIB already set to: {existing}")
-        warn(f"  rtl will override it with: {lib_path}")
-
-    # 5. Check output directory is writable
-    return ok
-
-
-def _suggest_rocm_paths():
-    """Print suggestions for finding ROCm."""
-    warn = lambda msg: print(f"rtl: WARNING: {msg}", file=sys.stderr)
-    # Look for any ROCm installation
-    rocm_candidates = []
-    for d in ["/opt/rocm", "/opt/rocm/lib", "/usr/lib/x86_64-linux-gnu"]:
-        if os.path.isdir(d):
-            hsa = os.path.join(d, "libhsa-runtime64.so")
-            if os.path.exists(hsa):
-                rocm_candidates.append(d)
-    if rocm_candidates:
-        warn(f"  found ROCm libs at: {', '.join(rocm_candidates)}")
-        warn(f"  fix: export LD_LIBRARY_PATH={rocm_candidates[0]}:$LD_LIBRARY_PATH")
-    else:
-        warn("  ROCm does not appear to be installed")
-        warn("  install ROCm or set ROCM_PATH/LD_LIBRARY_PATH to your ROCm installation")
 
 
 def run_trace(args):
@@ -105,11 +13,6 @@ def run_trace(args):
 
     from rocm_trace_lite import get_lib_path
     lib = get_lib_path()
-
-    # Preflight: verify lib loads and dependencies are present
-    if not _preflight_check(lib):
-        print("rtl: preflight check failed — tracing may not work", file=sys.stderr)
-
     output = args.output
 
     # Multi-process safety: use %p pattern so each process writes its own file.

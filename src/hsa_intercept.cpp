@@ -245,40 +245,45 @@ static hsa_status_t symbol_iterate_cb(hsa_executable_t exec,
         name.resize(name.size() - 3);
     }
 
-    // Demangle C++ symbol names for readability
-    int demangle_status = 0;
-    char* demangled = abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &demangle_status);
-    if (demangle_status == 0 && demangled) {
-        // Extract readable short name from demangled C++ symbol.
-        // "void ns::func<T>(args)" -> "ns::func<T>"
-        std::string full(demangled);
-        free(demangled);
+    // Demangle C++ mangled symbols (start with "_Z") for readability.
+    // Non-C++ names (Tensile Cijk, Triton, rocclr) pass through unchanged.
+    if (name.size() >= 2 && name[0] == '_' && name[1] == 'Z') {
+        int demangle_status = 0;
+        char* demangled = abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &demangle_status);
+        if (demangle_status == 0 && demangled) {
+            // Extract readable short name from demangled C++ symbol.
+            // "void ns::func<T>(args)" -> "ns::func<T>"
+            std::string full(demangled);
+            free(demangled);
 
-        // Skip leading return type ("void ", "int ", etc.)
-        size_t start = 0;
-        auto first_colon = full.find("::");
-        auto first_space = full.find(' ');
-        if (first_space != std::string::npos && first_colon != std::string::npos
-            && first_space < first_colon) {
-            start = first_space + 1;
-        }
-
-        // Find the parameter list '(' — but skip "(anonymous namespace)"
-        size_t end = std::string::npos;
-        size_t pos = start;
-        while (pos < full.size()) {
-            pos = full.find('(', pos);
-            if (pos == std::string::npos) break;
-            if (full.compare(pos, 21, "(anonymous namespace)") == 0) {
-                pos += 21;  // skip it
-                continue;
+            // Skip leading return type ("void ", "int ", etc.)
+            size_t start = 0;
+            auto first_colon = full.find("::");
+            auto first_space = full.find(' ');
+            if (first_space != std::string::npos && first_colon != std::string::npos
+                && first_space < first_colon) {
+                start = first_space + 1;
             }
-            end = pos;
-            break;
-        }
-        if (end == std::string::npos) end = full.size();
 
-        name = full.substr(start, end - start);
+            // Find the parameter list '(' — but skip "(anonymous namespace)"
+            static constexpr const char* ANON_NS = "(anonymous namespace)";
+            static constexpr size_t ANON_NS_LEN = 21;  // strlen("(anonymous namespace)")
+            size_t end = std::string::npos;
+            size_t pos = start;
+            while (pos < full.size()) {
+                pos = full.find('(', pos);
+                if (pos == std::string::npos) break;
+                if (full.compare(pos, ANON_NS_LEN, ANON_NS) == 0) {
+                    pos += ANON_NS_LEN;
+                    continue;
+                }
+                end = pos;
+                break;
+            }
+            if (end == std::string::npos) end = full.size();
+
+            name = full.substr(start, end - start);
+        }
     }
 
     std::lock_guard<std::mutex> lock(g_symbol_mutex);
