@@ -20,18 +20,18 @@ jobs:
           python3 -m venv /tmp/build-venv
           /tmp/build-venv/bin/pip install build wheel setuptools
 
-      - name: Build librpd_lite.so
+      - name: Build librtl.so
         run: make -j$(nproc)
 
       - name: Verify no forbidden deps
         run: |
-          ldd librpd_lite.so
-          ldd librpd_lite.so | grep -E "roctracer|rocprofiler-sdk|libroctx64" && exit 1 || echo "Clean"
+          ldd librtl.so
+          ldd librtl.so | grep -E "roctracer|rocprofiler-sdk|libroctx64" && exit 1 || echo "Clean"
 
       - name: Stage .so into package
         run: |
           mkdir -p rocm_trace_lite/lib
-          cp librpd_lite.so rocm_trace_lite/lib/
+          cp librtl.so rocm_trace_lite/lib/
 
       - name: Build wheel
         run: /tmp/build-venv/bin/python -m build --wheel --no-isolation

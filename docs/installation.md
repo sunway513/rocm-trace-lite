@@ -6,7 +6,7 @@
 pip install rocm-trace-lite
 ```
 
-The pip package includes the pre-built `librpd_lite.so` and CLI tools.
+The pip package includes the pre-built `librtl.so` and CLI tools.
 
 ## From source
 
@@ -33,7 +33,7 @@ pip install -e .
 
 ```bash
 # Check the library has no forbidden dependencies
-ldd librpd_lite.so | grep -E "roctracer|rocprofiler"
+ldd librtl.so | grep -E "roctracer|rocprofiler"
 # Should produce no output (clean dependency chain)
 
 # Quick smoke test (requires GPU)
@@ -49,7 +49,7 @@ rtl summary test.db
 ## Build targets
 
 ```bash
-make            # Build librpd_lite.so
+make            # Build librtl.so
 make install    # Install to /usr/local/lib and /usr/local/bin
 make test-cpu   # Run 144 non-GPU unit tests
 make test-gpu   # GPU smoke test (requires ROCm GPU)

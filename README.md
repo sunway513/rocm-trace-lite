@@ -49,7 +49,7 @@ rtl trace python3 my_model.py
 make -j
 
 # Install system-wide
-make install    # copies librpd_lite.so to /usr/local/lib, scripts to /usr/local/bin
+make install    # copies librtl.so to /usr/local/lib, scripts to /usr/local/bin
 ```
 
 Requirements:

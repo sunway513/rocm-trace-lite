@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LIB_PATH = os.path.join(REPO_ROOT, "librpd_lite.so")
+LIB_PATH = os.path.join(REPO_ROOT, "librtl.so")
 
 
 def _has_gpu():
@@ -26,7 +26,7 @@ def _has_gpu():
 def _skip_if_no_gpu():
     if not _has_gpu() or not os.path.exists(LIB_PATH):
         import pytest
-        pytest.skip("No GPU or librpd_lite.so not built")
+        pytest.skip("No GPU or librtl.so not built")
 
 
 def _gpu_count():
@@ -59,7 +59,7 @@ import threading
 import torch
 
 # Load roctx shim
-lib_path = os.environ.get("HSA_TOOLS_LIB", "librpd_lite.so")
+lib_path = os.environ.get("HSA_TOOLS_LIB", "librtl.so")
 try:
     roctx = ctypes.CDLL(lib_path)
     roctx.roctxRangePushA.argtypes = [ctypes.c_char_p]

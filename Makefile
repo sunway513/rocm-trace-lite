@@ -19,7 +19,7 @@ LDFLAGS = -shared -rdynamic \
 SRCDIR = src
 SRCS = rpd_lite.cpp hip_intercept.cpp roctx_shim.cpp hsa_intercept.cpp
 OBJS = $(addprefix $(SRCDIR)/,$(SRCS:.cpp=.o))
-TARGET = librpd_lite.so
+TARGET = librtl.so
 
 .PHONY: all clean install test test-cpu test-gpu
 

@@ -5,7 +5,7 @@
 ### What it IS
 - A **single .so library** that captures GPU kernel execution traces on ROCm
 - Self-contained: depends only on HSA runtime + SQLite (no roctracer, no rocprofiler-sdk)
-- Drop-in profiler: `HSA_TOOLS_LIB=librpd_lite.so python my_workload.py`
+- Drop-in profiler: `HSA_TOOLS_LIB=librtl.so python my_workload.py`
 - Outputs standard RPD SQLite format, compatible with existing RPD ecosystem tools
 - Includes Perfetto/Chrome trace converter
 
@@ -74,7 +74,7 @@ rocm-trace-lite/
 - Makefile targets:
 
 ```makefile
-all:            # build librpd_lite.so
+all:            # build librtl.so
 install:        # copy .so to PREFIX/lib, tools to PREFIX/bin
 clean:          # remove build artifacts
 test-cpu:       # run non-GPU pytest suite

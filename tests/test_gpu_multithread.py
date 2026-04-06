@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LIB_PATH = os.path.join(REPO_ROOT, "librpd_lite.so")
+LIB_PATH = os.path.join(REPO_ROOT, "librtl.so")
 
 
 def _has_gpu():
@@ -44,7 +44,7 @@ def _run_traced(script, trace_path, timeout=120):
 def _skip_if_no_gpu():
     if not _has_gpu() or not _has_lib():
         import pytest
-        pytest.skip("No GPU or librpd_lite.so not built")
+        pytest.skip("No GPU or librtl.so not built")
 
 
 class TestMultiStreamSingleGPU:

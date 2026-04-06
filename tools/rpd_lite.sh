@@ -9,15 +9,15 @@
 #   rpd_lite.sh -o model_trace.db python -m atom.serve ...
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB="${SCRIPT_DIR}/librpd_lite.so"
+LIB="${SCRIPT_DIR}/librtl.so"
 
 if [ ! -f "$LIB" ]; then
     # Try installed location
-    LIB="/usr/local/lib/librpd_lite.so"
+    LIB="/usr/local/lib/librtl.so"
 fi
 
 if [ ! -f "$LIB" ]; then
-    echo "Error: librpd_lite.so not found" >&2
+    echo "Error: librtl.so not found" >&2
     exit 1
 fi
 

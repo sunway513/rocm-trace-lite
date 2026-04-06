@@ -11,7 +11,7 @@ Application (PyTorch, Triton, HIP, etc.)
 HIP Runtime
     │
     ▼
-HSA Runtime ◄── HSA_TOOLS_LIB=librpd_lite.so
+HSA Runtime ◄── HSA_TOOLS_LIB=librtl.so
     │               │
     │               ├── OnLoad(): replace API table entries
     │               ├── my_hsa_queue_create(): intercept queue creation

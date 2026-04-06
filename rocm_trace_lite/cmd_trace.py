@@ -9,8 +9,8 @@ def _preflight_check(lib_path):
     """Advisory check: verify the profiler library and its dependencies.
 
     Checks (all advisory — prints warnings but never blocks tracing):
-      1. librpd_lite.so exists
-      2. librpd_lite.so dependencies are resolvable (advisory ldd check)
+      1. librtl.so exists
+      2. librtl.so dependencies are resolvable (advisory ldd check)
       3. libhsa-runtime64.so is findable on disk
       4. HSA_TOOLS_LIB is not already set to a conflicting value
 
@@ -24,12 +24,12 @@ def _preflight_check(lib_path):
     def info(msg):
         print("rtl: {}".format(msg), file=sys.stderr)
 
-    # 1. Check librpd_lite.so exists
+    # 1. Check librtl.so exists
     if not os.path.isfile(lib_path):
-        warn("librpd_lite.so not found at {}".format(lib_path))
+        warn("librtl.so not found at {}".format(lib_path))
         return False
 
-    info("librpd_lite.so OK ({})".format(lib_path))
+    info("librtl.so OK ({})".format(lib_path))
 
     # 2. Advisory dependency check via ldd (avoids loading the library into
     #    this Python process, which would run .so constructors / HSA OnLoad)
@@ -159,7 +159,7 @@ def run_trace(args):
         print("rtl: Possible causes:", file=sys.stderr)
         print("rtl:   - HSA_TOOLS_LIB was not inherited by GPU worker subprocess", file=sys.stderr)
         print("rtl:   - The workload didn't run any GPU kernels", file=sys.stderr)
-        print("rtl:   - librpd_lite.so failed to load (check warnings above)", file=sys.stderr)
+        print("rtl:   - librtl.so failed to load (check warnings above)", file=sys.stderr)
         print("rtl: Try: export HSA_TOOLS_LIB=$(python3 -c 'from rocm_trace_lite import get_lib_path; print(get_lib_path())')", file=sys.stderr)
         print("rtl:      export RPD_LITE_OUTPUT=trace_%p.db", file=sys.stderr)
         print("rtl:      <your command>", file=sys.stderr)
