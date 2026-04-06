@@ -235,6 +235,7 @@ static hsa_status_t symbol_iterate_cb(hsa_executable_t exec,
     uint32_t name_len;
     if (hsa_executable_symbol_get_info(symbol, HSA_EXECUTABLE_SYMBOL_INFO_NAME_LENGTH, &name_len) != HSA_STATUS_SUCCESS)
         return HSA_STATUS_SUCCESS;
+    if (name_len == 0) return HSA_STATUS_SUCCESS;
 
     std::string name(name_len, '\0');
     if (hsa_executable_symbol_get_info(symbol, HSA_EXECUTABLE_SYMBOL_INFO_NAME, &name[0]) != HSA_STATUS_SUCCESS)
@@ -407,7 +408,7 @@ static hsa_status_t my_hsa_queue_create(
     // Enable profiling on this queue
     hsa_status_t prof_status = g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(*queue, true);
     if (prof_status != HSA_STATUS_SUCCESS) {
-        fprintf(stderr, "rpd_lite: warning: failed to enable profiling on queue (status=%d)\n", (int)prof_status);
+        fprintf(stderr, "rtl: warning: failed to enable profiling on queue (status=%d)\n", (int)prof_status);
     }
 
     // Build queue info
@@ -524,7 +525,7 @@ extern "C" bool OnLoad(void* pTable,
                         uint64_t runtimeVersion,
                         uint64_t failedToolCount,
                         const char* const* pFailedToolNames) {
-    fprintf(stderr, "rpd_lite: loading (HSA runtime v%lu)\n", runtimeVersion);
+    fprintf(stderr, "rtl: loading (HSA runtime v%lu)\n", runtimeVersion);
 
     using namespace hsa_intercept;
 
@@ -543,7 +544,7 @@ extern "C" bool OnLoad(void* pTable,
 
     // Discover GPU agents (immutable after this point)
     hsa_iterate_agents(agent_iterate_cb, nullptr);
-    fprintf(stderr, "rpd_lite: found %zu GPU agent(s)\n", g_gpu_agents.size());
+    fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
     // Pre-allocate signal pool
     g_signal_pool.reserve(256);
@@ -553,11 +554,11 @@ extern "C" bool OnLoad(void* pTable,
             g_signal_pool.push_back(sig);
         }
     }
-    fprintf(stderr, "rpd_lite: signal pool initialized (%zu signals)\n", g_signal_pool.size());
+    fprintf(stderr, "rtl: signal pool initialized (%zu signals)\n", g_signal_pool.size());
 
     // Start completion worker thread
     g_worker = std::thread(completion_worker);
-    fprintf(stderr, "rpd_lite: completion worker started\n");
+    fprintf(stderr, "rtl: completion worker started\n");
 
     std::atexit(shutdown);
 
@@ -565,6 +566,6 @@ extern "C" bool OnLoad(void* pTable,
 }
 
 extern "C" void OnUnload() {
-    fprintf(stderr, "rpd_lite: unloading\n");
+    fprintf(stderr, "rtl: unloading\n");
     hsa_intercept::shutdown();
 }
