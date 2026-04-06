@@ -58,8 +58,30 @@ def run_trace(args):
         for f in per_process_files:
             os.remove(f)
 
-    # Print summary
-    _print_summary(output)
+    # Generate all output artifacts from one command
+    base = os.path.splitext(output)[0]
+    summary_file = base + "_summary.txt"
+    json_file = base + ".json.gz"
+
+    # 1. Summary → terminal + .txt file
+    summary_text = _generate_summary(output)
+    if summary_text:
+        print(summary_text)
+        with open(summary_file, "w") as f:
+            f.write(summary_text)
+
+    # 2. Perfetto JSON → compressed .json.gz
+    _generate_perfetto(output, json_file)
+
+    # 3. Print output locations
+    print("\nOutput files:")
+    print(f"  {output}")
+    if os.path.exists(summary_file):
+        print(f"  {summary_file}")
+    if os.path.exists(json_file):
+        size_mb = os.path.getsize(json_file) / 1024 / 1024
+        print(f"  {json_file} ({size_mb:.1f} MB → open in https://ui.perfetto.dev)")
+
     sys.exit(result.returncode)
 
 
@@ -120,24 +142,67 @@ def _merge_traces(input_files, output_path):
         print(f"Merged {len(input_files)} process traces ({merged_ops} additional ops)", file=sys.stderr)
 
 
-def _print_summary(output):
-    """Print trace summary after workload completes."""
-    if not os.path.exists(output):
-        return
+def _generate_summary(db_path):
+    """Generate summary text from trace database."""
+    if not os.path.exists(db_path):
+        return None
     try:
-        conn = sqlite3.connect(output)
+        conn = sqlite3.connect(db_path)
         ops = conn.execute("SELECT count(*) FROM rocpd_op").fetchone()[0]
-        print(f"\nTrace: {output} ({ops} GPU ops)")
+        lines = [f"Trace: {db_path} ({ops} GPU ops)", ""]
+
+        # Top kernels
         try:
-            rows = conn.execute("SELECT * FROM top LIMIT 5").fetchall()
+            rows = conn.execute("SELECT * FROM top LIMIT 20").fetchall()
         except sqlite3.OperationalError:
             rows = []
         if rows:
-            print(f"{'Kernel':<60} {'Calls':>6} {'Total(us)':>10} {'Avg(us)':>8} {'%':>6}")
-            print("-" * 96)
+            lines.append(f"{'Kernel':<60} {'Calls':>6} {'Total(us)':>10} {'Avg(us)':>8} {'%':>6}")
+            lines.append("=" * 96)
             for r in rows:
                 name = r[0][:57] + "..." if len(r[0]) > 60 else r[0]
-                print(f"{name:<60} {r[1]:>6} {r[2]/1000:>10.1f} {r[3]/1000:>8.1f} {r[6]:>6.1f}")
+                total_us = r[2] / 1000 if r[2] else 0
+                avg_us = r[3] / 1000 if r[3] else 0
+                pct = r[6] if r[6] else 0
+                lines.append(f"{name:<60} {r[1]:>6} {total_us:>10.1f} {avg_us:>8.1f} {pct:>6.1f}")
+
+        # GPU utilization
+        try:
+            busy = conn.execute("SELECT * FROM busy").fetchall()
+        except sqlite3.OperationalError:
+            busy = []
+        if busy:
+            lines.append("")
+            lines.append("GPU Utilization:")
+            for row in busy:
+                lines.append(f"  GPU {row[0]}: {row[1]}% ({row[2]} ops, {row[3]/1e6:.1f}ms busy, {row[4]/1e6:.1f}ms wall)")
+
         conn.close()
+        return "\n".join(lines)
     except Exception as e:
-        print(f"Warning: could not read trace: {e}", file=sys.stderr)
+        return f"Warning: could not read trace: {e}"
+
+
+def _generate_perfetto(db_path, json_gz_path):
+    """Convert trace to compressed Perfetto JSON."""
+    if not os.path.exists(db_path):
+        return
+    try:
+        from rocm_trace_lite.cmd_convert import convert
+        import gzip
+        import tempfile
+
+        # Convert to temp JSON first
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            tmp_json = tmp.name
+
+        convert(db_path, tmp_json)
+
+        # Compress to .json.gz
+        with open(tmp_json, "rb") as f_in:
+            with gzip.open(json_gz_path, "wb") as f_out:
+                f_out.write(f_in.read())
+
+        os.unlink(tmp_json)
+    except Exception as e:
+        print(f"Warning: could not generate Perfetto trace: {e}", file=sys.stderr)
