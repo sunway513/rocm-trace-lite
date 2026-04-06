@@ -17,8 +17,8 @@ def run_trace(args):
     env["HSA_TOOLS_LIB"] = lib
     env["RPD_LITE_OUTPUT"] = output
 
-    # Remove stale trace
-    if os.path.exists(output):
+    # Remove stale trace (only regular files)
+    if os.path.exists(output) and os.path.isfile(output):
         os.remove(output)
 
     result = subprocess.run(args.cmd, env=env)

@@ -182,4 +182,8 @@ def run_convert(args):
         print(f"Error: {input_rpd} not found", file=sys.stderr)
         sys.exit(1)
 
-    convert(input_rpd, output_json)
+    try:
+        convert(input_rpd, output_json)
+    except Exception as e:
+        print(f"Error: conversion failed: {e}", file=sys.stderr)
+        sys.exit(1)
