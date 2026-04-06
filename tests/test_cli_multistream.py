@@ -76,7 +76,7 @@ class TestRtl4StreamsSingleGPU:
 
     def test_rtl_4_streams_single_gpu(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = _write_script(tmp_path, "workload.py", """\
             import torch, threading
 
@@ -110,7 +110,7 @@ class TestRtlMultiGPU:
 
     def test_rtl_multi_gpu(self, tmp_path):
         _skip_if_less_than_2_gpus()
-        trace = str(tmp_path / "multi_gpu.rpd")
+        trace = str(tmp_path / "multi_gpu.db")
         script = _write_script(tmp_path, "workload.py", """\
             import torch, threading
 
@@ -148,7 +148,7 @@ class TestRtlGraphPlusStreams:
 
     def test_rtl_graph_plus_streams(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = _write_script(tmp_path, "workload.py", """\
             import torch
 
@@ -198,7 +198,7 @@ class TestRtlSummaryOnMultistream:
 
     def test_rtl_summary_on_multistream(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         script = _write_script(tmp_path, "workload.py", """\
             import torch, threading
 
@@ -240,7 +240,7 @@ class TestRtlConvertMultistream:
 
     def test_rtl_convert_multistream(self, tmp_path):
         _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.rpd")
+        trace = str(tmp_path / "trace.db")
         json_out = str(tmp_path / "trace.json")
         script = _write_script(tmp_path, "workload.py", """\
             import torch, threading

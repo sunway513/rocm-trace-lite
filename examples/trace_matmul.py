@@ -9,8 +9,8 @@ Usage:
     HSA_TOOLS_LIB=./librpd_lite.so python3 examples/trace_matmul.py
 
     # View results
-    sqlite3 trace.rpd "SELECT * FROM top;"
-    python3 tools/rpd2trace.py trace.rpd trace.json  # open in Perfetto
+    sqlite3 trace.db "SELECT * FROM top;"
+    python3 tools/rpd2trace.py trace.db trace.json  # open in Perfetto
 """
 import torch
 
@@ -32,7 +32,7 @@ def main():
         torch.cuda.synchronize()
         print(f"  {n}x{n} matmul done")
 
-    print("Done. Check trace.rpd for results.")
+    print("Done. Check trace.db for results.")
 
 
 if __name__ == "__main__":

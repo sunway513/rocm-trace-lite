@@ -14,22 +14,22 @@ def main():
 
     # trace
     trace_p = sub.add_parser("trace", help="Trace a workload")
-    trace_p.add_argument("-o", "--output", default="trace.rpd", help="Output trace file (default: trace.rpd)")
+    trace_p.add_argument("-o", "--output", default="trace.db", help="Output trace file (default: trace.db)")
     trace_p.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to trace")
 
     # convert
     conv_p = sub.add_parser("convert", help="Convert RPD trace to Perfetto JSON")
-    conv_p.add_argument("input", help="Input .rpd file")
+    conv_p.add_argument("input", help="Input .db file")
     conv_p.add_argument("-o", "--output", default=None, help="Output .json file (default: input with .json extension)")
 
     # summary
     sum_p = sub.add_parser("summary", help="Show top kernels from trace")
-    sum_p.add_argument("input", help="Input .rpd file")
+    sum_p.add_argument("input", help="Input .db file")
     sum_p.add_argument("-n", "--limit", type=int, default=20, help="Number of rows (default: 20)")
 
     # info
     info_p = sub.add_parser("info", help="Show trace metadata")
-    info_p.add_argument("input", help="Input .rpd file")
+    info_p.add_argument("input", help="Input .db file")
 
     args = parser.parse_args()
     if not args.command:

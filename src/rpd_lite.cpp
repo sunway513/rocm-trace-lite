@@ -39,7 +39,12 @@ static bool g_db_ready = false;
 
 static void lazy_init_db() {
     const char* env_file = getenv("RPD_LITE_OUTPUT");
-    std::string filename = env_file ? env_file : "trace.rpd";
+    std::string filename = env_file ? env_file : "trace.db";
+    // Per-process trace file: replace %p with PID for multi-process safety
+    auto pos = filename.find("%p");
+    if (pos != std::string::npos) {
+        filename.replace(pos, 2, std::to_string(getpid()));
+    }
     if (g_db.open(filename)) {
         g_db_ready = true;
         fprintf(stderr, "rpd_lite: lazy init, writing to %s\n", filename.c_str());

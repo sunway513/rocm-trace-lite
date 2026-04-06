@@ -86,7 +86,7 @@ class TestSummaryCommand:
     """summary subcommand with synthetic data."""
 
     def test_summary_basic(self, tmp_path):
-        rpd = str(tmp_path / "test.rpd")
+        rpd = str(tmp_path / "test.db")
         populate_synthetic_trace(rpd, num_kernels=50, num_gpus=2)
         rc, out, _ = _run_cli("summary", rpd)
         assert rc == 0
@@ -95,7 +95,7 @@ class TestSummaryCommand:
         assert "Cijk_GEMM" in out
 
     def test_summary_limit(self, tmp_path):
-        rpd = str(tmp_path / "test.rpd")
+        rpd = str(tmp_path / "test.db")
         populate_synthetic_trace(rpd, num_kernels=100)
         rc, out, _ = _run_cli("summary", rpd, "-n", "3")
         assert rc == 0
@@ -104,11 +104,11 @@ class TestSummaryCommand:
         assert len(lines) <= 5  # max 3 kernel rows + possible utilization
 
     def test_summary_missing_file(self):
-        rc, _, err = _run_cli("summary", "/tmp/nonexistent.rpd")
+        rc, _, err = _run_cli("summary", "/tmp/nonexistent.db")
         assert rc != 0
 
     def test_summary_gpu_utilization(self, tmp_path):
-        rpd = str(tmp_path / "test.rpd")
+        rpd = str(tmp_path / "test.db")
         populate_synthetic_trace(rpd, num_kernels=50, num_gpus=2)
         rc, out, _ = _run_cli("summary", rpd)
         assert rc == 0
@@ -120,7 +120,7 @@ class TestInfoCommand:
     """info subcommand."""
 
     def test_info_basic(self, tmp_path):
-        rpd = str(tmp_path / "test.rpd")
+        rpd = str(tmp_path / "test.db")
         populate_synthetic_trace(rpd, num_kernels=20)
         rc, out, _ = _run_cli("info", rpd)
         assert rc == 0
@@ -129,7 +129,7 @@ class TestInfoCommand:
         assert "Tables:" in out
 
     def test_info_missing_file(self):
-        rc, _, err = _run_cli("info", "/tmp/nonexistent.rpd")
+        rc, _, err = _run_cli("info", "/tmp/nonexistent.db")
         assert rc != 0
 
 
@@ -137,7 +137,7 @@ class TestConvertCommand:
     """convert subcommand."""
 
     def test_convert_basic(self, tmp_path):
-        rpd = str(tmp_path / "test.rpd")
+        rpd = str(tmp_path / "test.db")
         json_out = str(tmp_path / "test.json")
         populate_synthetic_trace(rpd, num_kernels=10)
         rc, out, _ = _run_cli("convert", rpd, "-o", json_out)
@@ -146,7 +146,7 @@ class TestConvertCommand:
         assert os.path.getsize(json_out) > 0
 
     def test_convert_default_output(self, tmp_path):
-        rpd = str(tmp_path / "test.rpd")
+        rpd = str(tmp_path / "test.db")
         populate_synthetic_trace(rpd, num_kernels=5)
         rc, _, _ = _run_cli("convert", rpd)
         assert rc == 0
@@ -154,7 +154,7 @@ class TestConvertCommand:
         assert os.path.exists(json_path)
 
     def test_convert_missing_file(self):
-        rc, _, _ = _run_cli("convert", "/tmp/nonexistent.rpd")
+        rc, _, _ = _run_cli("convert", "/tmp/nonexistent.db")
         assert rc != 0
 
 

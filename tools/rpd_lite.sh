@@ -2,11 +2,11 @@
 # rpd_lite.sh — Launch a command with rpd_lite profiling enabled
 #
 # Usage: rpd_lite.sh [options] command [args...]
-#   -o FILE   Output trace file (default: trace.rpd)
+#   -o FILE   Output trace file (default: trace.db)
 #
 # Example:
 #   rpd_lite.sh python my_model.py
-#   rpd_lite.sh -o model_trace.rpd python -m atom.serve ...
+#   rpd_lite.sh -o model_trace.db python -m atom.serve ...
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="${SCRIPT_DIR}/librpd_lite.so"
@@ -21,18 +21,18 @@ if [ ! -f "$LIB" ]; then
     exit 1
 fi
 
-OUTPUT="trace.rpd"
+OUTPUT="trace.db"
 
 while getopts "o:" opt; do
     case $opt in
         o) OUTPUT="$OPTARG" ;;
-        *) echo "Usage: $0 [-o output.rpd] command [args...]" >&2; exit 1 ;;
+        *) echo "Usage: $0 [-o output.db] command [args...]" >&2; exit 1 ;;
     esac
 done
 shift $((OPTIND-1))
 
 if [ $# -eq 0 ]; then
-    echo "Usage: $0 [-o output.rpd] command [args...]" >&2
+    echo "Usage: $0 [-o output.db] command [args...]" >&2
     exit 1
 fi
 

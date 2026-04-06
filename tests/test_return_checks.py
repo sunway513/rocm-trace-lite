@@ -38,16 +38,13 @@ class TestHSAReturnChecks:
         assert "HSA_STATUS_SUCCESS" in context or "prof_status" in context, \
             "profiling_set_profiler_enabled return not checked"
 
-    def test_signal_destroy_checked(self):
+    def test_no_signal_destroy_in_observe_mode(self):
+        """Observe-only mode: worker should not destroy signals."""
         src = self._get_hsa_source()
-        match = re.search(
-            r'(hsa_signal_destroy_fn.*?;.*?\n.*?\n.*?\n)',
-            src, re.DOTALL
-        )
+        match = re.search(r'static void completion_worker\(\).*?\n\}', src, re.DOTALL)
         assert match
-        context = match.group()
-        assert "status" in context.lower(), \
-            "signal_destroy return not checked"
+        assert "signal_destroy" not in match.group(), \
+            "Worker should not destroy signals in observe-only mode"
 
     def test_signal_wait_result_checked(self):
         src = self._get_hsa_source()

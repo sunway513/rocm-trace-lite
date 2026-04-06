@@ -6,7 +6,7 @@ Works with rpd_lite output (GPU ops only, no HIP API rows).
 Also works with full RPD traces.
 
 Usage:
-    python3 rpd2trace.py trace.rpd [output.json]
+    python3 rpd2trace.py trace.db [output.json]
     # Then open in chrome://tracing or https://ui.perfetto.dev
 """
 
@@ -183,9 +183,9 @@ def convert(input_rpd, output_json):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: rpd2trace.py input.rpd [output.json]")
+        print("Usage: rpd2trace.py input.db [output.json]")
         sys.exit(1)
 
     input_rpd = sys.argv[1]
-    output_json = sys.argv[2] if len(sys.argv) > 2 else input_rpd.replace('.rpd', '.json')
+    output_json = sys.argv[2] if len(sys.argv) > 2 else input_rpd.replace('.db', '.json')
     convert(input_rpd, output_json)

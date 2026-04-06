@@ -15,8 +15,8 @@ REQUIRED_VIEWS = ["top", "busy"]
 
 @pytest.fixture
 def tmp_rpd(tmp_path):
-    """Return a path for a temporary .rpd file."""
-    return str(tmp_path / "test.rpd")
+    """Return a path for a temporary .db file."""
+    return str(tmp_path / "test.db")
 
 
 @pytest.fixture

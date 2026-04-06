@@ -176,7 +176,7 @@ def convert(input_rpd, output_json):
 def run_convert(args):
     """Entry point for the 'convert' subcommand."""
     input_rpd = args.input
-    output_json = args.output or input_rpd.replace(".rpd", ".json")
+    output_json = args.output or input_rpd.replace(".db", ".json")
 
     if not os.path.exists(input_rpd):
         print(f"Error: {input_rpd} not found", file=sys.stderr)
