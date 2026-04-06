@@ -13,14 +13,8 @@ LIB_PATH = os.path.join(REPO_ROOT, "librtl.so")
 
 
 def _has_gpu():
-    try:
-        r = subprocess.run(
-            [sys.executable, "-c", "import torch; assert torch.cuda.is_available()"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
+    from conftest import _rocm_gpu_available
+    return _rocm_gpu_available()
 
 
 def _skip_if_no_gpu():

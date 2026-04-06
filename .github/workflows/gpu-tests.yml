@@ -34,8 +34,15 @@ jobs:
 
       - name: Verify GPU access
         run: |
-          python3 -c "import torch; print('GPUs:', torch.cuda.device_count()); assert torch.cuda.is_available(), 'No GPU'" || \
-            echo "WARNING: GPU not detected by PyTorch"
+          echo "=== ROCm SMI ==="
+          rocm-smi --showid || true
+          echo "=== HSA Agents ==="
+          ls -la /dev/kfd /dev/dri/render* 2>/dev/null || true
+          echo "=== PyTorch GPU ==="
+          python3 -c "import torch; n = torch.cuda.device_count(); print('GPUs:', n); assert n > 0" || {
+            echo "FATAL: No GPU visible to PyTorch — GPU tests cannot run"
+            exit 1
+          }
 
       - name: Run single-GPU tests
         run: |
@@ -80,8 +87,15 @@ jobs:
 
       - name: Verify GPU access
         run: |
-          python3 -c "import torch; print('GPUs:', torch.cuda.device_count()); assert torch.cuda.is_available(), 'No GPU'" || \
-            echo "WARNING: GPU not detected by PyTorch"
+          echo "=== ROCm SMI ==="
+          rocm-smi --showid || true
+          echo "=== HSA Agents ==="
+          ls -la /dev/kfd /dev/dri/render* 2>/dev/null || true
+          echo "=== PyTorch GPU ==="
+          python3 -c "import torch; n = torch.cuda.device_count(); print('GPUs:', n); assert n > 0" || {
+            echo "FATAL: No GPU visible to PyTorch — GPU tests cannot run"
+            exit 1
+          }
 
       - name: Run all tests including multi-GPU
         run: |
