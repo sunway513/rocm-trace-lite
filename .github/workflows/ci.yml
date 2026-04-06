@@ -39,7 +39,7 @@ jobs:
           echo "PASS"
 
   python-tests:
-    name: Python tests (41 tests)
+    name: Python tests (CPU)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
