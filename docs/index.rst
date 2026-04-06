@@ -4,7 +4,7 @@ rocm-trace-lite
 Self-contained GPU kernel profiler for ROCm. **Zero roctracer/rocprofiler-sdk dependency.**
 
 Captures GPU kernel dispatch timestamps using only HSA runtime interception,
-writing to SQLite in the standard `RPD <https://github.com/ROCm/rocmProfileData>`_ format.
+writing to a standard SQLite .db file.
 One command to profile, one file to analyze.
 
 .. code-block:: bash
@@ -27,8 +27,8 @@ One command to profile, one file to analyze.
        <p>Auto-generates compressed Perfetto JSON. Open in <a href="https://ui.perfetto.dev">ui.perfetto.dev</a> for timeline visualization.</p>
      </div>
      <div class="feature-card">
-       <h3>RPD Compatible</h3>
-       <p>Outputs standard RPD SQLite schema. Works with existing RPD ecosystem tools and SQL queries.</p>
+       <h3>SQLite Output</h3>
+       <p>Outputs standard SQLite .db files. Compatible with <a href="https://github.com/ROCm/rocmProfileData">RPD</a> ecosystem tools and SQL queries.</p>
      </div>
    </div>
 
