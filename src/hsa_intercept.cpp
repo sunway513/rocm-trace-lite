@@ -88,10 +88,10 @@ static void completion_worker() {
         {
             std::unique_lock<std::mutex> lock(g_work_mutex);
             g_work_cv.wait(lock, [] {
-                return !g_work_queue.empty() || g_shutdown.load(std::memory_order_relaxed);
+                return !g_work_queue.empty() || g_shutdown.load(std::memory_order_acquire);
             });
             if (g_work_queue.empty()) {
-                if (g_shutdown.load(std::memory_order_relaxed)) break;
+                if (g_shutdown.load(std::memory_order_acquire)) break;
                 continue;
             }
             dd = g_work_queue.front();
@@ -99,17 +99,18 @@ static void completion_worker() {
         }
 
         // Wait for kernel completion with bounded timeout.
+        // HSA spec: timeout_hint is in nanoseconds (HSA Runtime Programmer's Reference 1.2+).
         // Uses 100ms timeout + poll loop so shutdown can interrupt.
         // Normal path: kernel completes in microseconds, first wait returns immediately.
         // Only during shutdown does the timeout loop matter (adds <=100ms exit latency).
-        static constexpr uint64_t WAIT_TIMEOUT_NS = 100000000ULL;  // 100ms
+        static constexpr uint64_t WAIT_TIMEOUT_NS = 100000000ULL;  // 100ms in nanoseconds
         hsa_signal_value_t wait_val;
         while (true) {
             wait_val = g_orig_core.hsa_signal_wait_scacquire_fn(
                 dd->profiling_signal, HSA_SIGNAL_CONDITION_LT, 1,
                 WAIT_TIMEOUT_NS, HSA_WAIT_STATE_BLOCKED);
             if (wait_val < 1) break;  // signal completed
-            if (g_shutdown.load(std::memory_order_relaxed)) {
+            if (g_shutdown.load(std::memory_order_acquire)) {
                 // Shutdown requested — abandon this dispatch, don't touch the signal
                 delete dd;
                 dd = nullptr;
@@ -230,7 +231,7 @@ static void submit_barrier_to_forward_signal(hsa_queue_t* signal_queue,
 static void queue_intercept_cb(const void* in_packets, uint64_t count,
                                 uint64_t user_que_idx, void* data,
                                 hsa_amd_queue_intercept_packet_writer writer) {
-    if (g_shutdown.load(std::memory_order_relaxed)) {
+    if (g_shutdown.load(std::memory_order_acquire)) {
         writer(in_packets, count);
         return;
     }
