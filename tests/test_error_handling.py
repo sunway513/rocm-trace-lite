@@ -16,7 +16,11 @@ import subprocess
 import sys
 
 import pytest
-import yaml
+try:
+    import yaml
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
@@ -442,6 +446,8 @@ class TestCIWorkflow:
 
     def test_workflow_yaml_valid(self):
         """All .github/workflows/*.yml files must be valid YAML."""
+        if not HAS_YAML:
+            pytest.skip("PyYAML not installed")
         wf_dir = os.path.join(REPO_ROOT, ".github", "workflows")
         if not os.path.isdir(wf_dir):
             pytest.skip("No .github/workflows directory")
