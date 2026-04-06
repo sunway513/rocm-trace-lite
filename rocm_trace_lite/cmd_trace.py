@@ -5,7 +5,8 @@ import sqlite3
 
 
 def run_trace(args):
-    if not args.cmd:
+    cmd = [c for c in args.cmd if c != "--"]
+    if not cmd:
         print("Error: no command specified. Usage: rpd-lite trace python3 script.py", file=sys.stderr)
         sys.exit(1)
 
@@ -21,7 +22,7 @@ def run_trace(args):
     if os.path.exists(output) and os.path.isfile(output):
         os.remove(output)
 
-    result = subprocess.run(args.cmd, env=env)
+    result = subprocess.run(cmd, env=env)
 
     # Print summary
     if os.path.exists(output):

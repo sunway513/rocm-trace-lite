@@ -16,7 +16,13 @@ def run_summary(args):
         sys.exit(1)
 
     conn = sqlite3.connect(args.input)
+    try:
+        _run_summary_impl(conn, args)
+    finally:
+        conn.close()
 
+
+def _run_summary_impl(conn, args):
     # Total stats
     ops = conn.execute("SELECT count(*) FROM rocpd_op").fetchone()[0]
     try:
@@ -52,5 +58,3 @@ def run_summary(args):
         print("GPU Utilization:")
         for row in busy:
             print(f"  GPU {row[0]}: {row[1]}% ({row[2]} ops, {row[3]/1e6:.1f}ms busy, {row[4]/1e6:.1f}ms wall)")
-
-    conn.close()
