@@ -1,12 +1,11 @@
 /*
  * rpd_lite.h — Self-contained GPU profiling tracer
  *
- * Dependencies: libamdhip64, libhsa-runtime64, libsqlite3, libfmt
- * NO roctracer, NO rocprofiler-sdk
+ * Dependencies: libhsa-runtime64, libsqlite3
+ * NO roctracer, NO rocprofiler-sdk, NO libamdhip64
  *
  * Interception mechanisms:
  *   - HSA: HSA_TOOLS_LIB OnLoad (API table replacement + queue intercept)
- *   - HIP: LD_PRELOAD + dlsym(RTLD_NEXT)
  *   - roctx: built-in shim (provides roctxRangePush/Pop/Mark symbols)
  *
  * Copyright (c) 2026 Advanced Micro Devices, Inc.
