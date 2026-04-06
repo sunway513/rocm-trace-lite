@@ -20,14 +20,16 @@ LIB_PATH = os.path.join(REPO_ROOT, "librpd_lite.so")
 
 
 def _has_gpu():
-    """Check if ROCm GPU is available."""
+    """Check if ROCm GPU is available via /dev/kfd or rocm-smi."""
+    if os.path.exists("/dev/kfd"):
+        return True
     try:
         r = subprocess.run(
-            [sys.executable, "-c", "import torch; assert torch.cuda.is_available()"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
+            ["rocm-smi", "--showid"], stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, timeout=5,
         )
         return r.returncode == 0
-    except Exception:
+    except (OSError, subprocess.TimeoutExpired):
         return False
 
 
@@ -36,7 +38,7 @@ def _gpu_count():
     try:
         r = subprocess.run(
             [sys.executable, "-c", "import torch; print(torch.cuda.device_count())"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5,
         )
         if r.returncode == 0:
             return int(r.stdout.decode().strip())
