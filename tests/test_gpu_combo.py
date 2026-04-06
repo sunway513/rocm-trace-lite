@@ -29,7 +29,7 @@ def _gpu_count():
     try:
         r = subprocess.run(
             [sys.executable, "-c", "import torch; print(torch.cuda.device_count())"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5,
         )
         if r.returncode == 0:
             return int(r.stdout.decode().strip())
