@@ -74,6 +74,34 @@ jobs:
       - name: Shell syntax
         run: bash -n tools/rpd_lite.sh
 
+  build:
+    name: Build (ROCm container)
+    runs-on: ubuntu-latest
+    container:
+      image: rocm/dev-ubuntu-24.04:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: apt-get update && apt-get install -y sqlite3 libsqlite3-dev
+
+      - name: Build librpd_lite.so
+        run: make -j$(nproc)
+
+      - name: Verify no forbidden deps
+        run: |
+          ldd librpd_lite.so
+          ldd librpd_lite.so | grep -E "roctracer|rocprofiler-sdk|libroctx64" && exit 1 || echo "Clean"
+
+      - name: Verify .so exports expected symbols
+        run: |
+          nm -D librpd_lite.so | grep "T OnLoad" || { echo "FAIL: OnLoad not exported"; exit 1; }
+          nm -D librpd_lite.so | grep "T OnUnload" || { echo "FAIL: OnUnload not exported"; exit 1; }
+          nm -D librpd_lite.so | grep "T roctxRangePushA" || { echo "FAIL: roctx shim not exported"; exit 1; }
+          nm -D librpd_lite.so | grep "T roctxRangePop" || { echo "FAIL: roctx shim not exported"; exit 1; }
+          nm -D librpd_lite.so | grep "T roctxMarkA" || { echo "FAIL: roctx shim not exported"; exit 1; }
+          echo "PASS: all expected symbols exported"
+
   ai-review:
     name: GPT-5.4 Code Review
     if: github.event_name == 'pull_request'

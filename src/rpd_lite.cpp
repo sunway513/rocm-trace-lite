@@ -14,6 +14,12 @@ namespace rpd_lite {
 
 static std::atomic<uint64_t> g_correlation_id{1};
 
+// Timestamp source for host-side events (roctx markers).
+// Uses CLOCK_MONOTONIC which on ROCm/Linux matches the HSA system
+// timestamp domain (both derive from TSC). This is the same approach
+// used by the original rtg_tracer in rocmProfileData.
+// GPU kernel timestamps come from hsa_amd_profiling_get_dispatch_time
+// which is in the same domain on AMD systems.
 uint64_t tick() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -114,10 +120,10 @@ SELECT
     ROUND(AVG(o.end - o.start), 1) AS AvgNs,
     MIN(o.end - o.start) AS MinNs,
     MAX(o.end - o.start) AS MaxNs,
-    ROUND(100.0 * SUM(o.end - o.start) / (SELECT SUM(end - start) FROM rocpd_op WHERE end > start), 2) AS Pct
+    ROUND(100.0 * SUM(o.end - o.start) / (SELECT SUM(end - start) FROM rocpd_op WHERE end > start AND o.gpuId >= 0), 2) AS Pct
 FROM rocpd_op o
 JOIN rocpd_string s ON o.description_id = s.id
-WHERE o.end > o.start
+WHERE o.end > o.start AND o.gpuId >= 0
 GROUP BY s.string
 ORDER BY TotalNs DESC;
 
