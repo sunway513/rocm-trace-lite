@@ -14,21 +14,9 @@ import textwrap
 
 import pytest
 
-def _detect_rocm_gpu():
-    """Detect ROCm GPU via /dev/kfd or rocm-smi, independent of torch."""
-    if os.path.exists("/dev/kfd"):
-        return True
-    try:
-        result = subprocess.run(
-            ["rocm-smi", "--showid"], stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, timeout=5
-        )
-        return result.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+from conftest import _rocm_gpu_available
 
-
-HAS_GPU = _detect_rocm_gpu()
+HAS_GPU = _rocm_gpu_available()
 
 gpu = pytest.mark.skipif(not HAS_GPU, reason="No GPU available")
 
@@ -84,7 +72,7 @@ def _trace_and_connect(tmp_path, script_code, timeout=120):
 # ---------------------------------------------------------------------------
 ROCTX_PREAMBLE = '''
 import ctypes, os
-_lib = os.environ.get("HSA_TOOLS_LIB", "librpd_lite.so")
+_lib = os.environ.get("HSA_TOOLS_LIB", "librtl.so")
 _roctx = ctypes.CDLL(_lib)
 _roctx.roctxRangePushA.argtypes = [ctypes.c_char_p]
 _roctx.roctxRangePushA.restype = ctypes.c_int
@@ -765,7 +753,7 @@ class TestOtherSingleDim:
         conn = _trace_and_connect(tmp_path, """
             import ctypes, os
 
-            _lib = os.environ.get("HSA_TOOLS_LIB", "librpd_lite.so")
+            _lib = os.environ.get("HSA_TOOLS_LIB", "librtl.so")
             try:
                 _rtl = ctypes.CDLL(_lib)
                 _rtl.tick.restype = ctypes.c_uint64
@@ -794,7 +782,7 @@ class TestOtherSingleDim:
         conn = _trace_and_connect(tmp_path, """
             import ctypes, os
 
-            _lib = os.environ.get("HSA_TOOLS_LIB", "librpd_lite.so")
+            _lib = os.environ.get("HSA_TOOLS_LIB", "librtl.so")
             try:
                 _rtl = ctypes.CDLL(_lib)
                 _rtl.getCorrelationId.restype = ctypes.c_uint64

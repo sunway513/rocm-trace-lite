@@ -4,7 +4,7 @@ Covers SQLite error paths, rpd_lite.sh validation, converter consistency,
 shutdown ordering, completion worker diagnostics, extended source guards,
 CI workflow validation, and arch-specific GPU tracing.
 
-CPU-only tests run without any GPU or librpd_lite.so.
+CPU-only tests run without any GPU or librtl.so.
 GPU tests are skipped when no ROCm GPU is available.
 """
 import json
@@ -35,7 +35,7 @@ from rocm_trace_lite.cmd_trace import (  # noqa: E402
 
 SRC_DIR = os.path.join(REPO_ROOT, "src")
 TOOLS_DIR = os.path.join(REPO_ROOT, "tools")
-LIB_PATH = os.path.join(REPO_ROOT, "librpd_lite.so")
+LIB_PATH = os.path.join(REPO_ROOT, "librtl.so")
 
 
 # ---------------------------------------------------------------------------
@@ -43,15 +43,8 @@ LIB_PATH = os.path.join(REPO_ROOT, "librpd_lite.so")
 # ---------------------------------------------------------------------------
 
 def _has_gpu():
-    """Check if ROCm GPU is available via torch."""
-    try:
-        r = subprocess.run(
-            [sys.executable, "-c", "import torch; assert torch.cuda.is_available()"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
+    from conftest import _rocm_gpu_available
+    return _rocm_gpu_available()
 
 
 def _has_lib():
@@ -149,7 +142,7 @@ class TestRpdLiteShell:
         sh_dst = str(tmp_path / "rpd_lite.sh")
         shutil.copy2(sh_src, sh_dst)
         # rpd_lite.sh resolves LIB from SCRIPT_DIR, so place dummy .so there
-        fake_lib = str(tmp_path / "librpd_lite.so")
+        fake_lib = str(tmp_path / "librtl.so")
         with open(fake_lib, "w") as f:
             f.write("")
         return sh_dst
@@ -291,7 +284,7 @@ class TestConverterConsistency:
 class TestShutdownOrdering:
     """Verify trace completeness after workload shutdown."""
 
-    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librpd_lite.so")
+    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librtl.so")
     def test_normal_workload_complete_trace(self, tmp_path):
         """Normal workload should produce a complete trace (no truncation)."""
         trace = str(tmp_path / "shutdown.db")
@@ -311,7 +304,7 @@ class TestShutdownOrdering:
         # 50 matmuls should produce at least some ops
         assert ops >= 10, "Expected >= 10 ops, got {}".format(ops)
 
-    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librpd_lite.so")
+    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librtl.so")
     def test_short_workload_flush_completes(self, tmp_path):
         """Very short workload (< 100ms) should still flush completely."""
         trace = str(tmp_path / "short.db")
@@ -338,7 +331,7 @@ class TestShutdownOrdering:
 class TestCompletionWorkerDiagnostics:
     """Verify diagnostic output from the completion worker."""
 
-    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librpd_lite.so")
+    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librtl.so")
     def test_stderr_contains_finalized(self, tmp_path):
         """Normal workload stderr should contain trace finalized message."""
         trace = str(tmp_path / "diag.db")
@@ -364,7 +357,7 @@ class TestCompletionWorkerDiagnostics:
             "Expected diagnostic output in stderr, got: {}".format(stderr[:500])
         )
 
-    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librpd_lite.so")
+    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librtl.so")
     def test_records_written_format(self, tmp_path):
         """Diagnostic output should include record count information."""
         trace = str(tmp_path / "diag2.db")
@@ -509,7 +502,7 @@ class TestCIWorkflow:
 class TestArchSpecific:
     """Arch-specific GPU tracing tests."""
 
-    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librpd_lite.so")
+    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librtl.so")
     def test_detect_gpu_arch_and_trace(self, tmp_path):
         """Detect current GPU arch and verify tracing works."""
         trace = str(tmp_path / "arch.db")
@@ -529,7 +522,7 @@ class TestArchSpecific:
         conn.close()
         assert ops >= 1, "Expected >= 1 op, got {}".format(ops)
 
-    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librpd_lite.so")
+    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librtl.so")
     def test_gpu_id_reasonable(self, tmp_path):
         """gpuId in trace should be >= 0."""
         trace = str(tmp_path / "gpuid.db")
@@ -556,7 +549,7 @@ class TestArchSpecific:
         # neg_count is informational (roctx markers use gpuId=-1)
         assert total >= 1, "No ops with gpuId >= 0 (neg_count={})".format(neg_count)
 
-    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librpd_lite.so")
+    @pytest.mark.skipif(not HAS_GPU, reason="No GPU or librtl.so")
     def test_fallback_detection_stderr(self, tmp_path):
         """If running on gfx1250 or similar, check for fallback info in stderr."""
         trace = str(tmp_path / "fallback.db")

@@ -21,7 +21,7 @@ from conftest import populate_synthetic_trace
 from rocm_trace_lite.cmd_trace import _generate_summary
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LIB_PATH = os.path.join(REPO_ROOT, "librpd_lite.so")
+LIB_PATH = os.path.join(REPO_ROOT, "librtl.so")
 
 try:
     import torch
@@ -38,7 +38,7 @@ def _has_lib():
 
 def _skip_if_no_gpu():
     if not HAS_GPU or not _has_lib():
-        pytest.skip("No GPU or librpd_lite.so not built")
+        pytest.skip("No GPU or librtl.so not built")
 
 
 def _run_traced(script, trace_path, timeout=120):
@@ -81,12 +81,12 @@ def _make_valid_db(path, num_kernels=10):
 
 
 class TestHSALifecycle:
-    """Verify librpd_lite.so symbols and dependencies."""
+    """Verify librtl.so symbols and dependencies."""
 
     def test_onload_onunload_symbols(self):
-        """dlopen librpd_lite.so (if exists), verify OnLoad/OnUnload symbols via nm -D."""
+        """dlopen librtl.so (if exists), verify OnLoad/OnUnload symbols via nm -D."""
         if not _has_lib():
-            pytest.skip("librpd_lite.so not built")
+            pytest.skip("librtl.so not built")
 
         result = subprocess.run(
             ["nm", "-D", LIB_PATH],
@@ -96,13 +96,13 @@ class TestHSALifecycle:
         assert result.returncode == 0, "nm -D failed: {}".format(result.stderr)
         symbols = result.stdout
 
-        assert "OnLoad" in symbols, "OnLoad symbol not exported in librpd_lite.so"
-        assert "OnUnload" in symbols, "OnUnload symbol not exported in librpd_lite.so"
+        assert "OnLoad" in symbols, "OnLoad symbol not exported in librtl.so"
+        assert "OnUnload" in symbols, "OnUnload symbol not exported in librtl.so"
 
     def test_shared_lib_dependencies(self):
         """Verify .so NEEDED dependencies are only expected libraries."""
         if not _has_lib():
-            pytest.skip("librpd_lite.so not built")
+            pytest.skip("librtl.so not built")
 
         result = subprocess.run(
             ["ldd", LIB_PATH],
