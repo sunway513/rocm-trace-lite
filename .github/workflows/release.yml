@@ -25,7 +25,7 @@ jobs:
       - name: Verify no forbidden deps
         run: |
           ldd librpd_lite.so
-          ldd librpd_lite.so | grep -E "roctracer|rocprofiler-sdk" && exit 1 || echo "Clean"
+          ldd librpd_lite.so | grep -E "roctracer|rocprofiler-sdk|libroctx64" && exit 1 || echo "Clean"
 
       - name: Stage .so into package
         run: |

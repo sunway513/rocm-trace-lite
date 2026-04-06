@@ -19,7 +19,10 @@ def run_summary(args):
 
     # Total stats
     ops = conn.execute("SELECT count(*) FROM rocpd_op").fetchone()[0]
-    apis = conn.execute("SELECT count(*) FROM rocpd_api").fetchone()[0]
+    try:
+        apis = conn.execute("SELECT count(*) FROM rocpd_api").fetchone()[0]
+    except sqlite3.OperationalError:
+        apis = 0
     print(f"Trace: {args.input}")
     print(f"  GPU ops:   {ops}")
     print(f"  API calls: {apis}")
@@ -28,7 +31,10 @@ def run_summary(args):
     # Top kernels
     print(f"{'Kernel':<60} {'Calls':>6} {'Total(us)':>10} {'Avg(us)':>8} {'%':>6}")
     print("=" * 96)
-    rows = conn.execute("SELECT * FROM top LIMIT ?", (args.limit,)).fetchall()
+    try:
+        rows = conn.execute("SELECT * FROM top LIMIT ?", (args.limit,)).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
     for r in rows:
         name = r[0][:57] + "..." if len(r[0]) > 60 else r[0]
         total_us = r[2] / 1000 if r[2] else 0
@@ -38,7 +44,10 @@ def run_summary(args):
 
     # GPU utilization
     print()
-    busy = conn.execute("SELECT * FROM busy").fetchall()
+    try:
+        busy = conn.execute("SELECT * FROM busy").fetchall()
+    except sqlite3.OperationalError:
+        busy = []
     if busy:
         print("GPU Utilization:")
         for row in busy:
