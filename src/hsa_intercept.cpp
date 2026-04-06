@@ -435,6 +435,10 @@ extern "C" bool OnLoad(void* pTable,
     table->core_->hsa_queue_create_fn = my_hsa_queue_create;
     table->core_->hsa_executable_freeze_fn = my_hsa_executable_freeze;
 
+    // Note: host timestamps (CLOCK_MONOTONIC) and GPU timestamps
+    // (hsa_amd_profiling_get_dispatch_time) are in the same domain on ROCm/Linux
+    // (both derive from TSC). This matches the original rtg_tracer approach.
+
     // Discover GPU agents (immutable after this point)
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rpd_lite: found %zu GPU agent(s)\n", g_gpu_agents.size());
