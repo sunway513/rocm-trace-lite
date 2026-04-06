@@ -16,8 +16,9 @@ jobs:
 
       - name: Install build deps
         run: |
-          apt-get update && apt-get install -y python3-pip python3-venv sqlite3 libsqlite3-dev
-          python3 -m pip install build wheel setuptools
+          apt-get update && apt-get install -y python3-pip python3-venv python3-full sqlite3 libsqlite3-dev
+          python3 -m venv /tmp/build-venv
+          /tmp/build-venv/bin/pip install build wheel setuptools
 
       - name: Build librpd_lite.so
         run: make -j$(nproc)
@@ -33,13 +34,13 @@ jobs:
           cp librpd_lite.so rocm_trace_lite/lib/
 
       - name: Build wheel
-        run: python3 -m build --wheel --no-isolation
+        run: /tmp/build-venv/bin/python -m build --wheel --no-isolation
 
       - name: Verify wheel contents
         run: |
-          pip install dist/*.whl
-          rpd-lite --version
-          python3 -c "from rocm_trace_lite import get_lib_path; print(get_lib_path())"
+          /tmp/build-venv/bin/pip install dist/*.whl
+          /tmp/build-venv/bin/rpd-lite --version
+          /tmp/build-venv/bin/python -c "from rocm_trace_lite import get_lib_path; print(get_lib_path())"
 
       - uses: actions/upload-artifact@v4
         with:
