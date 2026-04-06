@@ -4,7 +4,7 @@ Self-contained GPU kernel profiler for ROCm. **Zero roctracer/rocprofiler-sdk de
 
 ## What it does
 
-Captures GPU kernel dispatch timestamps using only HSA runtime interception (`HSA_TOOLS_LIB`), writing to a standard SQLite `.db` file. No roctracer, no rocprofiler-sdk — works on day-0 hardware before the profiling stack is ready.
+Captures GPU kernel dispatch timestamps using only HSA runtime interception (`HSA_TOOLS_LIB`), writing to a standard SQLite `.db` file.
 
 ### Comparison with other ROCm profiling tools
 
@@ -18,7 +18,7 @@ Captures GPU kernel dispatch timestamps using only HSA runtime interception (`HS
 | **HW counters** | — | — | Yes (AQLprofile) | — | NVIDIA only |
 | **Output format** | SQLite (.db) | SQLite (.rpd) | CSV / JSON / Perfetto / OTF2 | Raw callbacks | JSON / Chrome Trace |
 | **Perfetto visualization** | `rtl convert` | rpd2tracing.py | Native PFTrace | — | Built-in |
-| **Works without profiler stack** | Yes | No | No | No | No |
+| **Zero profiler dependency** | Yes | No | No | No | No |
 | **Status** | Active | Active | Active (recommended) | Legacy (EoS 2026 Q2) | Active |
 
 ## Installation
