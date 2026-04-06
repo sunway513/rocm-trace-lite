@@ -126,17 +126,18 @@ class TestPreflightCheck:
         err = capsys.readouterr().err
         assert "libhsa-runtime64.so OK" in err
 
-    def test_ld_library_path_check(self, tmp_path, capsys):
-        """Warn if HSA lib dir is not in LD_LIBRARY_PATH."""
+    def test_ld_library_path_suggested_only_when_ldd_fails(self, tmp_path, capsys):
+        """Only suggest LD_LIBRARY_PATH fix when ldd reports HSA not found."""
         fake_so = tmp_path / "librpd_lite.so"
         fake_so.write_text("fake")
         rocm_lib = tmp_path / "rocm" / "lib"
         rocm_lib.mkdir(parents=True)
         (rocm_lib / "libhsa-runtime64.so").write_bytes(b"\x7fELF")
         check = self._get_preflight()
+        # ldd shows HSA as not found
         ldd_mock = MagicMock()
         ldd_mock.returncode = 0
-        ldd_mock.stdout = ""
+        ldd_mock.stdout = "\tlibhsa-runtime64.so => not found\n"
         with patch("subprocess.run", return_value=ldd_mock):
             with patch.dict(os.environ, {
                 "ROCM_PATH": str(tmp_path / "rocm"),
@@ -144,7 +145,29 @@ class TestPreflightCheck:
             }):
                 check(str(fake_so))
         err = capsys.readouterr().err
-        assert "not in LD_LIBRARY_PATH" in err
+        assert "LD_LIBRARY_PATH" in err
+
+    def test_no_ld_warning_when_ldd_resolves(self, tmp_path, capsys):
+        """No LD_LIBRARY_PATH warning when ldd resolves HSA fine."""
+        fake_so = tmp_path / "librpd_lite.so"
+        fake_so.write_text("fake")
+        rocm_lib = tmp_path / "rocm" / "lib"
+        rocm_lib.mkdir(parents=True)
+        (rocm_lib / "libhsa-runtime64.so").write_bytes(b"\x7fELF")
+        check = self._get_preflight()
+        # ldd resolves everything fine
+        ldd_mock = MagicMock()
+        ldd_mock.returncode = 0
+        ldd_mock.stdout = "\tlibhsa-runtime64.so => /opt/rocm/lib/libhsa-runtime64.so\n"
+        with patch("subprocess.run", return_value=ldd_mock):
+            with patch.dict(os.environ, {
+                "ROCM_PATH": str(tmp_path / "rocm"),
+                "LD_LIBRARY_PATH": "/some/other/path",
+            }):
+                result = check(str(fake_so))
+        err = capsys.readouterr().err
+        assert "LD_LIBRARY_PATH" not in err
+        assert result is True
 
     def test_no_dlopen_side_effects(self):
         """Preflight must NOT use ctypes.CDLL (avoids constructor side effects)."""

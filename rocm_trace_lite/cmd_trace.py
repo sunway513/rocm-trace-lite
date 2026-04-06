@@ -10,7 +10,7 @@ def _preflight_check(lib_path):
 
     Checks (all advisory — prints warnings but never blocks tracing):
       1. librpd_lite.so exists
-      2. librpd_lite.so dependencies are resolvable (via ldd, no dlopen)
+      2. librpd_lite.so dependencies are resolvable (advisory ldd check)
       3. libhsa-runtime64.so is findable on disk
       4. HSA_TOOLS_LIB is not already set to a conflicting value
 
@@ -27,7 +27,9 @@ def _preflight_check(lib_path):
 
     info("librpd_lite.so OK ({})".format(lib_path))
 
-    # 2. Check dependencies via ldd (no dlopen — avoids running .so constructors)
+    # 2. Advisory dependency check via ldd (avoids loading the library into
+    #    this Python process, which would run .so constructors / HSA OnLoad)
+    hsa_missing_in_ldd = False
     try:
         ldd_out = subprocess.run(
             ["ldd", lib_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -39,6 +41,7 @@ def _preflight_check(lib_path):
                     lib_name = line.split("=>")[0].strip() if "=>" in line else line.strip()
                     warn("missing dependency: {}".format(lib_name))
                     if "libhsa-runtime64" in line:
+                        hsa_missing_in_ldd = True
                         warn("ROCm HSA runtime is missing")
                         _suggest_rocm_paths()
                     elif "libsqlite3" in line:
@@ -47,7 +50,9 @@ def _preflight_check(lib_path):
     except (OSError, subprocess.TimeoutExpired):
         pass  # ldd not available, skip
 
-    # 3. Check ROCm / HSA runtime on disk
+    # 3. Check ROCm / HSA runtime on disk (only suggest LD_LIBRARY_PATH
+    #    fix if ldd actually failed to resolve it — the loader may find it
+    #    via RPATH, ld.so.cache, or default system paths)
     rocm_path = os.environ.get("ROCM_PATH") or os.environ.get("HIP_PATH")
     search_dirs = ["/opt/rocm/lib", "/opt/rocm/lib64"]
     if rocm_path:
@@ -55,15 +60,12 @@ def _preflight_check(lib_path):
         search_dirs.insert(1, os.path.join(rocm_path, "lib64"))
 
     hsa_found = False
-    ld_path = os.environ.get("LD_LIBRARY_PATH", "")
-    ld_dirs = set(ld_path.split(":")) if ld_path else set()
     for d in search_dirs:
         hsa_lib = os.path.join(d, "libhsa-runtime64.so")
         if os.path.exists(hsa_lib):
             hsa_found = True
             info("libhsa-runtime64.so OK ({})".format(hsa_lib))
-            if d not in ld_dirs:
-                warn("libhsa-runtime64.so found at {} but not in LD_LIBRARY_PATH".format(d))
+            if hsa_missing_in_ldd:
                 warn("  fix: export LD_LIBRARY_PATH={}:$LD_LIBRARY_PATH".format(d))
             break
 
