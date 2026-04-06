@@ -1,8 +1,5 @@
 """Tests for the preflight diagnostic checks in cmd_trace."""
 import os
-import sys
-import subprocess
-import pytest
 from unittest.mock import patch, MagicMock
 
 

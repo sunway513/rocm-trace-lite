@@ -17,8 +17,12 @@ def _preflight_check(lib_path):
     Returns True if all checks pass, False if any warning was emitted.
     """
     ok = True
-    warn = lambda msg: print("rtl: WARNING: {}".format(msg), file=sys.stderr)
-    info = lambda msg: print("rtl: {}".format(msg), file=sys.stderr)
+
+    def warn(msg):
+        print("rtl: WARNING: {}".format(msg), file=sys.stderr)
+
+    def info(msg):
+        print("rtl: {}".format(msg), file=sys.stderr)
 
     # 1. Check librpd_lite.so exists
     if not os.path.isfile(lib_path):
@@ -85,7 +89,9 @@ def _preflight_check(lib_path):
 
 def _suggest_rocm_paths():
     """Print suggestions for finding ROCm."""
-    warn = lambda msg: print("rtl: WARNING: {}".format(msg), file=sys.stderr)
+
+    def warn(msg):
+        print("rtl: WARNING: {}".format(msg), file=sys.stderr)
     rocm_candidates = []
     for d in ["/opt/rocm/lib", "/usr/lib/x86_64-linux-gnu"]:
         if os.path.isdir(d):
