@@ -27,7 +27,8 @@ jobs:
 
       - name: Run single-GPU tests
         run: |
-          pytest tests/ -v --tb=short \
+          set -o pipefail
+          python3 -m pytest tests/ -v --tb=short \
             -k "not multigpu" \
             --timeout=120 \
             2>&1 | tee gpu-test-results.txt
@@ -60,7 +61,8 @@ jobs:
 
       - name: Run all tests including multi-GPU
         run: |
-          pytest tests/ -v --tb=short \
+          set -o pipefail
+          python3 -m pytest tests/ -v --tb=short \
             --timeout=180 \
             2>&1 | tee gpu-test-results.txt
 
