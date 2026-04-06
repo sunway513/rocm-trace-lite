@@ -1,0 +1,52 @@
+/* AMD-themed customizations for rocm-trace-lite docs */
+
+/* Feature grid */
+.feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+
+.feature-card {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1.2rem;
+    background: #fafafa;
+}
+
+.feature-card h3 {
+    margin-top: 0;
+    color: #C00000;
+    font-size: 1.1rem;
+}
+
+/* Comparison table styling */
+.rst-content table.comparison td,
+.rst-content table.comparison th {
+    text-align: center;
+    vertical-align: middle;
+}
+
+/* Badge-style labels */
+.badge {
+    display: inline-block;
+    padding: 0.2em 0.6em;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-weight: 600;
+}
+
+.badge-green { background: #d4edda; color: #155724; }
+.badge-red { background: #f8d7da; color: #721c24; }
+.badge-blue { background: #d1ecf1; color: #0c5460; }
+
+/* Terminal-style output blocks */
+.highlight-console .highlight {
+    background: #1e1e1e;
+}
+
+/* Wider content area */
+.wy-nav-content {
+    max-width: 960px;
+}
