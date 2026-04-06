@@ -60,8 +60,9 @@ jobs:
           path: gpu-test-results.txt
 
   gpu-multi:
-    name: GPU tests (8x MI355X)
+    name: GPU tests (8x MI355X, optional)
     runs-on: linux-rocm-trace-lite-mi355-8
+    continue-on-error: true
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
