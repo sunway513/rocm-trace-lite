@@ -13,38 +13,60 @@ Captures GPU kernel dispatch timestamps using only HSA runtime interception (`HS
 | HIP API tracing | — | roctracer callback |
 | roctx markers | Built-in shim | libroctx64 |
 | Output format | SQLite (.db) | Same |
-| Perfetto/Chrome trace | rpd2trace.py | rpd2tracing.py |
+| Perfetto/Chrome trace | `rtl convert` | rpd2tracing.py |
 
-## Quick start
+## Installation
+
+### From wheel (recommended)
+
+Download the latest `.whl` from [GitHub Releases](https://github.com/sunway513/rocm-trace-lite/releases):
+
+```bash
+# Install the latest release
+pip install rocm-trace-lite --find-links https://github.com/sunway513/rocm-trace-lite/releases/latest
+
+# Or download and install manually
+wget https://github.com/sunway513/rocm-trace-lite/releases/latest/download/rocm_trace_lite-<version>-py3-none-linux_x86_64.whl
+pip install rocm_trace_lite-*.whl
+```
+
+After installation, the `rtl` CLI command is available:
+
+```bash
+rtl trace -o trace.db python3 my_model.py
+rtl summary trace.db
+rtl convert trace.db -o trace.json
+```
+
+### From source
 
 ```bash
 # Build (requires ROCm headers)
 make -j
 
-# Trace a workload
-HSA_TOOLS_LIB=./librpd_lite.so python3 my_model.py
-
-# Or use the launcher
-./rpd_lite.sh python3 my_model.py
-
-# Query results
-sqlite3 trace.db "SELECT * FROM top LIMIT 10;"
-
-# Convert to Perfetto timeline
-python3 rpd2trace.py trace.db trace.json
-# Open trace.json in https://ui.perfetto.dev
+# Install system-wide
+make install    # copies librpd_lite.so to /usr/local/lib, scripts to /usr/local/bin
 ```
 
-## Build requirements
-
+Requirements:
 - ROCm (for HSA headers: `hsa/hsa.h`, `hsa/hsa_api_trace.h`)
 - SQLite3 development headers (`apt install libsqlite3-dev`)
 - g++ with C++17
 
+## Quick start
+
 ```bash
-make            # builds librpd_lite.so
-make install    # copies to /usr/local/lib
-make test       # quick GPU smoke test (requires GPU)
+# Trace a workload
+rtl trace -o trace.db python3 my_model.py
+
+# View top kernels
+rtl summary trace.db
+
+# Open timeline in browser (Perfetto JSON is auto-generated)
+# Upload trace.json.gz to https://ui.perfetto.dev
+
+# Or query the SQLite database directly
+sqlite3 trace.db "SELECT * FROM top LIMIT 10;"
 ```
 
 ## How it works
@@ -77,8 +99,11 @@ SELECT * FROM busy;
 ## Tests
 
 ```bash
-# Run non-GPU tests (41 tests)
-cd tests && pytest -v
+# Run CPU-only tests (no GPU required)
+make test-cpu
+
+# GPU smoke test (requires ROCm GPU)
+make test-gpu
 
 # CI runs automatically on push via GitHub Actions
 ```

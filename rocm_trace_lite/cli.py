@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""rpd-lite: Self-contained GPU kernel profiler for ROCm."""
+"""rtl: Self-contained GPU kernel profiler for ROCm."""
 import argparse
 import sys
 
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="rpd-lite",
+        prog="rtl",
         description="Self-contained GPU kernel profiler for ROCm. Zero roctracer dependency.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {get_version()}")

@@ -8,7 +8,7 @@ import sqlite3
 def run_trace(args):
     cmd = [c for c in args.cmd if c != "--"]
     if not cmd:
-        print("Error: no command specified. Usage: rpd-lite trace python3 script.py", file=sys.stderr)
+        print("Error: no command specified. Usage: rtl trace python3 script.py", file=sys.stderr)
         sys.exit(1)
 
     from rocm_trace_lite import get_lib_path
