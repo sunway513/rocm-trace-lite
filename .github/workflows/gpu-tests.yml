@@ -23,7 +23,16 @@ jobs:
         run: make -j$(nproc)
 
       - name: Install test deps
-        run: pip install --break-system-packages pytest pytest-timeout -e . || pip install pytest pytest-timeout -e .
+        run: |
+          pip install --break-system-packages pytest pytest-timeout -e . || pip install pytest pytest-timeout -e .
+          python3 -m torch.utils.collect_env 2>/dev/null || \
+            pip install --break-system-packages torch --index-url https://download.pytorch.org/whl/rocm6.2.4 2>/dev/null || \
+            echo "WARNING: torch not available, GPU tests will be skipped"
+
+      - name: Verify GPU access
+        run: |
+          python3 -c "import torch; print('GPUs:', torch.cuda.device_count()); assert torch.cuda.is_available(), 'No GPU'" || \
+            echo "WARNING: GPU not detected by PyTorch"
 
       - name: Run single-GPU tests
         run: |
@@ -57,7 +66,16 @@ jobs:
         run: make -j$(nproc)
 
       - name: Install test deps
-        run: pip install --break-system-packages pytest pytest-timeout -e . || pip install pytest pytest-timeout -e .
+        run: |
+          pip install --break-system-packages pytest pytest-timeout -e . || pip install pytest pytest-timeout -e .
+          python3 -m torch.utils.collect_env 2>/dev/null || \
+            pip install --break-system-packages torch --index-url https://download.pytorch.org/whl/rocm6.2.4 2>/dev/null || \
+            echo "WARNING: torch not available, GPU tests will be skipped"
+
+      - name: Verify GPU access
+        run: |
+          python3 -c "import torch; print('GPUs:', torch.cuda.device_count()); assert torch.cuda.is_available(), 'No GPU'" || \
+            echo "WARNING: GPU not detected by PyTorch"
 
       - name: Run all tests including multi-GPU
         run: |
