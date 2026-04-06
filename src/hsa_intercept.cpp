@@ -159,9 +159,10 @@ static void completion_worker() {
         }
 
         if (abandoned) {
-            // Forward original signal even during shutdown to avoid hangs
+            // Forward original signal even during shutdown to avoid hangs.
+            // Use screlease to ensure memory visibility for any waiter.
             if (dd->original_signal.handle != 0) {
-                g_orig_core.hsa_signal_store_relaxed_fn(dd->original_signal, 0);
+                g_orig_core.hsa_signal_store_screlease_fn(dd->original_signal, 0);
             }
             release_signal(dd->profiling_signal);
             delete dd;
@@ -184,9 +185,11 @@ static void completion_worker() {
             g_recorded_ok.fetch_add(1, std::memory_order_relaxed);
         }
 
-        // Forward completion to original signal (if app set one)
+        // Forward completion to original signal (if app set one).
+        // HSA spec: runtime decrements signal on packet completion.
+        // Use screlease for proper memory ordering with any waiter.
         if (dd->original_signal.handle != 0) {
-            g_orig_core.hsa_signal_store_relaxed_fn(dd->original_signal, 0);
+            g_orig_core.hsa_signal_store_screlease_fn(dd->original_signal, 0);
         }
 
         // Return profiling signal to pool
@@ -254,22 +257,32 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
         return;
     }
 
-    // We need to potentially modify packets (inject profiling signals).
-    // Make a mutable copy of the packet buffer.
-    const size_t pkt_size = sizeof(hsa_kernel_dispatch_packet_t);  // 64 bytes, same for all AQL packets
-    char stack_buf[64 * 64];  // stack space for up to 64 packets
+    // Make a mutable copy of the packet buffer to inject profiling signals.
+    // Stack buffer for common case (count <= 64), heap fallback for large batches.
+    const size_t pkt_size = sizeof(hsa_kernel_dispatch_packet_t);  // 64 bytes (AQL packet)
+    const size_t buf_bytes = count * pkt_size;
+    char stack_buf[64 * 64];
+    std::vector<char> heap_buf;
     char* mod_buf;
-    if (count * pkt_size <= sizeof(stack_buf)) {
+    if (buf_bytes <= sizeof(stack_buf)) {
         mod_buf = stack_buf;
     } else {
-        mod_buf = new char[count * pkt_size];
+        heap_buf.resize(buf_bytes);
+        mod_buf = heap_buf.data();
     }
-    memcpy(mod_buf, in_packets, count * pkt_size);
+    memcpy(mod_buf, in_packets, buf_bytes);
 
-    // Track dispatch data to enqueue after writer()
-    DispatchData* pending[64];
-    DispatchData** pending_heap = nullptr;
-    DispatchData** dd_list = (count <= 64) ? pending : (pending_heap = new DispatchData*[count]);
+    // Collect dispatch data to enqueue after writer().
+    // Stack array for common case, vector fallback for large batches.
+    DispatchData* pending_stack[64];
+    std::vector<DispatchData*> pending_vec;
+    DispatchData** dd_list;
+    if (count <= 64) {
+        dd_list = pending_stack;
+    } else {
+        pending_vec.resize(count);
+        dd_list = pending_vec.data();
+    }
     uint64_t dd_count = 0;
 
     for (uint64_t i = 0; i < count; i++) {
@@ -317,9 +330,6 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
         }
         g_work_cv.notify_one();
     }
-
-    if (mod_buf != stack_buf) delete[] mod_buf;
-    delete[] pending_heap;
 }
 
 // ---- HSA API table replacement ----
@@ -422,7 +432,7 @@ static void shutdown() {
             g_work_queue.pop_front();
             // Forward original signals to avoid app hangs
             if (dd->original_signal.handle != 0) {
-                g_orig_core.hsa_signal_store_relaxed_fn(dd->original_signal, 0);
+                g_orig_core.hsa_signal_store_screlease_fn(dd->original_signal, 0);
             }
             release_signal(dd->profiling_signal);
             delete dd;
