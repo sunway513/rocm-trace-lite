@@ -125,6 +125,12 @@ make test-gpu
 # CI runs automatically on push via GitHub Actions
 ```
 
+## Acknowledgments
+
+This project was inspired by and builds upon the work of:
+- **Jeff Daily**'s [ROCm Tracer for GPU (RTG)](https://github.com/ROCm/rtg_tracer) — pioneered the HSA_TOOLS_LIB interception approach for lightweight GPU kernel tracing
+- **Michael Wootton**'s [rocmProfileData (RPD)](https://github.com/ROCm/rocmProfileData) — established the SQLite-based trace format and ecosystem tools that rocm-trace-lite is compatible with
+
 ## License
 
 MIT
