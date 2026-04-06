@@ -20,7 +20,10 @@ jobs:
           echo "sqlite3-dev may already be installed"
 
       - name: Build librpd_lite.so
-        run: make -j$(nproc)
+        run: |
+          make -j$(nproc)
+          mkdir -p rocm_trace_lite/lib
+          cp librpd_lite.so rocm_trace_lite/lib/
 
       - name: Install test deps
         run: |
@@ -63,7 +66,10 @@ jobs:
           echo "sqlite3-dev may already be installed"
 
       - name: Build librpd_lite.so
-        run: make -j$(nproc)
+        run: |
+          make -j$(nproc)
+          mkdir -p rocm_trace_lite/lib
+          cp librpd_lite.so rocm_trace_lite/lib/
 
       - name: Install test deps
         run: |
