@@ -47,12 +47,29 @@ def _trace_and_query(tmp_path, script_code, query="SELECT count(*) FROM rocpd_op
     return val
 
 
+def _dedent_script(code):
+    """Dedent a script that may be PREAMBLE (col 0) + indented block."""
+    # Split into non-empty line groups and dedent each independently
+    groups = []
+    current = []
+    for line in code.splitlines(True):
+        if line.strip() == "" and current:
+            groups.append(textwrap.dedent("".join(current)))
+            current = []
+            groups.append(line)
+        else:
+            current.append(line)
+    if current:
+        groups.append(textwrap.dedent("".join(current)))
+    return "".join(groups).strip() + "\n"
+
+
 def _trace_and_connect(tmp_path, script_code, timeout=120):
     """Run a Python script under rtl trace, return an open sqlite3 connection."""
     trace = str(tmp_path / "trace.db")
     script = str(tmp_path / "workload.py")
     with open(script, "w") as f:
-        f.write(textwrap.dedent(script_code))
+        f.write(_dedent_script(script_code))
     result = subprocess.run(
         [sys.executable, "-m", "rocm_trace_lite.cli", "trace",
          "-o", trace, sys.executable, script],
