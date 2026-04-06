@@ -47,7 +47,7 @@ static void lazy_init_db() {
     }
     if (g_db.open(filename)) {
         g_db_ready = true;
-        fprintf(stderr, "rpd_lite: lazy init, writing to %s\n", filename.c_str());
+        fprintf(stderr, "rtl: lazy init, writing to %s\n", filename.c_str());
         std::atexit([]() {
             g_db.flush();
             g_db.close();
@@ -147,7 +147,7 @@ GROUP BY gpuId;
 void TraceDB::create_schema() {
     char* err = nullptr;
     if (sqlite3_exec(db_, SCHEMA, nullptr, nullptr, &err) != SQLITE_OK) {
-        fprintf(stderr, "rpd_lite: schema error: %s\n", err);
+        fprintf(stderr, "rtl: schema error: %s\n", err);
         sqlite3_free(err);
     }
 }
@@ -155,7 +155,7 @@ void TraceDB::create_schema() {
 void TraceDB::begin_transaction() {
     char* err = nullptr;
     if (sqlite3_exec(db_, "BEGIN TRANSACTION", nullptr, nullptr, &err) != SQLITE_OK) {
-        fprintf(stderr, "rpd_lite: BEGIN failed: %s\n", err ? err : sqlite3_errmsg(db_));
+        fprintf(stderr, "rtl: BEGIN failed: %s\n", err ? err : sqlite3_errmsg(db_));
         if (err) sqlite3_free(err);
     }
 }
@@ -163,7 +163,7 @@ void TraceDB::begin_transaction() {
 void TraceDB::commit_transaction() {
     char* err = nullptr;
     if (sqlite3_exec(db_, "COMMIT", nullptr, nullptr, &err) != SQLITE_OK) {
-        fprintf(stderr, "rpd_lite: COMMIT failed: %s\n", err ? err : sqlite3_errmsg(db_));
+        fprintf(stderr, "rtl: COMMIT failed: %s\n", err ? err : sqlite3_errmsg(db_));
         if (err) sqlite3_free(err);
     }
     batch_count_ = 0;
@@ -171,7 +171,7 @@ void TraceDB::commit_transaction() {
 
 bool TraceDB::open(const std::string& filename) {
     if (sqlite3_open(filename.c_str(), &db_) != SQLITE_OK) {
-        fprintf(stderr, "rpd_lite: cannot open %s: %s\n", filename.c_str(), sqlite3_errmsg(db_));
+        fprintf(stderr, "rtl: cannot open %s: %s\n", filename.c_str(), sqlite3_errmsg(db_));
         return false;
     }
     // Performance pragmas
@@ -185,7 +185,7 @@ bool TraceDB::open(const std::string& filename) {
     auto prepare = [&](const char* sql, sqlite3_stmt** stmt, const char* label) -> bool {
         int rc = sqlite3_prepare_v2(db_, sql, -1, stmt, nullptr);
         if (rc != SQLITE_OK) {
-            fprintf(stderr, "rpd_lite: prepare '%s' failed: %s\n", label, sqlite3_errmsg(db_));
+            fprintf(stderr, "rtl: prepare '%s' failed: %s\n", label, sqlite3_errmsg(db_));
             return false;
         }
         return true;
@@ -235,7 +235,7 @@ void TraceDB::close() {
     sqlite3_finalize(stmt_roctx_);
     sqlite3_close(db_);
     db_ = nullptr;
-    fprintf(stderr, "rpd_lite: trace finalized (%" PRIu64 " records written", records_written_);
+    fprintf(stderr, "rtl: trace finalized (%" PRIu64 " records written", records_written_);
     if (records_dropped_ > 0) {
         fprintf(stderr, ", %" PRIu64 " DROPPED", records_dropped_);
     }

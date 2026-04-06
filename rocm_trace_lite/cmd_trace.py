@@ -5,6 +5,107 @@ import subprocess
 import sqlite3
 
 
+def _preflight_check(lib_path):
+    """Advisory check: verify the profiler library and its dependencies.
+
+    Checks (all advisory — prints warnings but never blocks tracing):
+      1. librpd_lite.so exists
+      2. librpd_lite.so dependencies are resolvable (advisory ldd check)
+      3. libhsa-runtime64.so is findable on disk
+      4. HSA_TOOLS_LIB is not already set to a conflicting value
+
+    Returns True if all checks pass, False if any warning was emitted.
+    """
+    ok = True
+
+    def warn(msg):
+        print("rtl: WARNING: {}".format(msg), file=sys.stderr)
+
+    def info(msg):
+        print("rtl: {}".format(msg), file=sys.stderr)
+
+    # 1. Check librpd_lite.so exists
+    if not os.path.isfile(lib_path):
+        warn("librpd_lite.so not found at {}".format(lib_path))
+        return False
+
+    info("librpd_lite.so OK ({})".format(lib_path))
+
+    # 2. Advisory dependency check via ldd (avoids loading the library into
+    #    this Python process, which would run .so constructors / HSA OnLoad)
+    hsa_missing_in_ldd = False
+    try:
+        ldd_out = subprocess.run(
+            ["ldd", lib_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=5
+        )
+        if ldd_out.returncode == 0:
+            for line in ldd_out.stdout.splitlines():
+                if "not found" in line:
+                    lib_name = line.split("=>")[0].strip() if "=>" in line else line.strip()
+                    warn("missing dependency: {}".format(lib_name))
+                    if "libhsa-runtime64" in line:
+                        hsa_missing_in_ldd = True
+                        warn("ROCm HSA runtime is missing")
+                        _suggest_rocm_paths()
+                    elif "libsqlite3" in line:
+                        warn("install with: apt install libsqlite3-dev")
+                    ok = False
+    except (OSError, subprocess.TimeoutExpired):
+        pass  # ldd not available, skip
+
+    # 3. Check ROCm / HSA runtime on disk (only suggest LD_LIBRARY_PATH
+    #    fix if ldd actually failed to resolve it — the loader may find it
+    #    via RPATH, ld.so.cache, or default system paths)
+    rocm_path = os.environ.get("ROCM_PATH") or os.environ.get("HIP_PATH")
+    search_dirs = ["/opt/rocm/lib", "/opt/rocm/lib64"]
+    if rocm_path:
+        search_dirs.insert(0, os.path.join(rocm_path, "lib"))
+        search_dirs.insert(1, os.path.join(rocm_path, "lib64"))
+
+    hsa_found = False
+    for d in search_dirs:
+        hsa_lib = os.path.join(d, "libhsa-runtime64.so")
+        if os.path.exists(hsa_lib):
+            hsa_found = True
+            info("libhsa-runtime64.so OK ({})".format(hsa_lib))
+            if hsa_missing_in_ldd:
+                warn("  fix: export LD_LIBRARY_PATH={}:$LD_LIBRARY_PATH".format(d))
+            break
+
+    if not hsa_found:
+        warn("libhsa-runtime64.so not found in any standard ROCm path")
+        _suggest_rocm_paths()
+        ok = False
+
+    # 4. Check for conflicting HSA_TOOLS_LIB
+    existing = os.environ.get("HSA_TOOLS_LIB")
+    if existing and existing != lib_path:
+        warn("HSA_TOOLS_LIB already set to: {}".format(existing))
+        warn("  rtl will override it with: {}".format(lib_path))
+
+    return ok
+
+
+def _suggest_rocm_paths():
+    """Print suggestions for finding ROCm."""
+
+    def warn(msg):
+        print("rtl: WARNING: {}".format(msg), file=sys.stderr)
+    rocm_candidates = []
+    for d in ["/opt/rocm/lib", "/usr/lib/x86_64-linux-gnu"]:
+        if os.path.isdir(d):
+            hsa = os.path.join(d, "libhsa-runtime64.so")
+            if os.path.exists(hsa):
+                rocm_candidates.append(d)
+    if rocm_candidates:
+        warn("  found ROCm libs at: {}".format(", ".join(rocm_candidates)))
+        warn("  fix: export LD_LIBRARY_PATH={}:$LD_LIBRARY_PATH".format(rocm_candidates[0]))
+    else:
+        warn("  ROCm does not appear to be installed")
+        warn("  install ROCm or set ROCM_PATH/LD_LIBRARY_PATH to your ROCm installation")
+
+
 def run_trace(args):
     cmd = [c for c in args.cmd if c != "--"]
     if not cmd:
@@ -13,6 +114,10 @@ def run_trace(args):
 
     from rocm_trace_lite import get_lib_path
     lib = get_lib_path()
+
+    # Advisory preflight: warn about missing deps, never block
+    _preflight_check(lib)
+
     output = args.output
 
     # Multi-process safety: use %p pattern so each process writes its own file.

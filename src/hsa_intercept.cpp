@@ -97,7 +97,7 @@ static void release_signal(hsa_signal_t sig) {
     }
 }
 
-// ---- Diagnostic counters (Issue #31 triage) ----
+// ---- Diagnostic counters ----
 static std::atomic<uint64_t> g_total_intercepts{0};
 static std::atomic<uint64_t> g_drop_shutdown{0};
 static std::atomic<uint64_t> g_drop_not_kernel{0};
