@@ -69,7 +69,7 @@ jobs:
         run: pip install ruff
 
       - name: Lint Python
-        run: ruff check tools/rpd2trace.py tests/ --select=E,F,W --ignore=E501
+        run: ruff check rocm_trace_lite/ tools/rpd2trace.py tests/ --select=E,F,W --ignore=E501,E402
 
       - name: Shell syntax
         run: bash -n tools/rpd_lite.sh
