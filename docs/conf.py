@@ -4,7 +4,7 @@
 project = "rocm-trace-lite"
 copyright = "2026, AMD"
 author = "AMD AI Software Engineering"
-release = "0.1.1"
+release = "0.2.0"
 
 extensions = [
     "myst_parser",

@@ -25,6 +25,9 @@ git clone https://github.com/sunway513/rocm-trace-lite.git
 cd rocm-trace-lite
 make -j
 
+# Install the shared library system-wide
+sudo make install
+
 # Install CLI tools
 pip install -e .
 ```
