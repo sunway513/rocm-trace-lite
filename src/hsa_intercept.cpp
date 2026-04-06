@@ -98,16 +98,25 @@ static void completion_worker() {
             g_work_queue.pop_front();
         }
 
-        // Blocking wait for kernel completion (with timeout to avoid infinite hang)
-        hsa_signal_value_t wait_val = g_orig_core.hsa_signal_wait_scacquire_fn(
-            dd->profiling_signal, HSA_SIGNAL_CONDITION_LT, 1,
-            UINT64_MAX, HSA_WAIT_STATE_BLOCKED);
-
-        if (wait_val >= 1) {
-            // Signal wait returned without completion (shouldn't happen with UINT64_MAX)
-            fprintf(stderr, "rpd_lite: warning: signal wait returned %ld for dispatch %lu\n",
-                    (long)wait_val, dd->dispatch_id);
+        // Wait for kernel completion with bounded timeout.
+        // Uses 100ms timeout + poll loop so shutdown can interrupt.
+        // Normal path: kernel completes in microseconds, first wait returns immediately.
+        // Only during shutdown does the timeout loop matter (adds <=100ms exit latency).
+        static constexpr uint64_t WAIT_TIMEOUT_NS = 100000000ULL;  // 100ms
+        hsa_signal_value_t wait_val;
+        while (true) {
+            wait_val = g_orig_core.hsa_signal_wait_scacquire_fn(
+                dd->profiling_signal, HSA_SIGNAL_CONDITION_LT, 1,
+                WAIT_TIMEOUT_NS, HSA_WAIT_STATE_BLOCKED);
+            if (wait_val < 1) break;  // signal completed
+            if (g_shutdown.load(std::memory_order_relaxed)) {
+                // Shutdown requested — abandon this dispatch, don't touch the signal
+                delete dd;
+                dd = nullptr;
+                break;
+            }
         }
+        if (!dd) continue;  // was abandoned during shutdown
 
         // Read GPU timestamps
         hsa_amd_profiling_dispatch_time_t time{};
@@ -368,13 +377,25 @@ static hsa_status_t agent_iterate_cb(hsa_agent_t agent, void* data) {
 }
 
 static void shutdown() {
-    // Signal worker to stop
+    static std::atomic<bool> shutdown_done{false};
+    if (shutdown_done.exchange(true)) return;  // prevent double shutdown
+
+    // Signal worker to stop — worker checks g_shutdown in its wait loop
     g_shutdown.store(true, std::memory_order_release);
     g_work_cv.notify_all();
 
-    // Join worker thread
+    // Join worker thread (will exit within 100ms due to timeout-based wait)
     if (g_worker.joinable()) {
         g_worker.join();
+    }
+
+    // Drain any remaining items in work queue (abandoned during shutdown)
+    {
+        std::lock_guard<std::mutex> lock(g_work_mutex);
+        while (!g_work_queue.empty()) {
+            delete g_work_queue.front();
+            g_work_queue.pop_front();
+        }
     }
 
     // Flush and close trace DB
