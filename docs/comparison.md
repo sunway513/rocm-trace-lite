@@ -11,7 +11,7 @@
 | **PC sampling** | No | Yes | No |
 | **roctx markers** | Built-in shim | libroctx64 | libroctx64 |
 | **Multi-GPU** | Automatic per-process merge | Manual | Manual |
-| **Output format** | RPD SQLite + Perfetto JSON | Various | RPD SQLite |
+| **Output format** | SQLite .db + Perfetto JSON | Various | RPD SQLite |
 | **Overhead** | Low (signal pool, single worker) | Medium-High | Medium |
 | **New HW bring-up** | Works immediately (HSA only) | Requires rocprofiler support | Requires roctracer support |
 

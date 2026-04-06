@@ -1,6 +1,6 @@
 # Output Format
 
-rocm-trace-lite outputs SQLite databases compatible with the [RPD](https://github.com/ROCm/rocmProfileData) ecosystem.
+rocm-trace-lite outputs standard SQLite .db databases. The schema is compatible with [RPD](https://github.com/ROCm/rocmProfileData) ecosystem tools.
 
 ## Database schema
 
