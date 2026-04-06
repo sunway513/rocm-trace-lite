@@ -115,7 +115,6 @@ def _merge_traces(input_files, output_path):
     No ATTACH needed — avoids SQLite version compatibility issues.
     """
     import shutil
-    import tempfile
 
     # Use the largest file as the base (likely the main ModelRunner)
     input_files.sort(key=lambda f: os.path.getsize(f), reverse=True)
