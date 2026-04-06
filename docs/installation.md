@@ -51,15 +51,18 @@ rtl summary test.db
 
 ### Troubleshooting
 
-If `rtl trace` reports 0 GPU ops, the HSA runtime may not be finding `librtl.so`.
-Try setting `LD_PRELOAD` explicitly:
+If `rtl trace` reports 0 GPU ops:
 
-```bash
-LD_PRELOAD=$(python3 -c "from rocm_trace_lite import get_lib_path; print(get_lib_path())") \
-  rtl trace -o test.db python3 my_model.py
-```
-
-After `make install`, run `sudo ldconfig` to update the linker cache.
+1. **Check preflight output** — `rtl trace` prints diagnostic messages before
+   tracing. Look for warnings about missing `libhsa-runtime64.so` or `librtl.so`.
+2. **Multi-process workloads** — frameworks like ATOM/vLLM spawn GPU workers in
+   subprocesses. Set env vars globally before launching:
+   ```bash
+   export HSA_TOOLS_LIB=$(python3 -c "from rocm_trace_lite import get_lib_path; print(get_lib_path())")
+   export RPD_LITE_OUTPUT=trace_%p.db
+   python3 my_model.py
+   ```
+3. After `make install`, run `sudo ldconfig` to update the linker cache.
 
 ## Build targets
 

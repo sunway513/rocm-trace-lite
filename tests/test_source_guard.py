@@ -85,3 +85,21 @@ class TestSourceGuard:
         """rpd_lite.sh should have execute permission."""
         sh = os.path.join(TOOLS_DIR, "rpd_lite.sh")
         assert os.access(sh, os.X_OK), "tools/rpd_lite.sh is not executable"
+
+    def test_makefile_has_rpath(self):
+        """Makefile must embed RPATH so librtl.so finds libhsa-runtime64.so."""
+        makefile = os.path.join(REPO_ROOT, "Makefile")
+        with open(makefile) as f:
+            content = f.read()
+        assert "-rpath" in content or "RUNPATH" in content, (
+            "Makefile missing -rpath — librtl.so won't find deps without LD_PRELOAD"
+        )
+
+    def test_cmd_trace_sets_ld_library_path(self):
+        """cmd_trace.py must inject LD_LIBRARY_PATH for subprocess."""
+        import inspect
+        from rocm_trace_lite.cmd_trace import run_trace
+        source = inspect.getsource(run_trace)
+        assert "LD_LIBRARY_PATH" in source, (
+            "run_trace must set LD_LIBRARY_PATH in subprocess env"
+        )
