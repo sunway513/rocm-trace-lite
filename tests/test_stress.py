@@ -23,11 +23,9 @@ from rocm_trace_lite.cmd_trace import _generate_summary
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIB_PATH = os.path.join(REPO_ROOT, "librtl.so")
 
-try:
-    import torch
-    HAS_GPU = torch.cuda.is_available()
-except ImportError:
-    HAS_GPU = False
+from conftest import _rocm_gpu_available
+
+HAS_GPU = _rocm_gpu_available()
 
 gpu = pytest.mark.skipif(not HAS_GPU, reason="No GPU available")
 
