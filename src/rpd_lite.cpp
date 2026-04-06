@@ -120,7 +120,7 @@ SELECT
     ROUND(AVG(o.end - o.start), 1) AS AvgNs,
     MIN(o.end - o.start) AS MinNs,
     MAX(o.end - o.start) AS MaxNs,
-    ROUND(100.0 * SUM(o.end - o.start) / (SELECT SUM(end - start) FROM rocpd_op WHERE end > start AND o.gpuId >= 0), 2) AS Pct
+    ROUND(100.0 * SUM(o.end - o.start) / (SELECT SUM(end - start) FROM rocpd_op WHERE end > start AND gpuId >= 0), 2) AS Pct
 FROM rocpd_op o
 JOIN rocpd_string s ON o.description_id = s.id
 WHERE o.end > o.start AND o.gpuId >= 0

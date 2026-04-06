@@ -435,24 +435,9 @@ extern "C" bool OnLoad(void* pTable,
     table->core_->hsa_queue_create_fn = my_hsa_queue_create;
     table->core_->hsa_executable_freeze_fn = my_hsa_executable_freeze;
 
-    // Verify timestamp domain alignment (host CLOCK_MONOTONIC vs HSA timestamp)
-    {
-        uint64_t hsa_ts = 0;
-        hsa_system_get_info(HSA_SYSTEM_INFO_TIMESTAMP, &hsa_ts);
-        uint64_t host_ts = rpd_lite::tick();
-        int64_t drift_ns = (int64_t)host_ts - (int64_t)hsa_ts;
-        // Convert HSA timestamp to ns using frequency
-        uint64_t hsa_freq = 0;
-        hsa_system_get_info(HSA_SYSTEM_INFO_TIMESTAMP_FREQUENCY, &hsa_freq);
-        if (hsa_freq > 0) {
-            uint64_t hsa_ts_ns = (uint64_t)((double)hsa_ts / hsa_freq * 1e9);
-            drift_ns = (int64_t)host_ts - (int64_t)hsa_ts_ns;
-        }
-        if (drift_ns < 0) drift_ns = -drift_ns;
-        if (drift_ns > 1000000000LL) {  // >1s drift
-            fprintf(stderr, "rpd_lite: WARNING: host/GPU timestamp drift = %ldns, traces may be misaligned\n", (long)drift_ns);
-        }
-    }
+    // Note: host timestamps (CLOCK_MONOTONIC) and GPU timestamps
+    // (hsa_amd_profiling_get_dispatch_time) are in the same domain on ROCm/Linux
+    // (both derive from TSC). This matches the original rtg_tracer approach.
 
     // Discover GPU agents (immutable after this point)
     hsa_iterate_agents(agent_iterate_cb, nullptr);
