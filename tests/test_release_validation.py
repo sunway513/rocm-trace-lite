@@ -379,6 +379,8 @@ class TestReleaseArtifacts:
 
     def test_cli_version(self):
         from rocm_trace_lite import __version__
+        env = os.environ.copy()
+        env["PYTHONPATH"] = "{}:{}".format(REPO_ROOT, env.get("PYTHONPATH", ""))
         r = subprocess.run([sys.executable, "-m", "rocm_trace_lite.cli", "--version"],
-                           stdout=subprocess.PIPE, universal_newlines=True)
+                           stdout=subprocess.PIPE, universal_newlines=True, env=env)
         assert __version__ in r.stdout
