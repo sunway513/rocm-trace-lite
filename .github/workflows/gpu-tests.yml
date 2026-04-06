@@ -23,7 +23,7 @@ jobs:
         run: make -j$(nproc)
 
       - name: Install test deps
-        run: pip install --break-system-packages pytest -e . || pip install pytest -e .
+        run: pip install --break-system-packages pytest pytest-timeout -e . || pip install pytest pytest-timeout -e .
 
       - name: Run single-GPU tests
         run: |
@@ -57,7 +57,7 @@ jobs:
         run: make -j$(nproc)
 
       - name: Install test deps
-        run: pip install --break-system-packages pytest -e . || pip install pytest -e .
+        run: pip install --break-system-packages pytest pytest-timeout -e . || pip install pytest pytest-timeout -e .
 
       - name: Run all tests including multi-GPU
         run: |
