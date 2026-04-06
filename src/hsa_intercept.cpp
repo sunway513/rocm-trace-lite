@@ -95,24 +95,36 @@ static void completion_worker() {
             g_work_queue.pop_front();
         }
 
-        // Blocking wait for kernel completion
-        g_orig_core.hsa_signal_wait_scacquire_fn(
+        // Blocking wait for kernel completion (with timeout to avoid infinite hang)
+        hsa_signal_value_t wait_val = g_orig_core.hsa_signal_wait_scacquire_fn(
             dd->profiling_signal, HSA_SIGNAL_CONDITION_LT, 1,
             UINT64_MAX, HSA_WAIT_STATE_BLOCKED);
+
+        if (wait_val >= 1) {
+            // Signal wait returned without completion (shouldn't happen with UINT64_MAX)
+            fprintf(stderr, "rpd_lite: warning: signal wait returned %ld for dispatch %lu\n",
+                    (long)wait_val, dd->dispatch_id);
+        }
 
         // Read GPU timestamps
         hsa_amd_profiling_dispatch_time_t time{};
         hsa_status_t status = g_orig_ext.hsa_amd_profiling_get_dispatch_time_fn(
             g_gpu_agents[dd->device_id], dd->profiling_signal, &time);
 
-        if (status == HSA_STATUS_SUCCESS && time.end > time.start) {
+        if (status != HSA_STATUS_SUCCESS) {
+            fprintf(stderr, "rpd_lite: warning: profiling_get_dispatch_time failed (status=%d) for dispatch %lu\n",
+                    (int)status, dd->dispatch_id);
+        } else if (time.end > time.start) {
             std::string name = lookup_kernel_name(dd->kernel_object);
             get_trace_db().record_kernel(name.c_str(), dd->device_id, dd->queue_id,
                                           time.start, time.end, dd->correlation_id);
         }
 
         // Destroy our profiling signal
-        g_orig_core.hsa_signal_destroy_fn(dd->profiling_signal);
+        hsa_status_t destroy_status = g_orig_core.hsa_signal_destroy_fn(dd->profiling_signal);
+        if (destroy_status != HSA_STATUS_SUCCESS) {
+            fprintf(stderr, "rpd_lite: warning: signal_destroy failed (status=%d)\n", (int)destroy_status);
+        }
         delete dd;
     }
 }
@@ -300,7 +312,10 @@ static hsa_status_t my_hsa_queue_create(
     if (status != HSA_STATUS_SUCCESS) return status;
 
     // Enable profiling on this queue
-    g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(*queue, true);
+    hsa_status_t prof_status = g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(*queue, true);
+    if (prof_status != HSA_STATUS_SUCCESS) {
+        fprintf(stderr, "rpd_lite: warning: failed to enable profiling on queue (status=%d)\n", (int)prof_status);
+    }
 
     // Build queue info
     auto* qi = new QueueInfo;
