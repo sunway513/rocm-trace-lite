@@ -3,4 +3,5 @@ __pycache__/
 *.o
 *.so
 *.db
+tests/gpu_workload
 docs/_build/

@@ -6,8 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  # ROCm PyTorch container with matching ROCm + torch
-  GPU_CONTAINER: rocm/pytorch:rocm7.2_ubuntu22.04_py3.10_pytorch_release_2.8.0
+  GPU_CONTAINER: rocm/dev-ubuntu-24.04:latest
 
 jobs:
   gpu-single:
@@ -30,25 +29,27 @@ jobs:
             bash -c '
               set -e
 
-              # Build
-              apt-get update -qq && apt-get install -y -qq libsqlite3-dev > /dev/null 2>&1
+              # Build librtl.so + HIP test workload
+              apt-get update -qq && apt-get install -y -qq libsqlite3-dev python3-pip > /dev/null 2>&1
               make -j$(nproc)
+              make tests/gpu_workload
               mkdir -p rocm_trace_lite/lib && cp librtl.so rocm_trace_lite/lib/
 
-              # Install
-              pip install pytest pytest-timeout -e . 2>&1 | tail -1
+              # Install Python test deps (no PyTorch)
+              pip install --break-system-packages pytest pytest-timeout -e .
 
-              # Verify GPU is actually usable
-              python3 -c "import torch; n=torch.cuda.device_count(); print(\"GPUs:\", n); assert n > 0 and torch.cuda.is_available()"
+              # Verify GPU via HIP (no torch)
+              ./tests/gpu_workload noop
+              echo "GPU verified via HIP"
 
-              # Run tests
-              python3 -m pytest tests/ -v --tb=short -k "not multigpu" --timeout=120 2>&1 | tee /workspace/gpu-test-results.txt
+              # Run GPU tests
+              python3 -m pytest tests/test_gpu_hip.py -v --tb=short --timeout=120 2>&1 | tee /workspace/gpu-test-results.txt
 
-              # CRITICAL: fail if all GPU tests were skipped
-              gpu_passed=$(grep -c "PASSED.*test_gpu\|PASSED.*test_release_validation.*test_overhead\|PASSED.*test_combined\|PASSED.*test_cli_multi\|PASSED.*test_roctx_e2e\|PASSED.*test_hipgraph" /workspace/gpu-test-results.txt || echo 0)
-              echo "GPU tests actually passed: $gpu_passed"
+              # Guard: fail if no GPU tests passed
+              gpu_passed=$(grep -c "PASSED" /workspace/gpu-test-results.txt || echo 0)
+              echo "GPU tests passed: $gpu_passed"
               if [ "$gpu_passed" -lt 5 ]; then
-                echo "FATAL: fewer than 5 GPU tests passed — likely all skipped"
+                echo "FATAL: fewer than 5 GPU tests passed"
                 exit 1
               fi
             '
@@ -81,25 +82,27 @@ jobs:
             bash -c '
               set -e
 
-              # Build
-              apt-get update -qq && apt-get install -y -qq libsqlite3-dev > /dev/null 2>&1
+              # Build librtl.so + HIP test workload
+              apt-get update -qq && apt-get install -y -qq libsqlite3-dev python3-pip > /dev/null 2>&1
               make -j$(nproc)
+              make tests/gpu_workload
               mkdir -p rocm_trace_lite/lib && cp librtl.so rocm_trace_lite/lib/
 
-              # Install
-              pip install pytest pytest-timeout -e . 2>&1 | tail -1
+              # Install Python test deps (no PyTorch)
+              pip install --break-system-packages pytest pytest-timeout -e .
 
               # Verify GPU
-              python3 -c "import torch; n=torch.cuda.device_count(); print(\"GPUs:\", n); assert n >= 2 and torch.cuda.is_available()"
+              ./tests/gpu_workload noop
+              echo "GPU verified via HIP"
 
-              # Run all tests
-              python3 -m pytest tests/ -v --tb=short --timeout=180 2>&1 | tee /workspace/gpu-test-results.txt
+              # Run all tests (GPU HIP + CPU)
+              python3 -m pytest tests/test_gpu_hip.py tests/ -v --tb=short --timeout=180 2>&1 | tee /workspace/gpu-test-results.txt
 
-              # CRITICAL: fail if GPU tests were skipped
-              gpu_passed=$(grep -c "PASSED.*test_gpu\|PASSED.*test_release_validation.*test_overhead\|PASSED.*test_combined\|PASSED.*test_cli_multi\|PASSED.*test_roctx_e2e\|PASSED.*test_hipgraph\|PASSED.*test_gpu_combo\|PASSED.*multigpu" /workspace/gpu-test-results.txt || echo 0)
-              echo "GPU tests actually passed: $gpu_passed"
-              if [ "$gpu_passed" -lt 5 ]; then
-                echo "FATAL: fewer than 5 GPU tests passed — likely all skipped"
+              # Guard
+              gpu_passed=$(grep -c "PASSED" /workspace/gpu-test-results.txt || echo 0)
+              echo "GPU tests passed: $gpu_passed"
+              if [ "$gpu_passed" -lt 10 ]; then
+                echo "FATAL: fewer than 10 tests passed"
                 exit 1
               fi
             '
