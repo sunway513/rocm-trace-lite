@@ -1,47 +1,13 @@
 """Tests for HIP Graph safety (issue #15, ADR-001).
 
-Validates timeout-based signal wait and clean shutdown.
-CPU tests verify architecture in source code.
-GPU tests verify no crash with graph replay.
+Validates timeout-based signal wait and clean shutdown via source code inspection.
+GPU graph tests are in test_gpu_hip.py (HIP-native, no torch).
 """
 import os
 import re
-import sqlite3
-import subprocess
-import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HSA_FILE = os.path.join(REPO_ROOT, "src", "hsa_intercept.cpp")
-LIB_PATH = os.path.join(REPO_ROOT, "librtl.so")
-
-
-def _has_gpu():
-    try:
-        r = subprocess.run(
-            [sys.executable, "-c", "import torch; assert torch.cuda.is_available()"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
-
-
-def _skip_if_no_gpu():
-    if not _has_gpu() or not os.path.exists(LIB_PATH):
-        import pytest
-        pytest.skip("No GPU or librtl.so not built")
-
-
-def _run_traced(script, trace_path, timeout=60):
-    env = os.environ.copy()
-    env["HSA_TOOLS_LIB"] = LIB_PATH
-    env["RTL_OUTPUT"] = trace_path
-    r = subprocess.run(
-        [sys.executable, "-c", script],
-        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        timeout=timeout
-    )
-    return r.returncode, r.stderr.decode()
 
 
 # ---- CPU tests: architecture validation ----
@@ -124,87 +90,4 @@ class TestShutdownSafety:
         assert os.path.exists(adr), "Missing ADR-001 document"
 
 
-# ---- GPU tests ----
-
-class TestGraphNoCrash:
-    """HIP Graph must not crash with rpd_lite loaded."""
-
-    def test_graph_20_replays(self, tmp_path):
-        _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.db")
-        script = """
-import torch
-x = torch.ones(64, 64, dtype=torch.int32, device="cuda")
-s = torch.cuda.Stream()
-with torch.cuda.stream(s): _ = x + 1
-s.synchronize()
-g = torch.cuda.CUDAGraph()
-with torch.cuda.graph(g, stream=s): y = x + 1
-for _ in range(20): g.replay()
-s.synchronize()
-print("ok")
-"""
-        rc, stderr = _run_traced(script, trace)
-        assert rc == 0, f"Crashed with 20 replays: {stderr[-500:]}"
-
-    def test_graph_100_gemm_replays(self, tmp_path):
-        _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.db")
-        script = """
-import torch
-x = torch.randn(256, 256, device="cuda")
-s = torch.cuda.Stream()
-with torch.cuda.stream(s): _ = x @ x
-s.synchronize()
-g = torch.cuda.CUDAGraph()
-with torch.cuda.graph(g, stream=s): y = x @ x
-for _ in range(100): g.replay()
-s.synchronize()
-print("ok")
-"""
-        rc, stderr = _run_traced(script, trace)
-        assert rc == 0, f"Crashed with 100 GEMM replays: {stderr[-500:]}"
-
-    def test_graph_correctness(self, tmp_path):
-        _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.db")
-        script = """
-import torch
-x = torch.ones(64, 64, dtype=torch.int32, device="cuda")
-s = torch.cuda.Stream()
-with torch.cuda.stream(s): _ = x + 1
-s.synchronize()
-g = torch.cuda.CUDAGraph()
-with torch.cuda.graph(g, stream=s): y = x + 1
-g.replay(); s.synchronize()
-assert y[0,0].item() == 2, f"Wrong value: {y[0,0].item()}"
-print("ok")
-"""
-        rc, stderr = _run_traced(script, trace)
-        assert rc == 0, f"Correctness failed: {stderr[-500:]}"
-
-    def test_mixed_eager_and_graph(self, tmp_path):
-        _skip_if_no_gpu()
-        trace = str(tmp_path / "trace.db")
-        script = """
-import torch
-x = torch.randn(128, 128, device="cuda")
-for _ in range(10): y = x @ x
-torch.cuda.synchronize()
-s = torch.cuda.Stream()
-with torch.cuda.stream(s): _ = x @ x
-s.synchronize()
-g = torch.cuda.CUDAGraph()
-with torch.cuda.graph(g, stream=s): y = x @ x
-for _ in range(50): g.replay()
-s.synchronize()
-for _ in range(10): y = x @ x
-torch.cuda.synchronize()
-print("ok")
-"""
-        rc, stderr = _run_traced(script, trace)
-        assert rc == 0, f"Mixed workload crashed: {stderr[-500:]}"
-        conn = sqlite3.connect(trace)
-        count = conn.execute("SELECT count(*) FROM rocpd_op").fetchone()[0]
-        conn.close()
-        assert count >= 10, f"Expected >=10 profiled ops, got {count}"
+# GPU graph tests moved to test_gpu_hip.py (HIP-native, no torch dependency)
