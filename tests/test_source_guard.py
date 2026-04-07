@@ -71,7 +71,7 @@ class TestSourceGuard:
         """Verify all expected files are present."""
         expected_src = ["rpd_lite.h", "rpd_lite.cpp", "hsa_intercept.cpp",
                         "roctx_shim.cpp", "hip_intercept.cpp"]
-        expected_tools = ["rpd_lite.sh", "rpd2trace.py"]
+        expected_tools = ["rtl.sh", "rpd2trace.py"]
         expected_root = ["Makefile"]
 
         for fname in expected_src:
@@ -82,9 +82,9 @@ class TestSourceGuard:
             assert os.path.exists(os.path.join(REPO_ROOT, fname)), f"Missing {fname}"
 
     def test_rpd_lite_sh_is_executable(self):
-        """rpd_lite.sh should have execute permission."""
-        sh = os.path.join(TOOLS_DIR, "rpd_lite.sh")
-        assert os.access(sh, os.X_OK), "tools/rpd_lite.sh is not executable"
+        """rtl.sh should have execute permission."""
+        sh = os.path.join(TOOLS_DIR, "rtl.sh")
+        assert os.access(sh, os.X_OK), "tools/rtl.sh is not executable"
 
     def test_makefile_has_rpath(self):
         """Makefile must embed RPATH so librtl.so finds libhsa-runtime64.so."""

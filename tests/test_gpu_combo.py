@@ -52,7 +52,7 @@ def _run_traced(script, trace_path, timeout=120):
     """Run a Python script string with rpd_lite tracing."""
     env = os.environ.copy()
     env["HSA_TOOLS_LIB"] = LIB_PATH
-    env["RPD_LITE_OUTPUT"] = trace_path
+    env["RTL_OUTPUT"] = trace_path
     r = subprocess.run(
         [sys.executable, "-c", script],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -1241,7 +1241,7 @@ dist.destroy_process_group()
         lib = get_lib_path()
         env = os.environ.copy()
         env["HSA_TOOLS_LIB"] = lib
-        env["RPD_LITE_OUTPUT"] = str(tmp_path / "trace_%p.db")
+        env["RTL_OUTPUT"] = str(tmp_path / "trace_%p.db")
 
         result = subprocess.run(
             [sys.executable, "-m", "torch.distributed.run",

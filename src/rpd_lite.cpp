@@ -38,7 +38,8 @@ static std::once_flag g_init_flag;
 static bool g_db_ready = false;
 
 static void lazy_init_db() {
-    const char* env_file = getenv("RPD_LITE_OUTPUT");
+    const char* env_file = getenv("RTL_OUTPUT");
+    if (!env_file) env_file = getenv("RPD_LITE_OUTPUT");  // backward compat
     std::string filename = env_file ? env_file : "trace.db";
     // Per-process trace file: replace %p with PID for multi-process safety
     auto pos = filename.find("%p");

@@ -1,12 +1,12 @@
 #!/bin/bash
-# rpd_lite.sh — Launch a command with rpd_lite profiling enabled
+# rtl.sh — Launch a command with rtl profiling enabled
 #
-# Usage: rpd_lite.sh [options] command [args...]
+# Usage: rtl.sh [options] command [args...]
 #   -o FILE   Output trace file (default: trace.db)
 #
 # Example:
-#   rpd_lite.sh python my_model.py
-#   rpd_lite.sh -o model_trace.db python -m atom.serve ...
+#   rtl.sh python my_model.py
+#   rtl.sh -o model_trace.db python -m atom.serve ...
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="${SCRIPT_DIR}/librtl.so"
@@ -39,7 +39,7 @@ fi
 rm -f "$OUTPUT"
 echo "rpd_lite: tracing to $OUTPUT"
 
-RPD_LITE_OUTPUT="$OUTPUT" \
+RTL_OUTPUT="$OUTPUT" \
 HSA_TOOLS_LIB="$LIB" \
 "$@"
 

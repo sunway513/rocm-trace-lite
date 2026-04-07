@@ -30,11 +30,11 @@ def worker():
 
     # Diagnostics: print env inheritance proof
     hsa_tools = os.environ.get("HSA_TOOLS_LIB", "<NOT SET>")
-    rpd_output = os.environ.get("RPD_LITE_OUTPUT", "<NOT SET>")
+    rpd_output = os.environ.get("RTL_OUTPUT", "<NOT SET>")
     print(f"[rank {rank}] PID={os.getpid()} LOCAL_RANK={local_rank} "
           f"WORLD_SIZE={world_size}", flush=True)
     print(f"[rank {rank}] HSA_TOOLS_LIB={hsa_tools}", flush=True)
-    print(f"[rank {rank}] RPD_LITE_OUTPUT={rpd_output}", flush=True)
+    print(f"[rank {rank}] RTL_OUTPUT={rpd_output}", flush=True)
 
     # Set device
     torch.cuda.set_device(local_rank)  # maps to HIP device on ROCm
