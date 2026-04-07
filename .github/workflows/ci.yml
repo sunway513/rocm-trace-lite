@@ -31,7 +31,7 @@ jobs:
 
       - name: All files present
         run: |
-          for f in src/rpd_lite.h src/rpd_lite.cpp src/hsa_intercept.cpp \
+          for f in src/trace_db.h src/trace_db.cpp src/hsa_intercept.cpp \
                    src/roctx_shim.cpp src/hip_intercept.cpp \
                    tools/rpd2trace.py tools/rtl.sh Makefile; do
             test -f $f || { echo "MISSING: $f"; exit 1; }

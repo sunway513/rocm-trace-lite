@@ -188,7 +188,7 @@ class TestZeroOpsMessage:
 
 
 class TestStderrPrefix:
-    """Verify C++ source uses 'rtl:' prefix, not 'rpd_lite:'."""
+    """Verify C++ source uses 'rtl:' prefix, not 'trace_db:'."""
 
     def _read_src(self, filename):
         src_dir = os.path.join(os.path.dirname(__file__), "..", "src")
@@ -198,15 +198,15 @@ class TestStderrPrefix:
 
     def test_hsa_intercept_uses_rtl_prefix(self):
         src = self._read_src("hsa_intercept.cpp")
-        assert '"rpd_lite:' not in src
+        assert '"trace_db:' not in src
         assert '"rtl:' in src
 
-    def test_rpd_lite_cpp_uses_rtl_prefix(self):
-        src = self._read_src("rpd_lite.cpp")
-        assert '"rpd_lite:' not in src
+    def test_trace_db_cpp_uses_rtl_prefix(self):
+        src = self._read_src("trace_db.cpp")
+        assert '"trace_db:' not in src
         assert '"rtl:' in src
 
     def test_roctx_shim_uses_rtl_prefix(self):
         src = self._read_src("roctx_shim.cpp")
-        assert '"rpd_lite:' not in src
+        assert '"trace_db:' not in src
         assert '"rtl:' in src

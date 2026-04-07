@@ -18,7 +18,7 @@ LDFLAGS = -shared -rdynamic \
           -ldl -lpthread
 
 SRCDIR = src
-SRCS = rpd_lite.cpp hip_intercept.cpp roctx_shim.cpp hsa_intercept.cpp
+SRCS = trace_db.cpp hip_intercept.cpp roctx_shim.cpp hsa_intercept.cpp
 OBJS = $(addprefix $(SRCDIR)/,$(SRCS:.cpp=.o))
 TARGET = librtl.so
 
