@@ -63,6 +63,9 @@ static std::unordered_map<uint64_t, QueueInfo> g_queue_map;  // keyed by hsa_que
 
 static std::atomic<uint64_t> g_dispatch_id{0};
 
+// Whether queue intercept is available (checked in OnLoad via probe call)
+static bool g_intercept_available = false;
+
 // ---- Profiling signal pool ----
 // Reuse HSA signals to avoid per-dispatch creation overhead.
 static std::mutex g_pool_mutex;
@@ -412,12 +415,27 @@ static hsa_status_t my_hsa_queue_create(
     void* data, uint32_t private_segment_size,
     uint32_t group_segment_size, hsa_queue_t** queue) {
 
-    // Create interceptible queue
+    // If intercept is not available, pass through to original queue_create.
+    if (!g_intercept_available) {
+        return g_orig_core.hsa_queue_create_fn(agent, size, type, callback, data,
+                                                private_segment_size, group_segment_size, queue);
+    }
+
+    // Create interceptible queue.
+    // hsa_amd_queue_intercept_create may reject UINT32_MAX for segment sizes
+    // (HIP uses UINT32_MAX to mean "use default"), so clamp to 0.
+    uint32_t safe_priv_seg = (private_segment_size == UINT32_MAX) ? 0 : private_segment_size;
+    uint32_t safe_grp_seg = (group_segment_size == UINT32_MAX) ? 0 : group_segment_size;
     hsa_status_t status = g_orig_ext.hsa_amd_queue_intercept_create_fn(
         agent, size, type, callback, data,
-        private_segment_size, group_segment_size, queue);
+        safe_priv_seg, safe_grp_seg, queue);
 
-    if (status != HSA_STATUS_SUCCESS) return status;
+    if (status != HSA_STATUS_SUCCESS) {
+        fprintf(stderr, "rtl: warning: intercept_create failed (0x%x), using plain queue\n",
+                (unsigned)status);
+        return g_orig_core.hsa_queue_create_fn(agent, size, type, callback, data,
+                                                private_segment_size, group_segment_size, queue);
+    }
 
     // Enable profiling on this queue
     hsa_status_t prof_status = g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(*queue, true);
@@ -563,9 +581,26 @@ extern "C" bool OnLoad(void* pTable,
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
-    // Pre-allocate signal pool (256 initial for multi-GPU workloads)
-    g_signal_pool.reserve(512);
-    for (int i = 0; i < 256; i++) {
+    // Probe: check if hsa_amd_queue_intercept_create is functional.
+    if (!g_gpu_agents.empty()) {
+        hsa_queue_t* probe_q = nullptr;
+        hsa_status_t probe_st = g_orig_ext.hsa_amd_queue_intercept_create_fn(
+            g_gpu_agents[0], 64, HSA_QUEUE_TYPE_SINGLE, nullptr, nullptr,
+            0, 0, &probe_q);
+        if (probe_st == HSA_STATUS_SUCCESS && probe_q) {
+            g_intercept_available = true;
+            hsa_queue_destroy(probe_q);
+            fprintf(stderr, "rtl: queue intercept available (signal injection enabled)\n");
+        } else {
+            g_intercept_available = false;
+            fprintf(stderr, "rtl: queue intercept NOT available (0x%x) — profiling disabled\n",
+                    (unsigned)probe_st);
+        }
+    }
+
+    // Pre-allocate signal pool
+    g_signal_pool.reserve(128);
+    for (int i = 0; i < 64; i++) {
         hsa_signal_t sig;
         if (g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig) == HSA_STATUS_SUCCESS) {
             g_signal_pool.push_back(sig);
