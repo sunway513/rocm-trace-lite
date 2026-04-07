@@ -351,3 +351,128 @@ class TestMultiGPU:
             data = json.load(f)
         # Perfetto JSON should have process metadata for multiple GPUs
         assert isinstance(data, (list, dict))
+
+
+# =========================================================================
+# Roctx markers
+# =========================================================================
+
+
+@skip_no_workload
+@skip_no_lib
+class TestRoctxHIP:
+
+    def test_roctx_push_pop(self, tmp_path):
+        """roctx push/pop markers appear in trace."""
+        trace, r = _trace(tmp_path, ["roctx"])
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        conn = sqlite3.connect(trace)
+        markers = conn.execute(
+            "SELECT count(*) FROM rocpd_op o JOIN rocpd_string s "
+            "ON o.description_id=s.id WHERE s.string='outer_region'"
+        ).fetchone()[0]
+        ops = conn.execute("SELECT count(*) FROM rocpd_op WHERE gpuId >= 0").fetchone()[0]
+        conn.close()
+        assert markers >= 1, "roctx marker 'outer_region' not found"
+        assert ops >= 5, "Expected >= 5 kernel ops"
+
+    def test_roctx_mark(self, tmp_path):
+        """roctx mark appears in trace."""
+        trace, r = _trace(tmp_path, ["roctx"])
+        assert r.returncode == 0
+        conn = sqlite3.connect(trace)
+        marks = conn.execute(
+            "SELECT count(*) FROM rocpd_op o JOIN rocpd_string s "
+            "ON o.description_id=s.id WHERE s.string='checkpoint_1'"
+        ).fetchone()[0]
+        conn.close()
+        assert marks >= 1, "roctx mark 'checkpoint_1' not found"
+
+    def test_roctx_nested(self, tmp_path):
+        """Nested roctx ranges and start/stop captured."""
+        trace, r = _trace(tmp_path, ["roctx_nested"])
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        conn = sqlite3.connect(trace)
+        level0 = conn.execute(
+            "SELECT count(*) FROM rocpd_op o JOIN rocpd_string s "
+            "ON o.description_id=s.id WHERE s.string='level_0'"
+        ).fetchone()[0]
+        level1 = conn.execute(
+            "SELECT count(*) FROM rocpd_op o JOIN rocpd_string s "
+            "ON o.description_id=s.id WHERE s.string='level_1'"
+        ).fetchone()[0]
+        conn.close()
+        assert level0 >= 1, "level_0 not found"
+        assert level1 >= 1, "level_1 not found"
+
+    def test_roctx_start_stop(self, tmp_path):
+        """roctxRangeStartA/Stop captured."""
+        trace, r = _trace(tmp_path, ["roctx_nested"])
+        assert r.returncode == 0
+        conn = sqlite3.connect(trace)
+        ranges = conn.execute(
+            "SELECT count(*) FROM rocpd_op o JOIN rocpd_string s "
+            "ON o.description_id=s.id WHERE s.string='range_A'"
+        ).fetchone()[0]
+        conn.close()
+        assert ranges >= 1, "range_A not found"
+
+    def test_roctx_rapid_100(self, tmp_path):
+        """100 rapid marks all captured."""
+        trace, r = _trace(tmp_path, ["roctx_rapid", "100"])
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        conn = sqlite3.connect(trace)
+        total_markers = conn.execute(
+            "SELECT count(*) FROM rocpd_op WHERE gpuId < 0"
+        ).fetchone()[0]
+        conn.close()
+        assert total_markers >= 90, "Expected >= 90 marks, got {}".format(total_markers)
+
+    def test_roctx_not_in_top_view(self, tmp_path):
+        """roctx markers don't appear in kernel top view."""
+        trace, r = _trace(tmp_path, ["roctx"])
+        assert r.returncode == 0
+        conn = sqlite3.connect(trace)
+        top = conn.execute("SELECT * FROM top LIMIT 20").fetchall()
+        conn.close()
+        top_names = [row[0] for row in top]
+        assert "outer_region" not in top_names, "roctx marker in top view"
+        assert "checkpoint_1" not in top_names, "roctx mark in top view"
+
+
+# =========================================================================
+# HIP Graph
+# =========================================================================
+
+
+@skip_no_workload
+@skip_no_lib
+class TestHIPGraphHIP:
+
+    def test_graph_single_replay(self, tmp_path):
+        """Graph capture + 1 replay captured."""
+        trace, r = _trace(tmp_path, ["hipgraph", "1"])
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        ops = _query(trace, "SELECT count(*) FROM rocpd_op WHERE gpuId >= 0")[0]
+        assert ops >= 1, "Expected kernel ops from graph replay"
+
+    def test_graph_10_replays(self, tmp_path):
+        """10 graph replays — signal pool recycling."""
+        trace, r = _trace(tmp_path, ["hipgraph", "10"])
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        ops = _query(trace, "SELECT count(*) FROM rocpd_op WHERE gpuId >= 0")[0]
+        assert ops >= 5, "Expected ops from 10 replays, got {}".format(ops)
+
+    def test_graph_100_replays(self, tmp_path):
+        """100 graph replays — no hang, no crash."""
+        trace, r = _trace(tmp_path, ["hipgraph", "100"], timeout=60)
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        ops = _query(trace, "SELECT count(*) FROM rocpd_op WHERE gpuId >= 0")[0]
+        assert ops >= 10, "Expected ops from 100 replays"
+
+    def test_graph_multi_stream(self, tmp_path):
+        """Graph captured on stream 0, replayed on stream 1."""
+        trace, r = _trace(tmp_path, ["hipgraph_multi_stream"])
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        ops = _query(trace, "SELECT count(*) FROM rocpd_op WHERE gpuId >= 0")[0]
+        assert ops >= 1
