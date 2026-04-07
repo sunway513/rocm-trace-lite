@@ -563,9 +563,9 @@ extern "C" bool OnLoad(void* pTable,
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
-    // Pre-allocate signal pool (256 initial for multi-GPU workloads)
-    g_signal_pool.reserve(512);
-    for (int i = 0; i < 256; i++) {
+    // Pre-allocate signal pool
+    g_signal_pool.reserve(256);
+    for (int i = 0; i < 64; i++) {
         hsa_signal_t sig;
         if (g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig) == HSA_STATUS_SUCCESS) {
             g_signal_pool.push_back(sig);
