@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  GPU_CONTAINER: rocm/dev-ubuntu-24.04:latest
+
 jobs:
   gpu-single:
     name: GPU tests (single MI355X)
@@ -13,44 +16,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build deps
-        run: |
-          apt-get update && apt-get install -y libsqlite3-dev sqlite3 2>/dev/null || \
-          sudo apt-get update && sudo apt-get install -y libsqlite3-dev sqlite3 2>/dev/null || \
-          echo "sqlite3-dev may already be installed"
-
-      - name: Build librtl.so
-        run: |
-          make -j$(nproc)
-          mkdir -p rocm_trace_lite/lib
-          cp librtl.so rocm_trace_lite/lib/
-
-      - name: Install test deps
-        run: |
-          pip install --break-system-packages pytest pytest-timeout -e . || pip install pytest pytest-timeout -e .
-          python3 -m torch.utils.collect_env 2>/dev/null || \
-            pip install --break-system-packages torch --index-url https://download.pytorch.org/whl/rocm6.2.4 2>/dev/null || \
-            echo "WARNING: torch not available, GPU tests will be skipped"
-
-      - name: Verify GPU access
-        run: |
-          echo "=== ROCm SMI ==="
-          rocm-smi --showid || true
-          echo "=== HSA Agents ==="
-          ls -la /dev/kfd /dev/dri/render* 2>/dev/null || true
-          echo "=== PyTorch GPU ==="
-          python3 -c "import torch; n = torch.cuda.device_count(); print('GPUs:', n); assert n > 0" || {
-            echo "FATAL: No GPU visible to PyTorch — GPU tests cannot run"
-            exit 1
-          }
-
-      - name: Run single-GPU tests
+      - name: Run GPU tests in container
         run: |
           set -o pipefail
-          python3 -m pytest tests/ -v --tb=short \
-            -k "not multigpu" \
-            --timeout=120 \
-            2>&1 | tee gpu-test-results.txt
+          docker run --rm \
+            --device=/dev/kfd --device=/dev/dri \
+            --group-add render --group-add video \
+            --security-opt seccomp=unconfined \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            ${{ env.GPU_CONTAINER }} \
+            bash -c '
+              set -e
+
+              # Build librtl.so + HIP test workload
+              apt-get update -qq && apt-get install -y -qq libsqlite3-dev python3-pip > /dev/null 2>&1
+              make -j$(nproc)
+              make tests/gpu_workload
+              mkdir -p rocm_trace_lite/lib && cp librtl.so rocm_trace_lite/lib/
+
+              # Install Python test deps (no PyTorch)
+              pip install --break-system-packages pytest pytest-timeout -e .
+
+              # Verify GPU via HIP (no torch)
+              ./tests/gpu_workload noop
+              echo "GPU verified via HIP"
+
+              # Run GPU tests
+              python3 -m pytest tests/test_gpu_hip.py -v --tb=short --timeout=120 2>&1 | tee /workspace/gpu-test-results.txt
+
+              # Guard: fail if no GPU tests passed
+              gpu_passed=$(grep -c "PASSED" /workspace/gpu-test-results.txt || echo 0)
+              echo "GPU tests passed: $gpu_passed"
+              if [ "$gpu_passed" -lt 5 ]; then
+                echo "FATAL: fewer than 5 GPU tests passed"
+                exit 1
+              fi
+            '
 
       - name: Upload results
         if: always()
@@ -67,43 +69,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build deps
-        run: |
-          apt-get update && apt-get install -y libsqlite3-dev sqlite3 2>/dev/null || \
-          sudo apt-get update && sudo apt-get install -y libsqlite3-dev sqlite3 2>/dev/null || \
-          echo "sqlite3-dev may already be installed"
-
-      - name: Build librtl.so
-        run: |
-          make -j$(nproc)
-          mkdir -p rocm_trace_lite/lib
-          cp librtl.so rocm_trace_lite/lib/
-
-      - name: Install test deps
-        run: |
-          pip install --break-system-packages pytest pytest-timeout -e . || pip install pytest pytest-timeout -e .
-          python3 -m torch.utils.collect_env 2>/dev/null || \
-            pip install --break-system-packages torch --index-url https://download.pytorch.org/whl/rocm6.2.4 2>/dev/null || \
-            echo "WARNING: torch not available, GPU tests will be skipped"
-
-      - name: Verify GPU access
-        run: |
-          echo "=== ROCm SMI ==="
-          rocm-smi --showid || true
-          echo "=== HSA Agents ==="
-          ls -la /dev/kfd /dev/dri/render* 2>/dev/null || true
-          echo "=== PyTorch GPU ==="
-          python3 -c "import torch; n = torch.cuda.device_count(); print('GPUs:', n); assert n > 0" || {
-            echo "FATAL: No GPU visible to PyTorch — GPU tests cannot run"
-            exit 1
-          }
-
-      - name: Run all tests including multi-GPU
+      - name: Run GPU tests in container
         run: |
           set -o pipefail
-          python3 -m pytest tests/ -v --tb=short \
-            --timeout=180 \
-            2>&1 | tee gpu-test-results.txt
+          docker run --rm \
+            --device=/dev/kfd --device=/dev/dri \
+            --group-add render --group-add video \
+            --security-opt seccomp=unconfined \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            ${{ env.GPU_CONTAINER }} \
+            bash -c '
+              set -e
+
+              # Build librtl.so + HIP test workload
+              apt-get update -qq && apt-get install -y -qq libsqlite3-dev python3-pip > /dev/null 2>&1
+              make -j$(nproc)
+              make tests/gpu_workload
+              mkdir -p rocm_trace_lite/lib && cp librtl.so rocm_trace_lite/lib/
+
+              # Install Python test deps (no PyTorch)
+              pip install --break-system-packages pytest pytest-timeout -e .
+
+              # Verify GPU
+              ./tests/gpu_workload noop
+              echo "GPU verified via HIP"
+
+              # Run all tests (GPU HIP + CPU)
+              python3 -m pytest tests/test_gpu_hip.py tests/ -v --tb=short --timeout=180 2>&1 | tee /workspace/gpu-test-results.txt
+
+              # Guard
+              gpu_passed=$(grep -c "PASSED" /workspace/gpu-test-results.txt || echo 0)
+              echo "GPU tests passed: $gpu_passed"
+              if [ "$gpu_passed" -lt 10 ]; then
+                echo "FATAL: fewer than 10 tests passed"
+                exit 1
+              fi
+            '
 
       - name: Upload results
         if: always()

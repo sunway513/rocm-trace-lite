@@ -44,8 +44,13 @@ install: $(TARGET)
 	ldconfig
 	@echo "Installed to $(PREFIX)"
 
+GPU_WORKLOAD = tests/gpu_workload
+
+$(GPU_WORKLOAD): tests/gpu_workload.hip
+	hipcc -O2 -o $@ $< -lpthread
+
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(OBJS) $(TARGET) $(GPU_WORKLOAD)
 
 # Non-GPU tests (runs in CI)
 test-cpu:
@@ -53,11 +58,10 @@ test-cpu:
 
 test: test-cpu
 
-# GPU smoke test (requires ROCm GPU)
-test-gpu: $(TARGET)
+# GPU smoke test (requires ROCm GPU, no PyTorch needed)
+test-gpu: $(TARGET) $(GPU_WORKLOAD)
 	@echo "=== GPU smoke test ==="
-	HSA_TOOLS_LIB=$(CURDIR)/$(TARGET) \
-		python3 -c "import torch; x=torch.randn(512,512,device='cuda'); y=x@x; torch.cuda.synchronize(); print('OK')"
+	HSA_TOOLS_LIB=$(CURDIR)/$(TARGET) $(CURDIR)/$(GPU_WORKLOAD) gemm 256 10
 	@echo "=== Trace results ==="
 	sqlite3 trace.db "SELECT * FROM top LIMIT 10;" 2>/dev/null || true
 	sqlite3 trace.db "SELECT count(*) || ' kernel ops' FROM rocpd_op;" 2>/dev/null || true
