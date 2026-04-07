@@ -71,7 +71,7 @@ static bool g_intercept_available = false;
 // 256-slot ring buffer with per-slot atomic sequence numbers for ABA safety.
 // Head/tail on separate cache lines to prevent false sharing.
 
-static constexpr size_t CENTRAL_CAPACITY = 256;  // must be power of 2
+static constexpr size_t CENTRAL_CAPACITY = 4096;  // must be power of 2
 static constexpr size_t CENTRAL_MASK = CENTRAL_CAPACITY - 1;
 
 struct alignas(64) CentralSlot {
@@ -582,11 +582,19 @@ static void shutdown() {
     rpd_lite::get_trace_db().flush();
     rpd_lite::get_trace_db().close();
 
-    // Destroy signal pool (drain lock-free ring buffer)
+    // Destroy signal pool.
+    // At this point the system is quiesced: g_shutdown is true, the worker
+    // thread has been joined, and the work queue has been drained above.
+    // No concurrent acquire_signal/release_signal calls are possible.
+    // Safe to do a direct linear scan instead of using the concurrent pop path.
     {
-        hsa_signal_t sig;
-        while (central_try_pop(sig)) {
-            g_orig_core.hsa_signal_destroy_fn(sig);
+        uint64_t head = g_central_head.load(std::memory_order_relaxed);
+        uint64_t tail = g_central_tail.load(std::memory_order_relaxed);
+        for (uint64_t i = head; i < tail; i++) {
+            CentralSlot& slot = g_central_slots[i & CENTRAL_MASK];
+            if (slot.signal.handle != 0) {
+                g_orig_core.hsa_signal_destroy_fn(slot.signal);
+            }
         }
     }
 
@@ -643,7 +651,9 @@ extern "C" bool OnLoad(void* pTable,
         }
     }
 
-    // Initialize lock-free ring buffer slot sequences
+    // Initialize lock-free ring buffer (full reset for re-load safety)
+    g_central_head.store(0, std::memory_order_relaxed);
+    g_central_tail.store(0, std::memory_order_relaxed);
     for (size_t i = 0; i < CENTRAL_CAPACITY; i++) {
         g_central_slots[i].sequence.store(i, std::memory_order_relaxed);
     }
