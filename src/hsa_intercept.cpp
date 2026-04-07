@@ -9,7 +9,7 @@
  *     set completion_signal on most dispatches, so observe-only doesn't work)
  *   - Single worker thread processes completed dispatches from a queue
  *   - Original completion signals forwarded after profiling
- *   - Lock-free MPMC bounded ring buffer as central signal pool (no per-queue cache)
+ *   - Lock-free Treiber stack (LIFO) as central signal pool — tagged pointers prevent ABA
  *   - Clean shutdown: worker joined before DB close
  *
  * Dependencies: libhsa-runtime64 only (part of ROCm runtime)
@@ -53,71 +53,44 @@ static std::unordered_map<uint64_t, std::string> g_symbols;
 static std::vector<hsa_agent_t> g_gpu_agents;
 static std::mutex g_agent_mutex;
 
-// ---- Lock-free MPMC signal pool (central only, no per-queue cache) ----
-// Uses Dmitry Vyukov's bounded MPMC queue algorithm.
-// Multiple producers (release from worker) and multiple consumers (acquire from queue callbacks).
-// Power-of-2 capacity, atomic sequence numbers per slot to avoid ABA.
-// Fallback: hsa_signal_create/destroy when pool is empty/full (rare, outside any lock).
-static constexpr size_t CENTRAL_CAPACITY = 256;  // must be power of 2
-static constexpr size_t CENTRAL_MASK = CENTRAL_CAPACITY - 1;
+// ---- Lock-free Treiber stack signal pool with ABA protection ----
+// Uses tagged pointers (high 16 bits = generation counter, low 48 bits = node pointer)
+// packed into a single atomic<uint64_t> to prevent ABA hazard on x86-64.
+// Any thread may push (release) or pop (acquire) concurrently without a mutex.
+// Fallback: hsa_signal_create/destroy when pool empty/full (no lock held).
 
-struct alignas(64) CentralSlot {
-    std::atomic<uint64_t> sequence;
+struct SignalNode {
     hsa_signal_t signal;
+    SignalNode*  next;
 };
 
-static CentralSlot g_central_slots[CENTRAL_CAPACITY];
-static std::atomic<uint64_t> g_central_head alignas(64) {0};  // consumers
-static std::atomic<uint64_t> g_central_tail alignas(64) {0};  // producers
-
-// Try to dequeue one signal from central pool. Returns true on success.
-static bool central_try_pop(hsa_signal_t& out) {
-    uint64_t pos = g_central_head.load(std::memory_order_relaxed);
-    while (true) {
-        CentralSlot& slot = g_central_slots[pos & CENTRAL_MASK];
-        uint64_t seq = slot.sequence.load(std::memory_order_acquire);
-        int64_t diff = (int64_t)seq - (int64_t)(pos + 1);
-        if (diff == 0) {
-            // Slot is filled and ready to consume
-            if (g_central_head.compare_exchange_weak(pos, pos + 1,
-                    std::memory_order_relaxed, std::memory_order_relaxed)) {
-                out = slot.signal;
-                slot.sequence.store(pos + CENTRAL_CAPACITY, std::memory_order_release);
-                return true;
-            }
-        } else if (diff < 0) {
-            // Slot not yet filled — pool empty
-            return false;
-        } else {
-            // Another consumer advanced head — retry
-            pos = g_central_head.load(std::memory_order_relaxed);
-        }
-    }
+// Tagged-pointer bit helpers.
+// x86-64 canonical user-space addresses fit in bits 0-47; bits 48-63 unused.
+// We store a 16-bit generation counter in bits 48-63 to defeat ABA.
+static inline uint64_t pack(SignalNode* p, uint16_t gen) {
+    return (uint64_t(gen) << 48) | (reinterpret_cast<uint64_t>(p) & 0x0000FFFFFFFFFFFFULL);
+}
+static inline SignalNode* unpack_ptr(uint64_t raw) {
+    return reinterpret_cast<SignalNode*>(raw & 0x0000FFFFFFFFFFFFULL);
+}
+static inline uint16_t unpack_gen(uint64_t raw) {
+    return uint16_t(raw >> 48);
 }
 
-// Try to enqueue one signal to central pool. Returns true on success.
-static bool central_try_push(hsa_signal_t sig) {
-    uint64_t pos = g_central_tail.load(std::memory_order_relaxed);
-    while (true) {
-        CentralSlot& slot = g_central_slots[pos & CENTRAL_MASK];
-        uint64_t seq = slot.sequence.load(std::memory_order_acquire);
-        int64_t diff = (int64_t)seq - (int64_t)pos;
-        if (diff == 0) {
-            // Slot is empty and ready for production
-            if (g_central_tail.compare_exchange_weak(pos, pos + 1,
-                    std::memory_order_relaxed, std::memory_order_relaxed)) {
-                slot.signal = sig;
-                slot.sequence.store(pos + 1, std::memory_order_release);
-                return true;
-            }
-        } else if (diff < 0) {
-            // Pool full
-            return false;
-        } else {
-            // Another producer advanced tail — retry
-            pos = g_central_tail.load(std::memory_order_relaxed);
-        }
-    }
+// Stack state: atomic tagged pointer (packed gen + node*).
+static std::atomic<uint64_t> g_pool_top{0};   // 0 == empty stack
+static std::atomic<size_t>   g_pool_size{0};
+static constexpr size_t      SIGNAL_POOL_MAX = 4096;
+
+// Pre-allocated node slab — avoids per-push malloc on the hot path.
+// Index advances monotonically; slab entries are never freed individually.
+static SignalNode          g_node_slab[4096];
+static std::atomic<size_t> g_node_next{0};
+
+static SignalNode* alloc_node() {
+    size_t idx = g_node_next.fetch_add(1, std::memory_order_relaxed);
+    if (idx < 4096) return &g_node_slab[idx];
+    return new SignalNode;  // heap fallback — rare after pool stabilises
 }
 
 // Queue info: maps queue handle -> device index
@@ -130,28 +103,52 @@ static std::unordered_map<uint64_t, QueueInfo*> g_queue_map;  // keyed by hsa_qu
 
 static std::atomic<uint64_t> g_dispatch_id{0};
 
-// Acquire a profiling signal — try central pool first, fallback to hsa_signal_create
+// Acquire a profiling signal: pop from Treiber stack, fallback to hsa_signal_create.
 static hsa_signal_t acquire_signal() {
+    // Treiber stack pop with tagged-pointer CAS to prevent ABA.
+    while (true) {
+        uint64_t old_raw = g_pool_top.load(std::memory_order_acquire);
+        SignalNode* node = unpack_ptr(old_raw);
+        if (!node) break;  // stack empty
+        uint16_t gen = unpack_gen(old_raw);
+        uint64_t new_raw = pack(node->next, uint16_t(gen + 1));
+        if (g_pool_top.compare_exchange_weak(old_raw, new_raw,
+                std::memory_order_release, std::memory_order_relaxed)) {
+            g_pool_size.fetch_sub(1, std::memory_order_relaxed);
+            hsa_signal_t sig = node->signal;
+            g_orig_core.hsa_signal_store_relaxed_fn(sig, 1);
+            return sig;
+        }
+    }
+    // Stack empty — allocate a fresh HSA signal (no lock held).
     hsa_signal_t sig;
-    if (central_try_pop(sig)) {
-        g_orig_core.hsa_signal_store_relaxed_fn(sig, 1);
-        return sig;
-    }
-    // Pool empty — create new signal (no lock held)
     hsa_status_t st = g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig);
-    if (st != HSA_STATUS_SUCCESS) {
-        sig.handle = 0;
-    }
+    if (st != HSA_STATUS_SUCCESS) sig.handle = 0;
     return sig;
 }
 
-// Release a profiling signal — called from completion_worker (single thread)
+// Release a profiling signal: push onto Treiber stack, or destroy if pool is full.
 static void release_signal(hsa_signal_t sig) {
     if (sig.handle == 0) return;
-    // Try to return to central pool (lock-free push)
-    if (central_try_push(sig)) return;
-    // Central pool full — destroy outside any lock
-    g_orig_core.hsa_signal_destroy_fn(sig);
+    if (g_pool_size.load(std::memory_order_relaxed) >= SIGNAL_POOL_MAX) {
+        // Pool full — destroy outside any lock.
+        g_orig_core.hsa_signal_destroy_fn(sig);
+        return;
+    }
+    SignalNode* node = alloc_node();
+    node->signal = sig;
+    // Treiber stack push with tagged-pointer CAS to prevent ABA.
+    while (true) {
+        uint64_t old_raw = g_pool_top.load(std::memory_order_relaxed);
+        node->next = unpack_ptr(old_raw);
+        uint16_t gen = unpack_gen(old_raw);
+        uint64_t new_raw = pack(node, uint16_t(gen + 1));
+        if (g_pool_top.compare_exchange_weak(old_raw, new_raw,
+                std::memory_order_release, std::memory_order_relaxed)) {
+            g_pool_size.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+    }
 }
 
 // ---- Diagnostic counters ----
@@ -575,11 +572,20 @@ static void shutdown() {
     rpd_lite::get_trace_db().flush();
     rpd_lite::get_trace_db().close();
 
-    // Destroy signals in central pool
+    // Drain Treiber stack: pop all remaining signals and destroy them.
+    // No mutex needed — worker is already joined, no concurrent push/pop.
     {
-        hsa_signal_t sig;
-        while (central_try_pop(sig)) {
-            g_orig_core.hsa_signal_destroy_fn(sig);
+        while (true) {
+            uint64_t old_raw = g_pool_top.load(std::memory_order_acquire);
+            SignalNode* node = unpack_ptr(old_raw);
+            if (!node) break;
+            uint16_t gen = unpack_gen(old_raw);
+            uint64_t new_raw = pack(node->next, uint16_t(gen + 1));
+            if (g_pool_top.compare_exchange_weak(old_raw, new_raw,
+                    std::memory_order_release, std::memory_order_relaxed)) {
+                g_orig_core.hsa_signal_destroy_fn(node->signal);
+                g_pool_size.fetch_sub(1, std::memory_order_relaxed);
+            }
         }
     }
 
@@ -622,27 +628,19 @@ extern "C" bool OnLoad(void* pTable,
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
-    // Initialize central signal pool ring buffer sequences
-    for (size_t i = 0; i < CENTRAL_CAPACITY; i++) {
-        g_central_slots[i].sequence.store(i, std::memory_order_relaxed);
-    }
-
-    // Pre-fill central pool with 64 signals
+    // Pre-fill Treiber stack with 64 signals to avoid cold-start latency.
+    // g_pool_top starts at 0 (empty stack); each release_signal() pushes onto it.
     constexpr size_t PREFILL_COUNT = 64;
     size_t filled = 0;
     for (size_t i = 0; i < PREFILL_COUNT; i++) {
         hsa_signal_t sig;
         if (g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig) == HSA_STATUS_SUCCESS) {
-            if (central_try_push(sig)) {
-                filled++;
-            } else {
-                g_orig_core.hsa_signal_destroy_fn(sig);
-                break;
-            }
+            release_signal(sig);
+            filled++;
         }
     }
-    fprintf(stderr, "rtl: signal pool initialized (%zu signals, central capacity %zu)\n",
-            filled, CENTRAL_CAPACITY);
+    fprintf(stderr, "rtl: signal pool initialized (%zu signals, Treiber stack, max %zu)\n",
+            filled, SIGNAL_POOL_MAX);
 
     // Start completion worker thread
     g_worker = std::thread(completion_worker);
