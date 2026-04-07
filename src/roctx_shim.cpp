@@ -6,7 +6,7 @@
  *
  * When loaded via LD_PRELOAD, these symbols take priority over the real roctx library.
  */
-#include "rpd_lite.h"
+#include "trace_db.h"
 
 #include <cstdint>
 #include <atomic>
@@ -15,7 +15,7 @@
 #include <string>
 #include <cstdio>
 
-using namespace rpd_lite;
+using namespace trace_db;
 
 // Thread-local roctx range stack (for push/pop)
 struct RoctxEntry {

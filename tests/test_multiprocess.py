@@ -14,9 +14,9 @@ class TestPidSubstitution:
     """C++ source supports %p PID substitution."""
 
     def test_pid_substitution_in_source(self):
-        with open(os.path.join(REPO_ROOT, "src", "rpd_lite.cpp")) as f:
+        with open(os.path.join(REPO_ROOT, "src", "trace_db.cpp")) as f:
             src = f.read()
-        assert "%p" in src, "No %p PID substitution in rpd_lite.cpp"
+        assert "%p" in src, "No %p PID substitution in trace_db.cpp"
         assert "getpid()" in src, "No getpid() call for PID substitution"
 
     def test_cmd_trace_uses_percent_p(self):

@@ -14,7 +14,7 @@
  *
  * Dependencies: libhsa-runtime64 only (part of ROCm runtime)
  */
-#include "rpd_lite.h"
+#include "trace_db.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -36,7 +36,7 @@
 #include <cxxabi.h>
 #include <unistd.h>
 
-using namespace rpd_lite;
+using namespace trace_db;
 
 namespace hsa_intercept {
 
@@ -579,8 +579,8 @@ static void shutdown() {
     }
 
     // Flush and close trace DB
-    rpd_lite::get_trace_db().flush();
-    rpd_lite::get_trace_db().close();
+    trace_db::get_trace_db().flush();
+    trace_db::get_trace_db().close();
 
     // Destroy signal pool.
     // At this point the system is quiesced: g_shutdown is true, the worker
@@ -618,7 +618,7 @@ extern "C" bool OnLoad(void* pTable,
     using namespace hsa_intercept;
 
     // Ensure trace database is open
-    (void)rpd_lite::get_trace_db();
+    (void)trace_db::get_trace_db();
 
     // Save original API tables
     HsaApiTable* table = reinterpret_cast<HsaApiTable*>(pTable);

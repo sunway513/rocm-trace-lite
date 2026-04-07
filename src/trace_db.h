@@ -16,7 +16,7 @@
 #include <string>
 #include <sqlite3.h>
 
-namespace rpd_lite {
+namespace trace_db {
 
 // Clock source: monotonic nanoseconds
 uint64_t tick();
@@ -73,4 +73,4 @@ bool is_trace_ready();
 // Global correlation ID counter
 uint64_t next_correlation_id();
 
-} // namespace rpd_lite
+} // namespace trace_db

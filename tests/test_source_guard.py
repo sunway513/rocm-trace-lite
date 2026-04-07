@@ -69,7 +69,7 @@ class TestSourceGuard:
 
     def test_required_files_exist(self):
         """Verify all expected files are present."""
-        expected_src = ["rpd_lite.h", "rpd_lite.cpp", "hsa_intercept.cpp",
+        expected_src = ["trace_db.h", "trace_db.cpp", "hsa_intercept.cpp",
                         "roctx_shim.cpp", "hip_intercept.cpp"]
         expected_tools = ["rtl.sh", "rpd2trace.py"]
         expected_root = ["Makefile"]

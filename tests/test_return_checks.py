@@ -8,8 +8,8 @@ import re
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HSA_FILE = os.path.join(REPO_ROOT, "src", "hsa_intercept.cpp")
-DB_FILE = os.path.join(REPO_ROOT, "src", "rpd_lite.cpp")
-HDR_FILE = os.path.join(REPO_ROOT, "src", "rpd_lite.h")
+DB_FILE = os.path.join(REPO_ROOT, "src", "trace_db.cpp")
+HDR_FILE = os.path.join(REPO_ROOT, "src", "trace_db.h")
 
 
 class TestHSAReturnChecks:

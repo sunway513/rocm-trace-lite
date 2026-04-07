@@ -1,7 +1,7 @@
 /*
  * rpd_lite.cpp — SQLite trace database implementation
  */
-#include "rpd_lite.h"
+#include "trace_db.h"
 
 #include <cinttypes>
 #include <cstdio>
@@ -10,7 +10,7 @@
 #include <mutex>
 #include <unistd.h>
 
-namespace rpd_lite {
+namespace trace_db {
 
 static std::atomic<uint64_t> g_correlation_id{1};
 
@@ -363,4 +363,4 @@ void TraceDB::record_roctx(const char* message, uint64_t start_ns, uint64_t dura
     }
 }
 
-} // namespace rpd_lite
+} // namespace trace_db
