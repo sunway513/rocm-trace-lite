@@ -9,8 +9,13 @@
  *     set completion_signal on most dispatches, so observe-only doesn't work)
  *   - Single worker thread processes completed dispatches from a queue
  *   - Original completion signals forwarded after profiling
- *   - Signal pool avoids per-dispatch hsa_signal_create overhead
- *   - Clean shutdown: worker joined before DB close
+ *   - TCMalloc-style two-tier signal pool (Option 2: Per-Queue Thread-Local
+ *     Cache + Mutex Central Pool):
+ *       Tier 1: per-queue local cache (16 slots, zero-sync fast path)
+ *       Tier 2: mutex + vector central pool (batch refill of 8, up to 4096)
+ *       Tier 3: hsa_signal_create fallback (rare, outside any lock)
+ *   - hsa_signal_destroy always called OUTSIDE the pool lock (no stalls)
+ *   - Clean shutdown: worker joined before DB close, all signals destroyed
  *
  * Dependencies: libhsa-runtime64 only (part of ROCm runtime)
  */
@@ -53,24 +58,74 @@ static std::unordered_map<uint64_t, std::string> g_symbols;
 static std::vector<hsa_agent_t> g_gpu_agents;
 static std::mutex g_agent_mutex;
 
-// Queue info: maps queue handle -> device index
+// ---- TCMalloc-style two-tier signal pool (Option 2) ----
+//
+// Hot path (Tier 1): per-queue local cache — no atomics, no locks.
+//   Each QueueInfo holds up to LOCAL_CACHE_SIZE signals.
+//   acquire_signal() pops directly from local cache without any synchronization.
+//
+// Refill path (Tier 2): mutex + vector central pool.
+//   When local cache is empty, acquire_signal() locks g_pool_mutex and batch
+//   transfers LOCAL_BATCH signals from g_signal_pool to the local cache.
+//   release_signal() locks g_pool_mutex to push back, capped at SIGNAL_POOL_MAX.
+//
+// Overflow path (Tier 3): hsa_signal_create / hsa_signal_destroy.
+//   Called outside any lock; happens only when pool is truly exhausted.
+//
+// Key correctness note: hsa_signal_destroy is always called OUTSIDE the pool
+// lock to avoid blocking the completion worker on a potentially slow HSA call.
+
+static constexpr size_t SIGNAL_POOL_MAX  = 4096;  // central pool capacity cap
+static constexpr size_t LOCAL_CACHE_SIZE = 16;    // per-queue local cache slots
+static constexpr size_t LOCAL_BATCH      = 8;     // batch transfer size
+
+// Central mutex pool (vector used as a stack: back() == top).
+static std::mutex g_pool_mutex;
+static std::vector<hsa_signal_t> g_signal_pool;
+
+// Queue info: per-queue device mapping + local signal cache.
+// local_signals / local_count are accessed only from the queue's own intercept
+// callback — no synchronization needed for those fields.
 struct QueueInfo {
     int device_id;
-    uint64_t queue_handle;  // for stable queue identification
+    uint64_t queue_handle;  // stable queue ID recorded in trace events
+    hsa_signal_t local_signals[LOCAL_CACHE_SIZE];
+    int local_count = 0;
 };
+
 static std::mutex g_queue_mutex;
-static std::unordered_map<uint64_t, QueueInfo> g_queue_map;  // keyed by hsa_queue_t pointer
+static std::unordered_map<uint64_t, QueueInfo*> g_queue_map;  // key: hsa_queue_t*
 
 static std::atomic<uint64_t> g_dispatch_id{0};
 
-// ---- Profiling signal pool ----
-// Reuse HSA signals to avoid per-dispatch creation overhead.
-static std::mutex g_pool_mutex;
-static std::vector<hsa_signal_t> g_signal_pool;
-static constexpr size_t SIGNAL_POOL_MAX = 4096;
+// acquire_signal — obtain a profiling signal.
+//   qi != nullptr: use per-queue local cache (fast path) or batch refill.
+//   qi == nullptr: go directly to central pool (single signal).
+//   Both fall through to hsa_signal_create if pool is empty.
+static hsa_signal_t acquire_signal(QueueInfo* qi) {
+    // Tier 1: per-queue local cache (no synchronization)
+    if (qi && qi->local_count > 0) {
+        hsa_signal_t sig = qi->local_signals[--qi->local_count];
+        g_orig_core.hsa_signal_store_relaxed_fn(sig, 1);
+        return sig;
+    }
 
-static hsa_signal_t acquire_signal() {
-    {
+    // Tier 2: batch refill from central mutex pool
+    if (qi) {
+        std::lock_guard<std::mutex> lock(g_pool_mutex);
+        int filled = 0;
+        while (filled < (int)LOCAL_BATCH && !g_signal_pool.empty()) {
+            qi->local_signals[filled++] = g_signal_pool.back();
+            g_signal_pool.pop_back();
+        }
+        if (filled > 0) {
+            qi->local_count = filled;
+            hsa_signal_t sig = qi->local_signals[--qi->local_count];
+            g_orig_core.hsa_signal_store_relaxed_fn(sig, 1);
+            return sig;
+        }
+    } else {
+        // No QueueInfo — try central pool directly (single signal)
         std::lock_guard<std::mutex> lock(g_pool_mutex);
         if (!g_signal_pool.empty()) {
             hsa_signal_t sig = g_signal_pool.back();
@@ -79,6 +134,8 @@ static hsa_signal_t acquire_signal() {
             return sig;
         }
     }
+
+    // Tier 3: slow path — create new signal (no lock held)
     hsa_signal_t sig;
     hsa_status_t st = g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig);
     if (st != HSA_STATUS_SUCCESS) {
@@ -87,13 +144,21 @@ static hsa_signal_t acquire_signal() {
     return sig;
 }
 
+// release_signal — return a profiling signal to the central pool.
+// hsa_signal_destroy is called OUTSIDE the lock to avoid stalling callers.
 static void release_signal(hsa_signal_t sig) {
     if (sig.handle == 0) return;
-    std::lock_guard<std::mutex> lock(g_pool_mutex);
-    if (g_signal_pool.size() < SIGNAL_POOL_MAX) {
-        g_signal_pool.push_back(sig);
-    } else {
-        g_orig_core.hsa_signal_destroy_fn(sig);
+    hsa_signal_t to_destroy{0};
+    {
+        std::lock_guard<std::mutex> lock(g_pool_mutex);
+        if (g_signal_pool.size() < SIGNAL_POOL_MAX) {
+            g_signal_pool.push_back(sig);
+        } else {
+            to_destroy = sig;
+        }
+    }
+    if (to_destroy.handle != 0) {
+        g_orig_core.hsa_signal_destroy_fn(to_destroy);
     }
 }
 
@@ -367,8 +432,8 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
             continue;
         }
 
-        // Acquire a profiling signal from pool
-        hsa_signal_t prof_sig = acquire_signal();
+        // Acquire a profiling signal — fast path uses per-queue local cache (qi)
+        hsa_signal_t prof_sig = acquire_signal(qi);
         if (prof_sig.handle == 0) {
             g_drop_sig_fail.fetch_add(1, std::memory_order_relaxed);
             continue;
@@ -425,10 +490,11 @@ static hsa_status_t my_hsa_queue_create(
         fprintf(stderr, "rtl: warning: failed to enable profiling on queue (status=%d)\n", (int)prof_status);
     }
 
-    // Build queue info
+    // Build queue info with local signal cache
     auto* qi = new QueueInfo;
     qi->device_id = 0;
     qi->queue_handle = (uint64_t)(*queue);
+    qi->local_count = 0;
 
     {
         std::lock_guard<std::mutex> lock(g_agent_mutex);
@@ -443,7 +509,7 @@ static hsa_status_t my_hsa_queue_create(
     // Track for cleanup
     {
         std::lock_guard<std::mutex> lock(g_queue_mutex);
-        g_queue_map[(uint64_t)(*queue)] = *qi;
+        g_queue_map[(uint64_t)(*queue)] = qi;
     }
 
     // Register intercept callback with QueueInfo as userdata
@@ -499,7 +565,7 @@ static void shutdown() {
         g_worker.join();
     }
 
-    // Drain remaining work queue
+    // Drain remaining work queue (worker has already exited)
     {
         std::lock_guard<std::mutex> lock(g_work_mutex);
         while (!g_work_queue.empty()) {
@@ -518,19 +584,26 @@ static void shutdown() {
     rpd_lite::get_trace_db().flush();
     rpd_lite::get_trace_db().close();
 
-    // Destroy signal pool
+    // Destroy signals remaining in per-queue local caches, then free QueueInfo objects
+    {
+        std::lock_guard<std::mutex> lock(g_queue_mutex);
+        for (auto& kv : g_queue_map) {
+            QueueInfo* qi = kv.second;
+            for (int i = 0; i < qi->local_count; i++) {
+                g_orig_core.hsa_signal_destroy_fn(qi->local_signals[i]);
+            }
+            delete qi;
+        }
+        g_queue_map.clear();
+    }
+
+    // Destroy all signals remaining in the central pool
     {
         std::lock_guard<std::mutex> lock(g_pool_mutex);
         for (auto& sig : g_signal_pool) {
             g_orig_core.hsa_signal_destroy_fn(sig);
         }
         g_signal_pool.clear();
-    }
-
-    // Clean up queue info
-    {
-        std::lock_guard<std::mutex> lock(g_queue_mutex);
-        g_queue_map.clear();
     }
 }
 
@@ -563,15 +636,22 @@ extern "C" bool OnLoad(void* pTable,
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
-    // Pre-allocate signal pool (256 initial for multi-GPU workloads)
-    g_signal_pool.reserve(512);
-    for (int i = 0; i < 256; i++) {
-        hsa_signal_t sig;
-        if (g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig) == HSA_STATUS_SUCCESS) {
-            g_signal_pool.push_back(sig);
+    // Pre-allocate 64 signals into central pool
+    constexpr size_t PREFILL_COUNT = 64;
+    size_t filled = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_pool_mutex);
+        g_signal_pool.reserve(PREFILL_COUNT);
+        for (size_t i = 0; i < PREFILL_COUNT; i++) {
+            hsa_signal_t sig;
+            if (g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig) == HSA_STATUS_SUCCESS) {
+                g_signal_pool.push_back(sig);
+                filled++;
+            }
         }
     }
-    fprintf(stderr, "rtl: signal pool initialized (%zu signals)\n", g_signal_pool.size());
+    fprintf(stderr, "rtl: signal pool initialized (%zu signals, pool max %zu)\n",
+            filled, SIGNAL_POOL_MAX);
 
     // Start completion worker thread
     g_worker = std::thread(completion_worker);
