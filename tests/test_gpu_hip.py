@@ -386,8 +386,8 @@ class TestHipGraph:
         """Batch skip counter is logged in shutdown stats."""
         trace, r = _trace(tmp_path, ["hipgraph", "50", "3"])
         assert r.returncode == 0
-        # Shutdown stats should show drop (not kernel) > 0 from batch skip
-        assert "drop (not kernel)" in r.stderr, \
+        # Shutdown stats should show drop (batch skip) > 0
+        assert "drop (batch skip)" in r.stderr, \
             "No batch skip counter in shutdown stats"
 
     def test_hipgraph_no_0x1009(self, tmp_path):

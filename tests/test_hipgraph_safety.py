@@ -118,11 +118,11 @@ class TestBatchSkip:
             "Batch mode must call writer(in_packets, count) to pass through unmodified"
 
     def test_batch_skip_counter(self):
-        """Batch skip must increment a counter for diagnostics."""
+        """Batch skip must increment a dedicated counter for diagnostics."""
         body = self._get_interceptor()
-        # Should increment drop counter for batch mode
-        assert "g_drop_not_kernel" in body, \
-            "No drop counter for batch skip"
+        # Should increment dedicated batch skip counter, not g_drop_not_kernel
+        assert "g_drop_batch_skip" in body, \
+            "No dedicated batch skip counter"
 
     def test_no_signal_injection_in_batch(self):
         """Signal injection must not happen inside batch_mode block."""
@@ -189,6 +189,17 @@ class TestNoInjectMode:
         body = match.group()
         assert "profiling_set_profiler_enabled" in body, \
             "RTL_NO_INJECT must enable profiling on plain queue"
+
+    def test_no_inject_null_guard(self):
+        """RTL_NO_INJECT path must guard against null function pointer."""
+        src = self._get_source()
+        match = re.search(
+            r'if\s*\(!g_intercept_available\s*\|\|\s*no_inject\).*?\}',
+            src, re.DOTALL)
+        assert match, "No no_inject/!intercept queue path found"
+        body = match.group()
+        assert "!= nullptr" in body or "!= NULL" in body, \
+            "No null pointer guard for extension function in RTL_NO_INJECT path"
 
 
 class TestDebugLogging:
