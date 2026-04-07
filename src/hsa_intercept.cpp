@@ -66,6 +66,10 @@ static std::atomic<uint64_t> g_dispatch_id{0};
 // Whether queue intercept is available (checked in OnLoad via probe call)
 static bool g_intercept_available = false;
 
+// Safe mode: RTL_SAFE_MODE=1 disables interceptible queues entirely.
+// Workaround for hsa_amd_queue_intercept_create bug during rapid CUDAGraph replay.
+static bool g_safe_mode = false;
+
 // ---- Lock-free signal pool (Vyukov MPMC bounded ring buffer) ----
 // Replaces mutex + vector to eliminate contention on the per-dispatch hot path.
 // 256-slot ring buffer with per-slot atomic sequence numbers for ABA safety.
@@ -157,6 +161,7 @@ static std::atomic<uint64_t> g_drop_ts_invalid{0};   // end <= start
 static std::atomic<uint64_t> g_injected{0};           // signals injected
 static std::atomic<uint64_t> g_injected_fallback{0};  // via kernel_object fallback
 static std::atomic<uint64_t> g_recorded_ok{0};
+static std::atomic<uint64_t> g_graph_bypass{0};       // batches bypassed (graph replay)
 
 // ---- Completion worker ----
 static std::string lookup_kernel_name(uint64_t kernel_object);
@@ -350,6 +355,19 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
                                 hsa_amd_queue_intercept_packet_writer writer) {
     g_total_intercepts.fetch_add(1, std::memory_order_relaxed);
 
+    // CUDAGraph replay safety: batch submissions (count > 1) come from
+    // hipGraph replay. Interceptible queues created by
+    // hsa_amd_queue_intercept_create have a bug that causes SEGFAULT during
+    // rapid CUDAGraph replay — even with a pure passthrough callback.
+    // Normal HIP kernel dispatches always submit count=1.
+    // Bypass profiling for graph replays to avoid the crash.
+    // See: https://github.com/sunway513/rocm-trace-lite/issues/67
+    if (count > 1) {
+        g_graph_bypass.fetch_add(1, std::memory_order_relaxed);
+        writer(in_packets, count);
+        return;
+    }
+
     if (g_shutdown.load(std::memory_order_acquire)) {
         g_drop_shutdown.fetch_add(count, std::memory_order_relaxed);
         writer(in_packets, count);
@@ -363,92 +381,53 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
         return;
     }
 
-    // Make a mutable copy of the packet buffer to inject profiling signals.
-    // Stack buffer for common case (count <= 64), heap fallback for large batches.
-    // HSA spec 1.2 section 2.8: all AQL packets are 64 bytes (fixed-width slots
-    // in the ring buffer), regardless of packet type. Safe to step by fixed stride.
+    // Single-packet path (count == 1): safe to copy, inspect, and inject.
     const size_t pkt_size = sizeof(hsa_kernel_dispatch_packet_t);  // 64 bytes (AQL packet)
-    const size_t buf_bytes = count * pkt_size;
-    char stack_buf[64 * 64];
-    std::vector<char> heap_buf;
-    char* mod_buf;
-    if (buf_bytes <= sizeof(stack_buf)) {
-        mod_buf = stack_buf;
-    } else {
-        heap_buf.resize(buf_bytes);
-        mod_buf = heap_buf.data();
-    }
-    memcpy(mod_buf, in_packets, buf_bytes);
+    char mod_buf[64];
+    memcpy(mod_buf, in_packets, pkt_size);
 
-    // Collect dispatch data to enqueue after writer().
-    // Stack array for common case, vector fallback for large batches.
-    DispatchData* pending_stack[64];
-    std::vector<DispatchData*> pending_vec;
-    DispatchData** dd_list;
-    if (count <= 64) {
-        dd_list = pending_stack;
-    } else {
-        pending_vec.resize(count);
-        dd_list = pending_vec.data();
-    }
-    uint64_t dd_count = 0;
+    hsa_kernel_dispatch_packet_t* pkt =
+        reinterpret_cast<hsa_kernel_dispatch_packet_t*>(mod_buf);
 
-    for (uint64_t i = 0; i < count; i++) {
-        hsa_kernel_dispatch_packet_t* pkt =
-            reinterpret_cast<hsa_kernel_dispatch_packet_t*>(mod_buf + i * pkt_size);
-
-        // Detect kernel dispatch packets.
-        // Primary: header type == KERNEL_DISPATCH (standard HSA).
-        // Fallback: some runtimes use type=0 (VENDOR_SPECIFIC) for kernel
-        // dispatches. Validate multiple dispatch-specific fields to avoid
-        // misclassifying non-dispatch packets.
-        uint8_t type = ((pkt->header >> HSA_PACKET_HEADER_TYPE) & 0xFF);
-        bool is_kernel = (type == HSA_PACKET_TYPE_KERNEL_DISPATCH);
-        if (!is_kernel
-            && pkt->kernel_object != 0
-            && pkt->workgroup_size_x > 0
-            && pkt->grid_size_x > 0) {
-            is_kernel = true;
-            g_injected_fallback.fetch_add(1, std::memory_order_relaxed);
-        }
-        if (!is_kernel) {
-            g_drop_not_kernel.fetch_add(1, std::memory_order_relaxed);
-            continue;
-        }
-
-        // Acquire a profiling signal from pool
-        hsa_signal_t prof_sig = acquire_signal();
-        if (prof_sig.handle == 0) {
-            g_drop_sig_fail.fetch_add(1, std::memory_order_relaxed);
-            continue;
-        }
-
-        // Save original signal and inject profiling signal
-        hsa_signal_t orig_sig = pkt->completion_signal;
-        pkt->completion_signal = prof_sig;
-
-        auto* dd = new DispatchData;
-        dd->dispatch_id = g_dispatch_id.fetch_add(1, std::memory_order_relaxed);
-        dd->correlation_id = next_correlation_id();
-        dd->kernel_object = pkt->kernel_object;
-        dd->device_id = qi->device_id;
-        dd->queue_id = qi->queue_handle;
-        dd->profiling_signal = prof_sig;
-        dd->original_signal = orig_sig;
-
-        dd_list[dd_count++] = dd;
-        g_injected.fetch_add(1, std::memory_order_relaxed);
+    // Only profile packets with valid KERNEL_DISPATCH type.
+    // No fallback heuristic — avoids misclassifying garbage data in batch buffers.
+    uint8_t type = ((pkt->header >> HSA_PACKET_HEADER_TYPE) & 0xFF);
+    if (type != HSA_PACKET_TYPE_KERNEL_DISPATCH) {
+        g_drop_not_kernel.fetch_add(1, std::memory_order_relaxed);
+        writer(in_packets, count);
+        return;
     }
 
-    // Submit (potentially modified) packets to hardware
+    // Acquire a profiling signal from pool
+    hsa_signal_t prof_sig = acquire_signal();
+    if (prof_sig.handle == 0) {
+        g_drop_sig_fail.fetch_add(1, std::memory_order_relaxed);
+        writer(in_packets, count);
+        return;
+    }
+
+    // Save original signal and inject profiling signal
+    hsa_signal_t orig_sig = pkt->completion_signal;
+    pkt->completion_signal = prof_sig;
+
+    auto* dd = new DispatchData;
+    dd->dispatch_id = g_dispatch_id.fetch_add(1, std::memory_order_relaxed);
+    dd->correlation_id = next_correlation_id();
+    dd->kernel_object = pkt->kernel_object;
+    dd->device_id = qi->device_id;
+    dd->queue_id = qi->queue_handle;
+    dd->profiling_signal = prof_sig;
+    dd->original_signal = orig_sig;
+
+    g_injected.fetch_add(1, std::memory_order_relaxed);
+
+    // Submit modified packet to hardware
     writer(mod_buf, count);
 
-    // Enqueue all dispatch data for completion worker
-    if (dd_count > 0) {
+    // Enqueue dispatch data for completion worker
+    {
         std::lock_guard<std::mutex> lock(g_work_mutex);
-        for (uint64_t i = 0; i < dd_count; i++) {
-            g_work_queue.push_back(dd_list[i]);
-        }
+        g_work_queue.push_back(dd);
         g_work_cv.notify_one();
     }
 }
@@ -461,8 +440,8 @@ static hsa_status_t my_hsa_queue_create(
     void* data, uint32_t private_segment_size,
     uint32_t group_segment_size, hsa_queue_t** queue) {
 
-    // If intercept is not available, pass through to original queue_create.
-    if (!g_intercept_available) {
+    // If intercept is not available or safe mode is on, use plain queue.
+    if (!g_intercept_available || g_safe_mode) {
         return g_orig_core.hsa_queue_create_fn(agent, size, type, callback, data,
                                                 private_segment_size, group_segment_size, queue);
     }
@@ -543,8 +522,8 @@ static void shutdown() {
     fprintf(stderr, "\n=== rtl diagnostic (PID %d) ===\n", getpid());
     fprintf(stderr, "  intercept calls:     %lu\n", g_total_intercepts.load());
     fprintf(stderr, "  signals injected:    %lu\n", g_injected.load());
-    if (g_injected_fallback.load() > 0) {
-        fprintf(stderr, "  fallback detect:     %lu\n", g_injected_fallback.load());
+    if (g_graph_bypass.load() > 0) {
+        fprintf(stderr, "  graph bypass:        %lu\n", g_graph_bypass.load());
     }
     fprintf(stderr, "  drop (shutdown):     %lu\n", g_drop_shutdown.load());
     fprintf(stderr, "  drop (not kernel):   %lu\n", g_drop_not_kernel.load());
@@ -630,6 +609,10 @@ extern "C" bool OnLoad(void* pTable,
     table->core_->hsa_queue_create_fn = my_hsa_queue_create;
     table->core_->hsa_executable_freeze_fn = my_hsa_executable_freeze;
 
+    // Check for safe mode (disables interceptible queues entirely)
+    const char* safe_env = getenv("RTL_SAFE_MODE");
+    g_safe_mode = (safe_env && safe_env[0] == '1');
+
     // Discover GPU agents (immutable after this point)
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
@@ -673,6 +656,9 @@ extern "C" bool OnLoad(void* pTable,
     }
     fprintf(stderr, "rtl: signal pool initialized (%zu signals, lock-free ring capacity %zu)\n",
             filled, CENTRAL_CAPACITY);
+    if (g_safe_mode) {
+        fprintf(stderr, "rtl: safe mode ON (RTL_SAFE_MODE=1) — profiling disabled, plain queues only\n");
+    }
 
     // Start completion worker thread
     g_worker = std::thread(completion_worker);
