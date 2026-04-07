@@ -132,9 +132,68 @@ static void run_multi_thread(int num_threads) {
     printf("Multi-thread (%d threads x 5 GEMM) done\n", num_threads);
 }
 
+static void run_multi_gpu(int num_gpus) {
+    std::vector<std::thread> threads;
+    for (int g = 0; g < num_gpus; g++) {
+        threads.emplace_back([g]() {
+            HIP_CHECK(hipSetDevice(g));
+            int N = 128;
+            float *dA, *dB, *dC;
+            size_t bytes = N * N * sizeof(float);
+            HIP_CHECK(hipMalloc(&dA, bytes));
+            HIP_CHECK(hipMalloc(&dB, bytes));
+            HIP_CHECK(hipMalloc(&dC, bytes));
+            HIP_CHECK(hipMemset(dA, 1, bytes));
+            HIP_CHECK(hipMemset(dB, 1, bytes));
+            dim3 block(16, 16), grid((N + 15) / 16, (N + 15) / 16);
+            for (int i = 0; i < 10; i++) {
+                hipLaunchKernelGGL(matmul, grid, block, 0, 0, dA, dB, dC, N);
+            }
+            HIP_CHECK(hipDeviceSynchronize());
+            (void)hipFree(dA); (void)hipFree(dB); (void)hipFree(dC);
+        });
+    }
+    for (auto& t : threads) t.join();
+    printf("Multi-GPU (%d GPUs x 10 GEMM) done\n", num_gpus);
+}
+
+static void run_multi_gpu_stream(int num_gpus, int streams_per_gpu) {
+    std::vector<std::thread> threads;
+    for (int g = 0; g < num_gpus; g++) {
+        threads.emplace_back([g, streams_per_gpu]() {
+            HIP_CHECK(hipSetDevice(g));
+            int N = 64;
+            size_t bytes = N * N * sizeof(float);
+            std::vector<hipStream_t> streams(streams_per_gpu);
+            for (int s = 0; s < streams_per_gpu; s++) {
+                HIP_CHECK(hipStreamCreate(&streams[s]));
+            }
+            float *dA, *dB, *dC;
+            HIP_CHECK(hipMalloc(&dA, bytes));
+            HIP_CHECK(hipMalloc(&dB, bytes));
+            HIP_CHECK(hipMalloc(&dC, bytes));
+            HIP_CHECK(hipMemset(dA, 1, bytes));
+            HIP_CHECK(hipMemset(dB, 1, bytes));
+            dim3 block(16, 16), grid((N + 15) / 16, (N + 15) / 16);
+            for (int s = 0; s < streams_per_gpu; s++) {
+                for (int i = 0; i < 5; i++) {
+                    hipLaunchKernelGGL(matmul, grid, block, 0, streams[s], dA, dB, dC, N);
+                }
+            }
+            HIP_CHECK(hipDeviceSynchronize());
+            for (int s = 0; s < streams_per_gpu; s++) {
+                (void)hipStreamDestroy(streams[s]);
+            }
+            (void)hipFree(dA); (void)hipFree(dB); (void)hipFree(dC);
+        });
+    }
+    for (auto& t : threads) t.join();
+    printf("Multi-GPU-Stream (%d GPUs x %d streams x 5 GEMM) done\n", num_gpus, streams_per_gpu);
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <gemm|short|multi_stream|multi_thread|noop> [args...]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <gemm|short|multi_stream|multi_thread|multi_gpu|multi_gpu_stream|noop> [args...]\n", argv[0]);
         return 1;
     }
 
@@ -159,6 +218,15 @@ int main(int argc, char** argv) {
     } else if (strcmp(argv[1], "multi_thread") == 0) {
         int n = argc > 2 ? atoi(argv[2]) : 4;
         run_multi_thread(n);
+    } else if (strcmp(argv[1], "multi_gpu") == 0) {
+        int n = argc > 2 ? atoi(argv[2]) : dev_count;
+        if (n > dev_count) n = dev_count;
+        run_multi_gpu(n);
+    } else if (strcmp(argv[1], "multi_gpu_stream") == 0) {
+        int n = argc > 2 ? atoi(argv[2]) : dev_count;
+        int spc = argc > 3 ? atoi(argv[3]) : 2;
+        if (n > dev_count) n = dev_count;
+        run_multi_gpu_stream(n, spc);
     } else if (strcmp(argv[1], "noop") == 0) {
         printf("noop done\n");
     } else {

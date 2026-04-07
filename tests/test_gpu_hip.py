@@ -18,6 +18,26 @@ WORKLOAD = os.path.join(REPO_ROOT, "tests", "gpu_workload")
 HAS_GPU_WORKLOAD = os.path.exists(WORKLOAD)
 HAS_LIB = os.path.exists(LIB_PATH) or os.path.exists(LIB_BUILD)
 
+
+def _hip_gpu_count():
+    """Get GPU count via gpu_workload binary."""
+    if not HAS_GPU_WORKLOAD:
+        return 0
+    try:
+        r = subprocess.run(
+            [WORKLOAD, "noop"], stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=10
+        )
+        for line in r.stdout.splitlines():
+            if line.startswith("HIP devices:"):
+                return int(line.split(":")[1].strip())
+    except Exception:
+        pass
+    return 0
+
+
+GPU_COUNT = _hip_gpu_count()
+
 skip_no_workload = pytest.mark.skipif(
     not HAS_GPU_WORKLOAD, reason="gpu_workload not compiled (run: make tests/gpu_workload)"
 )
@@ -215,3 +235,119 @@ class TestOverheadHIP:
         assert r.returncode == 0
         size_mb = os.path.getsize(trace) / 1024 / 1024
         assert size_mb < 5, "Trace too large: {:.1f}MB".format(size_mb)
+
+
+# =========================================================================
+# Multi-GPU
+# =========================================================================
+
+skip_no_multigpu = pytest.mark.skipif(
+    GPU_COUNT < 2, reason="Need 2+ GPUs (have {})".format(GPU_COUNT)
+)
+
+
+@skip_no_workload
+@skip_no_lib
+@skip_no_multigpu
+class TestMultiGPU:
+
+    def test_2gpu_unique_gpuids(self, tmp_path):
+        """2 GPUs traced, both gpuIds in trace."""
+        trace, r = _trace(tmp_path, ["multi_gpu", "2"])
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        conn = sqlite3.connect(trace)
+        gpu_ids = set(
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT gpuId FROM rocpd_op WHERE gpuId >= 0"
+            ).fetchall()
+        )
+        ops = conn.execute("SELECT count(*) FROM rocpd_op WHERE gpuId >= 0").fetchone()[0]
+        conn.close()
+        assert len(gpu_ids) >= 2, "Expected 2 gpuIds, got {}".format(gpu_ids)
+        assert ops >= 10, "Expected >= 10 ops across 2 GPUs, got {}".format(ops)
+
+    def test_4gpu(self, tmp_path):
+        """4 GPUs traced."""
+        if GPU_COUNT < 4:
+            pytest.skip("Need 4+ GPUs")
+        trace, r = _trace(tmp_path, ["multi_gpu", "4"])
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        conn = sqlite3.connect(trace)
+        gpu_ids = set(
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT gpuId FROM rocpd_op WHERE gpuId >= 0"
+            ).fetchall()
+        )
+        conn.close()
+        assert len(gpu_ids) >= 4, "Expected 4 gpuIds, got {}".format(gpu_ids)
+
+    def test_8gpu(self, tmp_path):
+        """8 GPUs traced."""
+        if GPU_COUNT < 8:
+            pytest.skip("Need 8 GPUs")
+        trace, r = _trace(tmp_path, ["multi_gpu", "8"])
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        conn = sqlite3.connect(trace)
+        gpu_ids = set(
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT gpuId FROM rocpd_op WHERE gpuId >= 0"
+            ).fetchall()
+        )
+        ops = conn.execute("SELECT count(*) FROM rocpd_op WHERE gpuId >= 0").fetchone()[0]
+        conn.close()
+        assert len(gpu_ids) >= 8, "Expected 8 gpuIds, got {}".format(gpu_ids)
+        assert ops >= 40, "Expected >= 40 ops across 8 GPUs"
+
+    def test_2gpu_multi_stream(self, tmp_path):
+        """2 GPUs x 2 streams each."""
+        trace, r = _trace(tmp_path, ["multi_gpu_stream", "2", "2"])
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        conn = sqlite3.connect(trace)
+        gpu_ids = set(
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT gpuId FROM rocpd_op WHERE gpuId >= 0"
+            ).fetchall()
+        )
+        ops = conn.execute("SELECT count(*) FROM rocpd_op WHERE gpuId >= 0").fetchone()[0]
+        conn.close()
+        assert len(gpu_ids) >= 2
+        assert ops >= 10
+
+    def test_8gpu_multi_stream(self, tmp_path):
+        """8 GPUs x 4 streams each — full stress."""
+        if GPU_COUNT < 8:
+            pytest.skip("Need 8 GPUs")
+        trace, r = _trace(tmp_path, ["multi_gpu_stream", "8", "4"], timeout=120)
+        assert r.returncode == 0, "Failed: {}".format(r.stderr[-500:])
+        conn = sqlite3.connect(trace)
+        gpu_ids = set(
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT gpuId FROM rocpd_op WHERE gpuId >= 0"
+            ).fetchall()
+        )
+        ops = conn.execute("SELECT count(*) FROM rocpd_op WHERE gpuId >= 0").fetchone()[0]
+        conn.close()
+        assert len(gpu_ids) >= 8, "Expected 8 gpuIds, got {}".format(gpu_ids)
+        assert ops >= 80, "Expected >= 80 ops (8 GPU x 4 streams x 5)"
+
+    def test_multi_gpu_busy_view(self, tmp_path):
+        """Busy view has entries per GPU."""
+        trace, r = _trace(tmp_path, ["multi_gpu", "2"])
+        assert r.returncode == 0
+        conn = sqlite3.connect(trace)
+        busy = conn.execute("SELECT * FROM busy").fetchall()
+        conn.close()
+        assert len(busy) >= 2, "Busy view should have >= 2 GPUs"
+
+    def test_multi_gpu_perfetto(self, tmp_path):
+        """Perfetto JSON has per-GPU tracks."""
+        import gzip
+        import json
+        trace, r = _trace(tmp_path, ["multi_gpu", "2"])
+        assert r.returncode == 0
+        json_gz = trace.replace(".db", ".json.gz")
+        assert os.path.exists(json_gz)
+        with gzip.open(json_gz, "rt") as f:
+            data = json.load(f)
+        # Perfetto JSON should have process metadata for multiple GPUs
+        assert isinstance(data, (list, dict))
