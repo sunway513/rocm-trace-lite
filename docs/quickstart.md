@@ -98,6 +98,6 @@ For advanced control, set environment variables directly:
 
 ```bash
 export HSA_TOOLS_LIB=/path/to/librtl.so
-export RPD_LITE_OUTPUT=my_trace.db
+export RTL_OUTPUT=my_trace.db
 python3 my_model.py
 ```

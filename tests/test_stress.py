@@ -43,7 +43,7 @@ def _run_traced(script, trace_path, timeout=120):
     """Run a Python script with rpd_lite tracing, return (returncode, stderr)."""
     env = os.environ.copy()
     env["HSA_TOOLS_LIB"] = LIB_PATH
-    env["RPD_LITE_OUTPUT"] = trace_path
+    env["RTL_OUTPUT"] = trace_path
     r = subprocess.run(
         [sys.executable, "-c", script],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

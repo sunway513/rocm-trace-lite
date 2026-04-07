@@ -59,7 +59,7 @@ If `rtl trace` reports 0 GPU ops:
    subprocesses. Set env vars globally before launching:
    ```bash
    export HSA_TOOLS_LIB=$(python3 -c "from rocm_trace_lite import get_lib_path; print(get_lib_path())")
-   export RPD_LITE_OUTPUT=trace_%p.db
+   export RTL_OUTPUT=trace_%p.db
    python3 my_model.py
    ```
 3. After `make install`, run `sudo ldconfig` to update the linker cache.

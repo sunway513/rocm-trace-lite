@@ -37,7 +37,7 @@ def _gpu_count():
 def _run_script(script_path, trace_path, timeout=180):
     env = os.environ.copy()
     env["HSA_TOOLS_LIB"] = LIB_PATH
-    env["RPD_LITE_OUTPUT"] = trace_path
+    env["RTL_OUTPUT"] = trace_path
     r = subprocess.run(
         [sys.executable, script_path],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

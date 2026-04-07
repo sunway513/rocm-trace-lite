@@ -10,7 +10,7 @@ jobs:
     name: Build wheel (ROCm 7.2)
     runs-on: ubuntu-latest
     container:
-      image: rocm/dev-ubuntu-24.04:latest
+      image: rocm/dev-ubuntu-24.04:7.2
     steps:
       - uses: actions/checkout@v4
 

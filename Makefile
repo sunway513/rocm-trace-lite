@@ -39,7 +39,7 @@ $(SRCDIR)/%.o: $(SRCDIR)/%.cpp
 install: $(TARGET)
 	install -d $(PREFIX)/lib $(PREFIX)/bin
 	install -m 755 $(TARGET) $(PREFIX)/lib/
-	install -m 755 tools/rpd_lite.sh $(PREFIX)/bin/
+	install -m 755 tools/rtl.sh $(PREFIX)/bin/
 	install -m 755 tools/rpd2trace.py $(PREFIX)/bin/
 	ldconfig
 	@echo "Installed to $(PREFIX)"

@@ -1,6 +1,6 @@
 """Sprint 4 — Error handling and CI hardening tests.
 
-Covers SQLite error paths, rpd_lite.sh validation, converter consistency,
+Covers SQLite error paths, rtl.sh validation, converter consistency,
 shutdown ordering, completion worker diagnostics, extended source guards,
 CI workflow validation, and arch-specific GPU tracing.
 
@@ -72,7 +72,7 @@ def _run_traced(script, trace_path, timeout=120):
     """Run a Python script under rpd_lite tracing, return (returncode, stderr)."""
     env = os.environ.copy()
     env["HSA_TOOLS_LIB"] = LIB_PATH
-    env["RPD_LITE_OUTPUT"] = trace_path
+    env["RTL_OUTPUT"] = trace_path
     r = subprocess.run(
         [sys.executable, "-c", script],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -128,27 +128,27 @@ class TestSQLiteErrorPaths:
 
 
 # ===========================================================================
-# 2. rpd_lite.sh Tests (CPU only)
+# 2. rtl.sh Tests (CPU only)
 # ===========================================================================
 
 class TestRpdLiteShell:
-    """Validate rpd_lite.sh behavior without GPU."""
+    """Validate rtl.sh behavior without GPU."""
 
     @staticmethod
     def _setup_sh(tmp_path):
-        """Copy rpd_lite.sh into tmp_path with a dummy .so so lib check passes."""
+        """Copy rtl.sh into tmp_path with a dummy .so so lib check passes."""
         import shutil
-        sh_src = os.path.join(TOOLS_DIR, "rpd_lite.sh")
-        sh_dst = str(tmp_path / "rpd_lite.sh")
+        sh_src = os.path.join(TOOLS_DIR, "rtl.sh")
+        sh_dst = str(tmp_path / "rtl.sh")
         shutil.copy2(sh_src, sh_dst)
-        # rpd_lite.sh resolves LIB from SCRIPT_DIR, so place dummy .so there
+        # rtl.sh resolves LIB from SCRIPT_DIR, so place dummy .so there
         fake_lib = str(tmp_path / "librtl.so")
         with open(fake_lib, "w") as f:
             f.write("")
         return sh_dst
 
     def test_no_args_prints_usage(self, tmp_path):
-        """rpd_lite.sh with no arguments should print usage and exit non-zero."""
+        """rtl.sh with no arguments should print usage and exit non-zero."""
         sh = self._setup_sh(tmp_path)
         r = subprocess.run(
             ["bash", sh],
@@ -162,7 +162,7 @@ class TestRpdLiteShell:
         )
 
     def test_sets_hsa_tools_lib(self, tmp_path):
-        """rpd_lite.sh -o test.db env should show HSA_TOOLS_LIB in env."""
+        """rtl.sh -o test.db env should show HSA_TOOLS_LIB in env."""
         sh = self._setup_sh(tmp_path)
         out_db = str(tmp_path / "test.db")
         r = subprocess.run(
@@ -178,8 +178,8 @@ class TestRpdLiteShell:
         )
 
     def test_syntax_valid(self):
-        """rpd_lite.sh should pass bash -n syntax check."""
-        sh_path = os.path.join(TOOLS_DIR, "rpd_lite.sh")
+        """rtl.sh should pass bash -n syntax check."""
+        sh_path = os.path.join(TOOLS_DIR, "rtl.sh")
         r = subprocess.run(
             ["bash", "-n", sh_path],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
