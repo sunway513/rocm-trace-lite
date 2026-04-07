@@ -34,6 +34,7 @@
 #include <hsa/amd_hsa_signal.h>
 
 #include <cxxabi.h>
+#include <inttypes.h>
 #include <unistd.h>
 
 using namespace trace_db;
@@ -150,12 +151,14 @@ static void release_signal(hsa_signal_t sig) {
 static std::atomic<uint64_t> g_total_intercepts{0};
 static std::atomic<uint64_t> g_drop_shutdown{0};
 static std::atomic<uint64_t> g_drop_not_kernel{0};
+static std::atomic<uint64_t> g_drop_batch_skip{0};  // batch submissions (count>1) skipped
 static std::atomic<uint64_t> g_drop_no_qi{0};
 static std::atomic<uint64_t> g_drop_sig_fail{0};     // signal pool exhausted
 static std::atomic<uint64_t> g_drop_ts_fail{0};      // profiling_get_dispatch_time failed
 static std::atomic<uint64_t> g_drop_ts_invalid{0};   // end <= start
 static std::atomic<uint64_t> g_injected{0};           // signals injected
 static std::atomic<uint64_t> g_injected_fallback{0};  // via kernel_object fallback
+
 static std::atomic<uint64_t> g_recorded_ok{0};
 
 // ---- Completion worker ----
@@ -393,17 +396,54 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
     }
     uint64_t dd_count = 0;
 
+    // Debug logging: RTL_DEBUG=1 logs summary, RTL_DEBUG=2 logs every packet
+    static const int debug_level = []() {
+        const char* v = getenv("RTL_DEBUG");
+        return v ? atoi(v) : 0;
+    }();
+    static std::atomic<uint64_t> debug_count{0};
+    static std::atomic<uint64_t> total_pkts{0};
+    uint64_t this_call = debug_count.fetch_add(1, std::memory_order_relaxed);
+
+    if (debug_level >= 1 && (this_call < 20 || count > 1 || (this_call % 1000 == 0))) {
+        fprintf(stderr, "rtl-dbg: call#%" PRIu64 " count=%" PRIu64 " dev=%d pid=%d\n",
+                this_call, count, qi->device_id, getpid());
+    }
+
+    // CUDAGraph replay submits batch packets (count > 1) containing
+    // pre-recorded AQL packets.  Injecting profiling signals into these
+    // packets corrupts the graph's execution dependency chain and causes
+    // HSA_STATUS_ERROR_INVALID_PACKET_FORMAT (0x1009).  Issue #67.
+    //
+    // Solution: skip the entire batch — no signal injection, no modification.
+    // Individual (count == 1) dispatches are still profiled normally.
+    //
+    // KNOWN LIMITATION: this also skips any legitimate non-graph batched
+    // submissions.  The HSA intercept API does not provide a way to
+    // distinguish graph replay from normal multi-packet submissions.
+    const bool batch_mode = (count > 1);
+
+    if (batch_mode) {
+        g_drop_batch_skip.fetch_add(count, std::memory_order_relaxed);
+        if (debug_level >= 1) {
+            fprintf(stderr, "rtl-dbg: call#%" PRIu64 " count=%" PRIu64 " dev=%d pid=%d SKIP(batch)\n",
+                    this_call, count, qi->device_id, getpid());
+        }
+        writer(in_packets, count);
+        return;
+    }
+
     for (uint64_t i = 0; i < count; i++) {
         hsa_kernel_dispatch_packet_t* pkt =
             reinterpret_cast<hsa_kernel_dispatch_packet_t*>(mod_buf + i * pkt_size);
 
-        // Detect kernel dispatch packets.
-        // Primary: header type == KERNEL_DISPATCH (standard HSA).
-        // Fallback: some runtimes use type=0 (VENDOR_SPECIFIC) for kernel
-        // dispatches. Validate multiple dispatch-specific fields to avoid
-        // misclassifying non-dispatch packets.
         uint8_t type = ((pkt->header >> HSA_PACKET_HEADER_TYPE) & 0xFF);
+
         bool is_kernel = (type == HSA_PACKET_TYPE_KERNEL_DISPATCH);
+
+        // Single-packet mode: apply fallback heuristic for type=0
+        // (VENDOR_SPECIFIC). Some runtimes use type=0 for kernel
+        // dispatches with valid kernel_object/grid/workgroup fields.
         if (!is_kernel
             && pkt->kernel_object != 0
             && pkt->workgroup_size_x > 0
@@ -411,6 +451,18 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
             is_kernel = true;
             g_injected_fallback.fetch_add(1, std::memory_order_relaxed);
         }
+
+        uint64_t pkt_num = total_pkts.fetch_add(1, std::memory_order_relaxed);
+
+        if (debug_level >= 2 ||
+            (debug_level >= 1 && (!is_kernel || pkt->completion_signal.handle != 0))) {
+            fprintf(stderr, "rtl-dbg: [%" PRIu64 "] pkt#%" PRIu64 " type=%u "
+                    "sig=0x%" PRIx64 " ko=0x%" PRIx64 " batch=%d pid=%d\n",
+                    this_call, pkt_num, type,
+                    pkt->completion_signal.handle, pkt->kernel_object,
+                    (int)batch_mode, getpid());
+        }
+
         if (!is_kernel) {
             g_drop_not_kernel.fetch_add(1, std::memory_order_relaxed);
             continue;
@@ -461,10 +513,30 @@ static hsa_status_t my_hsa_queue_create(
     void* data, uint32_t private_segment_size,
     uint32_t group_segment_size, hsa_queue_t** queue) {
 
-    // If intercept is not available, pass through to original queue_create.
-    if (!g_intercept_available) {
-        return g_orig_core.hsa_queue_create_fn(agent, size, type, callback, data,
-                                                private_segment_size, group_segment_size, queue);
+    // Check if no-inject mode is requested (disables intercept queue for cudagraph compat)
+    static const bool no_inject = []() {
+        const char* v = getenv("RTL_NO_INJECT");
+        return v && atoi(v) > 0;
+    }();
+
+    // If intercept is not available or no-inject mode requested, use plain queue.
+    // profiling_set_profiler_enabled is still called so hsa_amd_profiling_get_dispatch_time
+    // would work if the application provides its own completion signals (observe-only).
+    // No kernel timestamps are collected by RTL because we don't inject signals.
+    if (!g_intercept_available || no_inject) {
+        hsa_status_t status = g_orig_core.hsa_queue_create_fn(
+            agent, size, type, callback, data,
+            private_segment_size, group_segment_size, queue);
+        if (status == HSA_STATUS_SUCCESS &&
+            g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn != nullptr) {
+            hsa_status_t prof_status =
+                g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(*queue, true);
+            if (prof_status != HSA_STATUS_SUCCESS) {
+                fprintf(stderr, "rtl: profiling_set_profiler_enabled failed (0x%x)\n",
+                        prof_status);
+            }
+        }
+        return status;
     }
 
     // Create interceptible queue.
@@ -541,18 +613,20 @@ static void shutdown() {
 
     // Print diagnostic counters
     fprintf(stderr, "\n=== rtl diagnostic (PID %d) ===\n", getpid());
-    fprintf(stderr, "  intercept calls:     %lu\n", g_total_intercepts.load());
-    fprintf(stderr, "  signals injected:    %lu\n", g_injected.load());
+    fprintf(stderr, "  intercept calls:     %" PRIu64 "\n", g_total_intercepts.load());
+    fprintf(stderr, "  signals injected:    %" PRIu64 "\n", g_injected.load());
     if (g_injected_fallback.load() > 0) {
-        fprintf(stderr, "  fallback detect:     %lu\n", g_injected_fallback.load());
+        fprintf(stderr, "  fallback detect:     %" PRIu64 "\n", g_injected_fallback.load());
     }
-    fprintf(stderr, "  drop (shutdown):     %lu\n", g_drop_shutdown.load());
-    fprintf(stderr, "  drop (not kernel):   %lu\n", g_drop_not_kernel.load());
-    fprintf(stderr, "  drop (no qi):        %lu\n", g_drop_no_qi.load());
-    fprintf(stderr, "  drop (sig pool):     %lu\n", g_drop_sig_fail.load());
-    fprintf(stderr, "  drop (ts fail):      %lu\n", g_drop_ts_fail.load());
-    fprintf(stderr, "  drop (ts invalid):   %lu\n", g_drop_ts_invalid.load());
-    fprintf(stderr, "  recorded OK:         %lu\n", g_recorded_ok.load());
+
+    fprintf(stderr, "  drop (shutdown):     %" PRIu64 "\n", g_drop_shutdown.load());
+    fprintf(stderr, "  drop (not kernel):   %" PRIu64 "\n", g_drop_not_kernel.load());
+    fprintf(stderr, "  drop (batch skip):   %" PRIu64 "\n", g_drop_batch_skip.load());
+    fprintf(stderr, "  drop (no qi):        %" PRIu64 "\n", g_drop_no_qi.load());
+    fprintf(stderr, "  drop (sig pool):     %" PRIu64 "\n", g_drop_sig_fail.load());
+    fprintf(stderr, "  drop (ts fail):      %" PRIu64 "\n", g_drop_ts_fail.load());
+    fprintf(stderr, "  drop (ts invalid):   %" PRIu64 "\n", g_drop_ts_invalid.load());
+    fprintf(stderr, "  recorded OK:         %" PRIu64 "\n", g_recorded_ok.load());
     fprintf(stderr, "====================================\n\n");
 
     // Signal worker to stop
@@ -634,8 +708,15 @@ extern "C" bool OnLoad(void* pTable,
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
+    // Check no-inject mode before probing intercept
+    const char* no_inject_env = getenv("RTL_NO_INJECT");
+    bool no_inject = (no_inject_env && atoi(no_inject_env) > 0);
+
     // Probe: check if hsa_amd_queue_intercept_create is functional.
-    if (!g_gpu_agents.empty()) {
+    if (no_inject) {
+        g_intercept_available = false;
+        fprintf(stderr, "rtl: RTL_NO_INJECT=1: signal injection disabled (no kernel timestamps), cudagraph compatible\n");
+    } else if (!g_gpu_agents.empty()) {
         hsa_queue_t* probe_q = nullptr;
         hsa_status_t probe_st = g_orig_ext.hsa_amd_queue_intercept_create_fn(
             g_gpu_agents[0], 64, HSA_QUEUE_TYPE_SINGLE, nullptr, nullptr,

@@ -1,9 +1,9 @@
-# ADR-001: HIP Graph Safety in rpd_lite
+# ADR-001: HIP Graph Safety in rocm-trace-lite
 
 ## Status
-**Accepted** — Timeout-based signal wait
+**Accepted** — Timeout-based signal wait + batch skip + RTL_NO_INJECT escape hatch
 
-## Root Cause
+## Problem 1: Worker signal wait crash (v0.1.x)
 
 Binary bisect on MI300X isolated the crash to a single component:
 
@@ -20,7 +20,7 @@ Binary bisect on MI300X isolated the crash to a single component:
 
 This is NOT a ROCm bug. It is our lifecycle management bug.
 
-## Fix
+### Fix
 
 Replace infinite-timeout signal wait with bounded timeout + shutdown poll:
 
@@ -46,3 +46,51 @@ while (true) {
 5. Close DB
 
 Double-shutdown prevented via `shutdown_done` atomic flag.
+
+## Problem 2: CUDAGraph replay crashes signal injection (v0.2.x, issue #67)
+
+Signal injection via `hsa_amd_queue_intercept_create` is incompatible with CUDAGraph/hipGraph workloads at two levels:
+
+### Vector 1: Batch replay (count > 1)
+
+When CUDAGraph replays, the intercept callback receives a single call with `count > 1` (e.g., 235 packets for ATOM GPT-OSS TP=8). The batch buffer contains pre-recorded AQL packets. Injecting profiling signals into these packets corrupts the graph's execution dependency chain.
+
+Result: `HSA_STATUS_ERROR_INVALID_PACKET_FORMAT (0x1009)`.
+
+### Vector 2: Graph capture (stale signal handles)
+
+During `hipStreamBeginCapture`, kernel dispatches go through the intercept callback with `count=1`. The profiler injects a profiling signal. This modified packet gets recorded into the graph. On `hipGraphLaunch` (replay), the graph submits packets containing stale profiling signal handles (already destroyed/recycled).
+
+Result: GPU memory access fault.
+
+### Fix: Batch skip
+
+Skip all batch submissions (`count > 1`). No signal injection, no modification:
+
+```cpp
+const bool batch_mode = (count > 1);
+if (batch_mode) {
+    g_drop_not_kernel.fetch_add(count, std::memory_order_relaxed);
+    writer(in_packets, count);  // pass through unmodified
+    return;
+}
+```
+
+Individual dispatches (`count == 1`) are still profiled normally. Graph-replayed kernels are not profiled.
+
+### Escape hatch: RTL_NO_INJECT
+
+`RTL_NO_INJECT=1` disables `hsa_amd_queue_intercept_create` entirely. The profiler creates a plain queue with `hsa_amd_profiling_set_profiler_enabled` instead. No kernel timestamps are collected. HIP API tracing still works.
+
+Use when batch skip alone is insufficient (e.g., graph capture bakes stale signal handles into single-dispatch packets).
+
+### Diagnostic logging: RTL_DEBUG
+
+`RTL_DEBUG=1` logs per-call summary (count, device, batch skip decisions).
+`RTL_DEBUG=2` adds per-packet details (AQL type, signal handle, kernel object address).
+
+### Known limitations
+
+- Batch skip also skips legitimate non-graph batched submissions. The HSA intercept API does not provide a way to distinguish graph replay from normal multi-packet submissions.
+- Graph-captured kernels dispatched individually during capture phase still get signal injection. This is correct for normal profiling but causes stale handles on replay.
+- Filed as ROCm runtime feature request: need graph-awareness in intercept callback (issue #67).

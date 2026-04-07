@@ -92,6 +92,29 @@ lib.roctxMarkA(b"checkpoint")
 
 These appear as `UserMarker` events in the trace.
 
+## CUDAGraph / HIP graph compatibility
+
+CUDAGraph replay submits batch AQL packets that are incompatible with signal injection.
+rocm-trace-lite automatically skips batch submissions (`count > 1`), so graph-replayed
+kernels are not profiled but the application runs correctly.
+
+If you still see crashes (e.g., graph capture baking stale signal handles), use:
+
+```bash
+RTL_NO_INJECT=1 rtl trace -o trace.db python3 my_cudagraph_model.py
+```
+
+This disables signal injection entirely. No kernel timestamps are collected,
+but HIP API tracing still works.
+
+## Environment variables
+
+| Variable | Values | Description |
+|----------|--------|-------------|
+| `RTL_OUTPUT` | path | Output trace file (alternative to `-o` flag) |
+| `RTL_NO_INJECT` | `1` | Disable signal injection for full CUDAGraph compatibility |
+| `RTL_DEBUG` | `1`, `2` | Packet-level diagnostic logging (1=summary, 2=per-packet) |
+
 ## Environment variable mode
 
 For advanced control, set environment variables directly:

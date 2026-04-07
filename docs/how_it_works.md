@@ -91,6 +91,34 @@ Creating HSA signals is expensive. The signal pool avoids per-dispatch overhead:
 - **Destroy** excess signals when pool is full
 - **Steady-state**: zero `hsa_signal_create` calls after warmup
 
+## CUDAGraph / HIP graph handling
+
+Signal injection is incompatible with CUDAGraph replay at two levels:
+
+1. **Batch replay**: CUDAGraph replay submits pre-recorded AQL packets via the intercept callback with `count > 1`. Injecting signals into these packets corrupts the graph's execution chain (`0x1009`).
+2. **Graph capture**: Signals injected during capture get baked into the graph. On replay, these signal handles are stale/recycled, causing GPU memory access faults.
+
+### Batch skip (automatic)
+
+The intercept callback detects batch submissions (`count > 1`) and passes them through unmodified:
+
+```cpp
+if (count > 1) {
+    writer(in_packets, count);  // pass through, no signal injection
+    return;
+}
+```
+
+Graph-replayed kernels are not profiled, but the application runs correctly.
+
+### RTL_NO_INJECT (escape hatch)
+
+`RTL_NO_INJECT=1` disables `hsa_amd_queue_intercept_create` entirely. A plain queue is created with `hsa_amd_profiling_set_profiler_enabled` instead. No kernel timestamps are collected. Use when batch skip alone is insufficient.
+
+### Known limitation
+
+The HSA intercept API does not distinguish graph replay from normal multi-packet submissions. Batch skip skips all `count > 1` submissions, including legitimate non-graph batches.
+
 ## Why not observe-only?
 
 Earlier versions (PR #29) attempted "observe-only" profiling: pass packets through

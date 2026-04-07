@@ -58,7 +58,8 @@ Each process prints diagnostic counters at shutdown:
   intercept calls:     3380
   signals injected:    2630
   drop (shutdown):     0
-  drop (not kernel):   750
+  drop (not kernel):   500
+  drop (batch skip):   250
   drop (no qi):        0
   drop (sig pool):     0
   drop (ts fail):      0
@@ -69,5 +70,19 @@ Each process prints diagnostic counters at shutdown:
 
 Key indicators:
 - **signals injected** should match **recorded OK** (no drops)
+- **drop (batch skip)** counts packets from batch submissions (`count > 1`) that were skipped — typically from CUDAGraph replay. This is expected.
+- **drop (not kernel)** counts non-kernel AQL packets (barriers, vendor-specific) that were not profiled.
 - **drop (sig pool)** > 0 means signal pool exhaustion (increase `SIGNAL_POOL_MAX`)
 - **drop (ts fail)** > 0 indicates GPU timestamp read failures
+
+## CUDAGraph compatibility
+
+When profiling CUDAGraph workloads (e.g., ATOM GPT-OSS TP=8), batch submissions from graph replay are automatically skipped. The `drop (not kernel)` counter reflects these skipped packets.
+
+If you still see crashes, use `RTL_NO_INJECT=1` to disable signal injection entirely:
+
+```bash
+RTL_NO_INJECT=1 rtl trace -o trace.db torchrun --nproc_per_node=8 my_model.py
+```
+
+See `RTL_DEBUG=1` output for per-call diagnostics.

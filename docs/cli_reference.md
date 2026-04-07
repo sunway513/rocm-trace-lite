@@ -101,3 +101,12 @@ Trace: trace.db
   Duration: 13.247s
   Unique kernels: 5
 ```
+
+## Environment variables
+
+| Variable | Values | Description |
+|----------|--------|-------------|
+| `RTL_OUTPUT` | file path | Output trace file (alternative to `-o` flag) |
+| `RTL_NO_INJECT` | `1` | Disable `hsa_amd_queue_intercept_create` and signal injection. No kernel timestamps. HIP API tracing still works. Use for CUDAGraph compatibility. |
+| `RTL_DEBUG` | `1` | Log per-call summary: intercept call count, device ID, batch skip decisions |
+| `RTL_DEBUG` | `2` | Log per-packet details: AQL type, signal handle, kernel object address |

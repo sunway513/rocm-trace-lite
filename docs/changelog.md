@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.3.0
+
+### CUDAGraph / HIP graph compatibility (#67)
+- **Batch skip**: Intercept callback skips signal injection for batch submissions (`count > 1`). CUDAGraph replay submits pre-recorded AQL packets that must not be modified. Injecting profiling signals corrupts the graph's execution chain and causes `HSA_STATUS_ERROR_INVALID_PACKET_FORMAT (0x1009)`.
+- **RTL_NO_INJECT=1**: Escape hatch that disables `hsa_amd_queue_intercept_create` entirely. No kernel timestamps are collected, but HIP API tracing still works. Use for full CUDAGraph compatibility when batch skip alone is insufficient (e.g., graph capture bakes stale signal handles).
+- **RTL_DEBUG=1/2**: Packet-level diagnostic logging. Level 1 logs per-call summary (count, device, batch skip). Level 2 adds per-packet details (type, signal, kernel object).
+- **Known limitation**: Batch skip also skips legitimate non-graph batched submissions. The HSA intercept API does not distinguish graph replay from normal multi-packet submissions.
+
+### Signal forwarding
+- Original `completion_signal` is saved before injection and forwarded via `hsa_signal_subtract_screlease` after timestamp collection. Packets with app-provided signals are now profiled correctly instead of being skipped.
+
+### Testing
+- Added `TestBatchSkip`, `TestSignalForwarding`, `TestNoInjectMode`, `TestDebugLogging` source-code audit tests
+- Added `TestHipGraph` GPU E2E tests (basic, multi-stream, large, stress, batch skip logging, no-0x1009)
+- HIP graph workloads added to `gpu_workload` binary (hipgraph, hipgraph_ms, hipgraph_large, hipgraph_stress)
+
+### Bug fixes
+- Fixed `profiling_set_profiler_enabled` return value not checked in RTL_NO_INJECT path
+- Fixed version mismatch between `pyproject.toml` (0.2.1) and `__init__.py` (0.3.0)
+
 ## v0.2.0
 
 ### Signal injection profiling

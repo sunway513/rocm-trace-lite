@@ -351,3 +351,48 @@ class TestMultiGPU:
             data = json.load(f)
         # Perfetto JSON should have process metadata for multiple GPUs
         assert isinstance(data, (list, dict))
+
+
+# =========================================================================
+# HIP Graph — no crash, no hang (issue #67)
+# =========================================================================
+
+
+@skip_no_workload
+@skip_no_lib
+class TestHipGraph:
+
+    def test_hipgraph_basic(self, tmp_path):
+        """Basic hipgraph capture + replay does not crash."""
+        trace, r = _trace(tmp_path, ["hipgraph", "50", "3"])
+        assert r.returncode == 0, "hipgraph crashed: {}".format(r.stderr[-500:])
+
+    def test_hipgraph_multi_stream(self, tmp_path):
+        """Multi-stream hipgraph capture + replay."""
+        trace, r = _trace(tmp_path, ["hipgraph_ms", "4", "3"])
+        assert r.returncode == 0, "hipgraph_ms crashed: {}".format(r.stderr[-500:])
+
+    def test_hipgraph_large(self, tmp_path):
+        """Large graph with mixed kernel types."""
+        trace, r = _trace(tmp_path, ["hipgraph_large", "100", "3"])
+        assert r.returncode == 0, "hipgraph_large crashed: {}".format(r.stderr[-500:])
+
+    def test_hipgraph_stress(self, tmp_path):
+        """Interleaved graph replay + normal dispatch."""
+        trace, r = _trace(tmp_path, ["hipgraph_stress", "4", "20", "3"], timeout=120)
+        assert r.returncode == 0, "hipgraph_stress crashed: {}".format(r.stderr[-500:])
+
+    def test_hipgraph_batch_skip_logged(self, tmp_path):
+        """Batch skip counter is logged in shutdown stats."""
+        trace, r = _trace(tmp_path, ["hipgraph", "50", "3"])
+        assert r.returncode == 0
+        # Shutdown stats should show drop (batch skip) > 0
+        assert "drop (batch skip)" in r.stderr, \
+            "No batch skip counter in shutdown stats"
+
+    def test_hipgraph_no_0x1009(self, tmp_path):
+        """No 0x1009 errors during hipgraph replay."""
+        trace, r = _trace(tmp_path, ["hipgraph_stress", "4", "20", "3"], timeout=120)
+        assert r.returncode == 0
+        assert "0x1009" not in r.stderr, \
+            "Got 0x1009 during hipgraph: {}".format(r.stderr[-500:])

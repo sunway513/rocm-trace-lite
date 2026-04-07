@@ -90,4 +90,135 @@ class TestShutdownSafety:
         assert os.path.exists(adr), "Missing ADR-001 document"
 
 
-# GPU graph tests moved to test_gpu_hip.py (HIP-native, no torch dependency)
+class TestBatchSkip:
+    """Verify batch mode (count > 1) skips signal injection (issue #67)."""
+
+    def _get_source(self):
+        with open(HSA_FILE) as f:
+            return f.read()
+
+    def _get_interceptor(self):
+        src = self._get_source()
+        match = re.search(r'static void queue_intercept_cb\(.*?\n\}', src, re.DOTALL)
+        assert match, "Could not find queue_intercept_cb"
+        return match.group()
+
+    def test_batch_mode_detected(self):
+        """Batch mode (count > 1) must be detected."""
+        body = self._get_interceptor()
+        assert "batch_mode" in body or "count > 1" in body, \
+            "No batch mode detection in interceptor"
+
+    def test_batch_skip_passthrough(self):
+        """Batch submissions must be passed through unmodified."""
+        body = self._get_interceptor()
+        assert "batch_mode" in body, "No batch_mode variable"
+        # Must call writer() and return early for batch
+        assert "writer(in_packets, count)" in body, \
+            "Batch mode must call writer(in_packets, count) to pass through unmodified"
+
+    def test_batch_skip_counter(self):
+        """Batch skip must increment a dedicated counter for diagnostics."""
+        body = self._get_interceptor()
+        # Should increment dedicated batch skip counter, not g_drop_not_kernel
+        assert "g_drop_batch_skip" in body, \
+            "No dedicated batch skip counter"
+
+    def test_no_signal_injection_in_batch(self):
+        """Signal injection must not happen inside batch_mode block."""
+        body = self._get_interceptor()
+        # The batch_mode block should return early before the signal injection loop
+        batch_block = re.search(
+            r'if\s*\(batch_mode\)\s*\{.*?\breturn\b', body, re.DOTALL)
+        assert batch_block, \
+            "batch_mode block must return early before signal injection"
+
+
+class TestSignalForwarding:
+    """Verify packets with app-provided completion_signal are still profiled."""
+
+    def _get_source(self):
+        with open(HSA_FILE) as f:
+            return f.read()
+
+    def test_original_signal_saved(self):
+        """Original completion_signal must be saved before injection."""
+        src = self._get_source()
+        assert "orig_sig = pkt->completion_signal" in src, \
+            "Original signal not saved before injection"
+
+    def test_original_signal_forwarded(self):
+        """Original signal must be forwarded after timestamp collection."""
+        src = self._get_source()
+        assert "original_signal" in src and "subtract_screlease" in src, \
+            "Original signal not forwarded via subtract_screlease"
+
+
+class TestNoInjectMode:
+    """Verify RTL_NO_INJECT disables signal injection (issue #67).
+
+    RTL_NO_INJECT=1 disables hsa_amd_queue_intercept_create entirely.
+    No kernel timestamps are collected. HIP API tracing still works.
+    This is an escape hatch for cudagraph compatibility, not a profiling mode.
+    """
+
+    def _get_source(self):
+        with open(HSA_FILE) as f:
+            return f.read()
+
+    def test_no_inject_env_var(self):
+        """RTL_NO_INJECT env var must be checked."""
+        src = self._get_source()
+        assert "RTL_NO_INJECT" in src, \
+            "No RTL_NO_INJECT env var support"
+
+    def test_no_inject_disables_intercept(self):
+        """RTL_NO_INJECT must disable hsa_amd_queue_intercept_create."""
+        src = self._get_source()
+        assert "g_intercept_available = false" in src or \
+               "signal injection disabled" in src, \
+            "RTL_NO_INJECT does not disable intercept"
+
+    def test_no_inject_plain_queue_profiling(self):
+        """RTL_NO_INJECT must still enable profiling on plain queue."""
+        src = self._get_source()
+        match = re.search(
+            r'if\s*\(!g_intercept_available\s*\|\|\s*no_inject\).*?\}',
+            src, re.DOTALL)
+        assert match, "No no_inject/!intercept queue path found"
+        body = match.group()
+        assert "profiling_set_profiler_enabled" in body, \
+            "RTL_NO_INJECT must enable profiling on plain queue"
+
+    def test_no_inject_null_guard(self):
+        """RTL_NO_INJECT path must guard against null function pointer."""
+        src = self._get_source()
+        match = re.search(
+            r'if\s*\(!g_intercept_available\s*\|\|\s*no_inject\).*?\}',
+            src, re.DOTALL)
+        assert match, "No no_inject/!intercept queue path found"
+        body = match.group()
+        assert "!= nullptr" in body or "!= NULL" in body, \
+            "No null pointer guard for extension function in RTL_NO_INJECT path"
+
+
+class TestDebugLogging:
+    """Verify RTL_DEBUG diagnostic logging (issue #67)."""
+
+    def _get_source(self):
+        with open(HSA_FILE) as f:
+            return f.read()
+
+    def test_debug_env_var(self):
+        """RTL_DEBUG env var must be checked."""
+        src = self._get_source()
+        assert "RTL_DEBUG" in src, "No RTL_DEBUG env var"
+
+    def test_debug_levels(self):
+        """Debug level 1 and 2 must be supported."""
+        src = self._get_source()
+        assert "debug_level >= 1" in src, "No debug level 1"
+        assert "debug_level >= 2" in src, "No debug level 2"
+
+
+# GPU graph tests are in test_gpu_hip.py (HIP-native, no torch dependency)
