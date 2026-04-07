@@ -1,22 +1,14 @@
 // GPU workload for testing rocm-trace-lite. Compiled with hipcc.
 // Usage: ./gpu_workload <mode> [args...]
-//   gemm <N> <iters>          — NxN FP32 GEMM, iters times
-//   short <count>             — count tiny element-wise kernels
-//   multi_stream <N>          — dispatch GEMM on N streams
-//   multi_thread <N>          — dispatch GEMM from N host threads
-//   multi_gpu <N>             — dispatch GEMM on N GPUs
-//   multi_gpu_stream <N> <S>  — N GPUs x S streams each
-//   roctx                     — GPU work with roctx push/pop markers
-//   roctx_nested              — nested roctx ranges
-//   roctx_rapid <count>       — many rapid roctx marks
-//   hipgraph <replays>        — HIP graph capture + replay
-//   hipgraph_multi_stream     — graph capture on multiple streams
-//   noop                      — just init HIP, no kernels
+//   gemm <N> <iters>     — NxN FP32 GEMM, iters times
+//   short <count>        — count tiny element-wise kernels
+//   multi_stream <N>     — dispatch GEMM on N streams
+//   multi_thread <N>     — dispatch GEMM from N host threads
+//   noop                 — just init HIP, no kernels
 #include <hip/hip_runtime.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <dlfcn.h>
 #include <thread>
 #include <vector>
 
@@ -199,191 +191,9 @@ static void run_multi_gpu_stream(int num_gpus, int streams_per_gpu) {
     printf("Multi-GPU-Stream (%d GPUs x %d streams x 5 GEMM) done\n", num_gpus, streams_per_gpu);
 }
 
-// ---- roctx via dlopen (uses whatever HSA_TOOLS_LIB provides) ----
-typedef int (*roctxPushFn)(const char*);
-typedef int (*roctxPopFn)(void);
-typedef void (*roctxMarkFn)(const char*);
-typedef unsigned long long (*roctxStartFn)(const char*);
-typedef void (*roctxStopFn)(unsigned long long);
-
-struct RoctxAPI {
-    roctxPushFn push;
-    roctxPopFn pop;
-    roctxMarkFn mark;
-    roctxStartFn start;
-    roctxStopFn stop;
-    void* handle;
-};
-
-static RoctxAPI load_roctx() {
-    RoctxAPI api = {};
-    const char* lib = getenv("HSA_TOOLS_LIB");
-    if (!lib) lib = "librtl.so";
-    api.handle = dlopen(lib, RTLD_LAZY | RTLD_NOLOAD);
-    if (!api.handle) api.handle = dlopen(lib, RTLD_LAZY);
-    if (!api.handle) {
-        fprintf(stderr, "Warning: cannot load roctx from %s: %s\n", lib, dlerror());
-        return api;
-    }
-    api.push = (roctxPushFn)dlsym(api.handle, "roctxRangePushA");
-    api.pop = (roctxPopFn)dlsym(api.handle, "roctxRangePop");
-    api.mark = (roctxMarkFn)dlsym(api.handle, "roctxMarkA");
-    api.start = (roctxStartFn)dlsym(api.handle, "roctxRangeStartA");
-    api.stop = (roctxStopFn)dlsym(api.handle, "roctxRangeStop");
-    return api;
-}
-
-static void run_roctx() {
-    auto api = load_roctx();
-    if (!api.push) { fprintf(stderr, "roctx not available\n"); return; }
-
-    int N = 128;
-    float *dA, *dB, *dC;
-    size_t bytes = N * N * sizeof(float);
-    HIP_CHECK(hipMalloc(&dA, bytes));
-    HIP_CHECK(hipMalloc(&dB, bytes));
-    HIP_CHECK(hipMalloc(&dC, bytes));
-    HIP_CHECK(hipMemset(dA, 1, bytes));
-    HIP_CHECK(hipMemset(dB, 1, bytes));
-    dim3 block(16, 16), grid((N + 15) / 16, (N + 15) / 16);
-
-    api.push("outer_region");
-    for (int i = 0; i < 5; i++) {
-        hipLaunchKernelGGL(matmul, grid, block, 0, 0, dA, dB, dC, N);
-    }
-    HIP_CHECK(hipDeviceSynchronize());
-    api.pop();
-
-    api.mark("checkpoint_1");
-    (void)hipFree(dA); (void)hipFree(dB); (void)hipFree(dC);
-    printf("roctx push/pop/mark done\n");
-}
-
-static void run_roctx_nested() {
-    auto api = load_roctx();
-    if (!api.push) { fprintf(stderr, "roctx not available\n"); return; }
-
-    int N = 64;
-    float *dA, *dB, *dC;
-    size_t bytes = N * N * sizeof(float);
-    HIP_CHECK(hipMalloc(&dA, bytes));
-    HIP_CHECK(hipMalloc(&dB, bytes));
-    HIP_CHECK(hipMalloc(&dC, bytes));
-    HIP_CHECK(hipMemset(dA, 1, bytes));
-    HIP_CHECK(hipMemset(dB, 1, bytes));
-    dim3 block(16, 16), grid((N + 15) / 16, (N + 15) / 16);
-
-    api.push("level_0");
-    hipLaunchKernelGGL(matmul, grid, block, 0, 0, dA, dB, dC, N);
-    api.push("level_1");
-    hipLaunchKernelGGL(matmul, grid, block, 0, 0, dA, dB, dC, N);
-    api.pop(); // level_1
-    api.pop(); // level_0
-
-    // Also test start/stop (non-nested range)
-    if (api.start && api.stop) {
-        auto id = api.start("range_A");
-        hipLaunchKernelGGL(matmul, grid, block, 0, 0, dA, dB, dC, N);
-        HIP_CHECK(hipDeviceSynchronize());
-        api.stop(id);
-    }
-
-    HIP_CHECK(hipDeviceSynchronize());
-    (void)hipFree(dA); (void)hipFree(dB); (void)hipFree(dC);
-    printf("roctx nested + start/stop done\n");
-}
-
-static void run_roctx_rapid(int count) {
-    auto api = load_roctx();
-    if (!api.mark) { fprintf(stderr, "roctx not available\n"); return; }
-    for (int i = 0; i < count; i++) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "mark_%d", i);
-        api.mark(buf);
-    }
-    printf("roctx rapid %d marks done\n", count);
-}
-
-// ---- HIP Graph ----
-
-static void run_hipgraph(int replays) {
-    int N = 64;
-    float *dA, *dB, *dC;
-    size_t bytes = N * N * sizeof(float);
-    HIP_CHECK(hipMalloc(&dA, bytes));
-    HIP_CHECK(hipMalloc(&dB, bytes));
-    HIP_CHECK(hipMalloc(&dC, bytes));
-    HIP_CHECK(hipMemset(dA, 1, bytes));
-    HIP_CHECK(hipMemset(dB, 1, bytes));
-    dim3 block(16, 16), grid((N + 15) / 16, (N + 15) / 16);
-
-    hipStream_t stream;
-    HIP_CHECK(hipStreamCreate(&stream));
-
-    // Capture
-    HIP_CHECK(hipStreamBeginCapture(stream, hipStreamCaptureModeGlobal));
-    for (int i = 0; i < 5; i++) {
-        hipLaunchKernelGGL(matmul, grid, block, 0, stream, dA, dB, dC, N);
-    }
-    hipGraph_t graph;
-    HIP_CHECK(hipStreamEndCapture(stream, &graph));
-
-    hipGraphExec_t exec;
-    HIP_CHECK(hipGraphInstantiate(&exec, graph, nullptr, nullptr, 0));
-
-    // Replay
-    for (int r = 0; r < replays; r++) {
-        HIP_CHECK(hipGraphLaunch(exec, stream));
-    }
-    HIP_CHECK(hipStreamSynchronize(stream));
-
-    HIP_CHECK(hipGraphExecDestroy(exec));
-    HIP_CHECK(hipGraphDestroy(graph));
-    (void)hipStreamDestroy(stream);
-    (void)hipFree(dA); (void)hipFree(dB); (void)hipFree(dC);
-    printf("hipgraph capture + %d replays done\n", replays);
-}
-
-static void run_hipgraph_multi_stream() {
-    int N = 64;
-    float *dA, *dB, *dC;
-    size_t bytes = N * N * sizeof(float);
-    HIP_CHECK(hipMalloc(&dA, bytes));
-    HIP_CHECK(hipMalloc(&dB, bytes));
-    HIP_CHECK(hipMalloc(&dC, bytes));
-    HIP_CHECK(hipMemset(dA, 1, bytes));
-    HIP_CHECK(hipMemset(dB, 1, bytes));
-    dim3 block(16, 16), grid((N + 15) / 16, (N + 15) / 16);
-
-    // Capture on stream 0
-    hipStream_t s0, s1;
-    HIP_CHECK(hipStreamCreate(&s0));
-    HIP_CHECK(hipStreamCreate(&s1));
-
-    HIP_CHECK(hipStreamBeginCapture(s0, hipStreamCaptureModeGlobal));
-    for (int i = 0; i < 3; i++) {
-        hipLaunchKernelGGL(matmul, grid, block, 0, s0, dA, dB, dC, N);
-    }
-    hipGraph_t graph;
-    HIP_CHECK(hipStreamEndCapture(s0, &graph));
-    hipGraphExec_t exec;
-    HIP_CHECK(hipGraphInstantiate(&exec, graph, nullptr, nullptr, 0));
-
-    // Replay on stream 1
-    HIP_CHECK(hipGraphLaunch(exec, s1));
-    HIP_CHECK(hipStreamSynchronize(s1));
-
-    HIP_CHECK(hipGraphExecDestroy(exec));
-    HIP_CHECK(hipGraphDestroy(graph));
-    (void)hipStreamDestroy(s0);
-    (void)hipStreamDestroy(s1);
-    (void)hipFree(dA); (void)hipFree(dB); (void)hipFree(dC);
-    printf("hipgraph multi-stream done\n");
-}
-
 int main(int argc, char** argv) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <mode> [args...]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <gemm|short|multi_stream|multi_thread|multi_gpu|multi_gpu_stream|noop> [args...]\n", argv[0]);
         return 1;
     }
 
@@ -417,18 +227,6 @@ int main(int argc, char** argv) {
         int spc = argc > 3 ? atoi(argv[3]) : 2;
         if (n > dev_count) n = dev_count;
         run_multi_gpu_stream(n, spc);
-    } else if (strcmp(argv[1], "roctx") == 0) {
-        run_roctx();
-    } else if (strcmp(argv[1], "roctx_nested") == 0) {
-        run_roctx_nested();
-    } else if (strcmp(argv[1], "roctx_rapid") == 0) {
-        int count = argc > 2 ? atoi(argv[2]) : 100;
-        run_roctx_rapid(count);
-    } else if (strcmp(argv[1], "hipgraph") == 0) {
-        int replays = argc > 2 ? atoi(argv[2]) : 1;
-        run_hipgraph(replays);
-    } else if (strcmp(argv[1], "hipgraph_multi_stream") == 0) {
-        run_hipgraph_multi_stream();
     } else if (strcmp(argv[1], "noop") == 0) {
         printf("noop done\n");
     } else {
