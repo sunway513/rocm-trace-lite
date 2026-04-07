@@ -156,7 +156,7 @@ static std::atomic<uint64_t> g_drop_ts_fail{0};      // profiling_get_dispatch_t
 static std::atomic<uint64_t> g_drop_ts_invalid{0};   // end <= start
 static std::atomic<uint64_t> g_injected{0};           // signals injected
 static std::atomic<uint64_t> g_injected_fallback{0};  // via kernel_object fallback
-static std::atomic<uint64_t> g_skip_has_signal{0};    // skipped: already has completion signal (e.g. graph replay)
+
 static std::atomic<uint64_t> g_recorded_ok{0};
 
 // ---- Completion worker ----
@@ -412,6 +412,10 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
     //
     // Solution: skip the entire batch — no signal injection, no modification.
     // Individual (count == 1) dispatches are still profiled normally.
+    //
+    // KNOWN LIMITATION: this also skips any legitimate non-graph batched
+    // submissions.  The HSA intercept API does not provide a way to
+    // distinguish graph replay from normal multi-packet submissions.
     const bool batch_mode = (count > 1);
 
     if (batch_mode) {
@@ -456,14 +460,6 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
 
         if (!is_kernel) {
             g_drop_not_kernel.fetch_add(1, std::memory_order_relaxed);
-            continue;
-        }
-
-        // Skip packets that already have a completion signal.
-        // CUDAGraph replay and barriers set their own signals.
-        // Overwriting them causes HSA_STATUS_ERROR_INVALID_PACKET_FORMAT (0x1009).
-        if (pkt->completion_signal.handle != 0) {
-            g_skip_has_signal.fetch_add(1, std::memory_order_relaxed);
             continue;
         }
 
@@ -513,10 +509,10 @@ static hsa_status_t my_hsa_queue_create(
     uint32_t group_segment_size, hsa_queue_t** queue) {
 
     // Check if safe mode is requested (disables intercept queue for cudagraph compat)
-    static const bool safe_mode = (getenv("RTL_SAFE_MODE") && atoi(getenv("RTL_SAFE_MODE")) > 0);
+    static const bool no_inject = (getenv("RTL_NO_INJECT") && atoi(getenv("RTL_NO_INJECT")) > 0);
 
     // If intercept is not available or safe mode requested, use plain queue
-    if (!g_intercept_available || safe_mode) {
+    if (!g_intercept_available || no_inject) {
         hsa_status_t status = g_orig_core.hsa_queue_create_fn(
             agent, size, type, callback, data,
             private_segment_size, group_segment_size, queue);
@@ -611,9 +607,7 @@ static void shutdown() {
     if (g_injected_fallback.load() > 0) {
         fprintf(stderr, "  fallback detect:     %lu\n", g_injected_fallback.load());
     }
-    if (g_skip_has_signal.load() > 0) {
-        fprintf(stderr, "  skip (has signal):   %lu\n", g_skip_has_signal.load());
-    }
+
     fprintf(stderr, "  drop (shutdown):     %lu\n", g_drop_shutdown.load());
     fprintf(stderr, "  drop (not kernel):   %lu\n", g_drop_not_kernel.load());
     fprintf(stderr, "  drop (no qi):        %lu\n", g_drop_no_qi.load());
@@ -703,12 +697,12 @@ extern "C" bool OnLoad(void* pTable,
     fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
     // Check safe mode before probing intercept
-    bool safe_mode = (getenv("RTL_SAFE_MODE") && atoi(getenv("RTL_SAFE_MODE")) > 0);
+    bool no_inject = (getenv("RTL_NO_INJECT") && atoi(getenv("RTL_NO_INJECT")) > 0);
 
     // Probe: check if hsa_amd_queue_intercept_create is functional.
-    if (safe_mode) {
+    if (no_inject) {
         g_intercept_available = false;
-        fprintf(stderr, "rtl: safe mode (RTL_SAFE_MODE=1): intercept disabled, cudagraph compatible\n");
+        fprintf(stderr, "rtl: RTL_NO_INJECT=1: signal injection disabled (no kernel timestamps), cudagraph compatible\n");
     } else if (!g_gpu_agents.empty()) {
         hsa_queue_t* probe_q = nullptr;
         hsa_status_t probe_st = g_orig_ext.hsa_amd_queue_intercept_create_fn(

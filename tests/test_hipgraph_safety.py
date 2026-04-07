@@ -134,66 +134,61 @@ class TestBatchSkip:
             "batch_mode block must return early before signal injection"
 
 
-class TestSignalSkip:
-    """Verify packets with existing completion_signal are skipped (issue #67)."""
+class TestSignalForwarding:
+    """Verify packets with app-provided completion_signal are still profiled."""
 
     def _get_source(self):
         with open(HSA_FILE) as f:
             return f.read()
 
-    def test_completion_signal_check(self):
-        """Packets with non-zero completion_signal must be skipped."""
+    def test_original_signal_saved(self):
+        """Original completion_signal must be saved before injection."""
         src = self._get_source()
-        assert "completion_signal.handle != 0" in src, \
-            "No check for existing completion_signal"
+        assert "orig_sig = pkt->completion_signal" in src, \
+            "Original signal not saved before injection"
 
-    def test_skip_has_signal_counter(self):
-        """Skipped-signal counter must exist for diagnostics."""
+    def test_original_signal_forwarded(self):
+        """Original signal must be forwarded after timestamp collection."""
         src = self._get_source()
-        assert "g_skip_has_signal" in src, \
-            "No g_skip_has_signal counter"
-
-    def test_skip_counter_in_shutdown(self):
-        """g_skip_has_signal must be reported in shutdown stats."""
-        src = self._get_source()
-        match = re.search(r'static void shutdown\(\).*?\n\}', src, re.DOTALL)
-        assert match
-        body = match.group()
-        assert "g_skip_has_signal" in body, \
-            "g_skip_has_signal not reported in shutdown"
+        assert "original_signal" in src and "subtract_screlease" in src, \
+            "Original signal not forwarded via subtract_screlease"
 
 
-class TestSafeMode:
-    """Verify RTL_SAFE_MODE disables intercept queue (issue #67)."""
+class TestNoInjectMode:
+    """Verify RTL_NO_INJECT disables signal injection (issue #67).
+
+    RTL_NO_INJECT=1 disables hsa_amd_queue_intercept_create entirely.
+    No kernel timestamps are collected. HIP API tracing still works.
+    This is an escape hatch for cudagraph compatibility, not a profiling mode.
+    """
 
     def _get_source(self):
         with open(HSA_FILE) as f:
             return f.read()
 
-    def test_safe_mode_env_var(self):
-        """RTL_SAFE_MODE env var must be checked."""
+    def test_no_inject_env_var(self):
+        """RTL_NO_INJECT env var must be checked."""
         src = self._get_source()
-        assert "RTL_SAFE_MODE" in src, \
-            "No RTL_SAFE_MODE env var support"
+        assert "RTL_NO_INJECT" in src, \
+            "No RTL_NO_INJECT env var support"
 
-    def test_safe_mode_disables_intercept(self):
-        """Safe mode must disable hsa_amd_queue_intercept_create."""
+    def test_no_inject_disables_intercept(self):
+        """RTL_NO_INJECT must disable hsa_amd_queue_intercept_create."""
         src = self._get_source()
         assert "g_intercept_available = false" in src or \
-               "intercept disabled" in src, \
-            "Safe mode does not disable intercept"
+               "signal injection disabled" in src, \
+            "RTL_NO_INJECT does not disable intercept"
 
-    def test_safe_mode_plain_queue_profiling(self):
-        """Safe mode must enable profiling on plain queue."""
+    def test_no_inject_plain_queue_profiling(self):
+        """RTL_NO_INJECT must still enable profiling on plain queue."""
         src = self._get_source()
-        # In the safe_mode/!intercept path, profiling should still be enabled
         match = re.search(
-            r'if\s*\(!g_intercept_available\s*\|\|\s*safe_mode\).*?\}',
+            r'if\s*\(!g_intercept_available\s*\|\|\s*no_inject\).*?\}',
             src, re.DOTALL)
-        assert match, "No safe_mode/!intercept queue path found"
+        assert match, "No no_inject/!intercept queue path found"
         body = match.group()
         assert "profiling_set_profiler_enabled" in body, \
-            "Safe mode must enable profiling on plain queue"
+            "RTL_NO_INJECT must enable profiling on plain queue"
 
 
 class TestDebugLogging:
