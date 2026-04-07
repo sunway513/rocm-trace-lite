@@ -522,7 +522,12 @@ static hsa_status_t my_hsa_queue_create(
             private_segment_size, group_segment_size, queue);
         if (status == HSA_STATUS_SUCCESS) {
             // Enable profiling on plain queue (for observe-only mode)
-            g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(*queue, true);
+            hsa_status_t prof_status =
+                g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(*queue, true);
+            if (prof_status != HSA_STATUS_SUCCESS) {
+                fprintf(stderr, "rtl: profiling_set_profiler_enabled failed (0x%x)\n",
+                        prof_status);
+            }
         }
         return status;
     }
