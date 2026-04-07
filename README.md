@@ -100,12 +100,11 @@ Output files:
 
 ## Output format
 
-SQLite database compatible with RPD ecosystem tools. Key tables:
+Standard SQLite `.db` database. Query with any SQLite tool. Key tables:
 
-- `rocpd_op` — GPU operations with start/end timestamps
+- `rocpd_op` — GPU kernel dispatches with start/end timestamps, gpuId, queueId
 - `rocpd_string` — Deduplicated string table (kernel names, op types)
-- `rocpd_api` — HIP API calls (empty in lite mode)
-- `rocpd_metadata` — Trace metadata
+- `rocpd_metadata` — Trace metadata (duration, host info)
 
 Built-in views:
 
@@ -119,14 +118,16 @@ SELECT * FROM busy;
 
 ## Tests
 
+314 tests covering unit, E2E, multi-GPU, stress, and release validation.
+
 ```bash
-# Run CPU-only tests (no GPU required)
+# CPU-only tests (no GPU required)
 make test-cpu
 
-# GPU smoke test (requires ROCm GPU)
-make test-gpu
+# GPU tests (requires ROCm GPU)
+python3 -m pytest tests/ -v --timeout=180
 
-# CI runs automatically on push via GitHub Actions
+# CI: CPU on every push, GPU on MI355X runners
 ```
 
 ## Acknowledgments
