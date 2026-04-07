@@ -156,6 +156,7 @@ static std::atomic<uint64_t> g_drop_ts_fail{0};      // profiling_get_dispatch_t
 static std::atomic<uint64_t> g_drop_ts_invalid{0};   // end <= start
 static std::atomic<uint64_t> g_injected{0};           // signals injected
 static std::atomic<uint64_t> g_injected_fallback{0};  // via kernel_object fallback
+static std::atomic<uint64_t> g_skip_has_signal{0};    // skipped: already has completion signal (e.g. graph replay)
 static std::atomic<uint64_t> g_recorded_ok{0};
 
 // ---- Completion worker ----
@@ -393,17 +394,47 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
     }
     uint64_t dd_count = 0;
 
+    // Debug logging: RTL_DEBUG=1 logs summary, RTL_DEBUG=2 logs every packet
+    static const int debug_level = getenv("RTL_DEBUG") ? atoi(getenv("RTL_DEBUG")) : 0;
+    static std::atomic<uint64_t> debug_count{0};
+    static std::atomic<uint64_t> total_pkts{0};
+    uint64_t this_call = debug_count.fetch_add(1, std::memory_order_relaxed);
+
+    if (debug_level >= 1 && (this_call < 20 || count > 1 || (this_call % 1000 == 0))) {
+        fprintf(stderr, "rtl-dbg: call#%lu count=%lu dev=%d pid=%d\n",
+                this_call, count, qi->device_id, getpid());
+    }
+
+    // CUDAGraph replay submits batch packets (count > 1) containing
+    // pre-recorded AQL packets.  Injecting profiling signals into these
+    // packets corrupts the graph's execution dependency chain and causes
+    // HSA_STATUS_ERROR_INVALID_PACKET_FORMAT (0x1009).  Issue #67.
+    //
+    // Solution: skip the entire batch — no signal injection, no modification.
+    // Individual (count == 1) dispatches are still profiled normally.
+    const bool batch_mode = (count > 1);
+
+    if (batch_mode) {
+        g_drop_not_kernel.fetch_add(count, std::memory_order_relaxed);
+        if (debug_level >= 1) {
+            fprintf(stderr, "rtl-dbg: call#%lu count=%lu dev=%d pid=%d SKIP(batch)\n",
+                    this_call, count, qi->device_id, getpid());
+        }
+        writer(in_packets, count);
+        return;
+    }
+
     for (uint64_t i = 0; i < count; i++) {
         hsa_kernel_dispatch_packet_t* pkt =
             reinterpret_cast<hsa_kernel_dispatch_packet_t*>(mod_buf + i * pkt_size);
 
-        // Detect kernel dispatch packets.
-        // Primary: header type == KERNEL_DISPATCH (standard HSA).
-        // Fallback: some runtimes use type=0 (VENDOR_SPECIFIC) for kernel
-        // dispatches. Validate multiple dispatch-specific fields to avoid
-        // misclassifying non-dispatch packets.
         uint8_t type = ((pkt->header >> HSA_PACKET_HEADER_TYPE) & 0xFF);
+
         bool is_kernel = (type == HSA_PACKET_TYPE_KERNEL_DISPATCH);
+
+        // Single-packet mode: apply fallback heuristic for type=0
+        // (VENDOR_SPECIFIC). Some runtimes use type=0 for kernel
+        // dispatches with valid kernel_object/grid/workgroup fields.
         if (!is_kernel
             && pkt->kernel_object != 0
             && pkt->workgroup_size_x > 0
@@ -411,8 +442,28 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
             is_kernel = true;
             g_injected_fallback.fetch_add(1, std::memory_order_relaxed);
         }
+
+        uint64_t pkt_num = total_pkts.fetch_add(1, std::memory_order_relaxed);
+
+        if (debug_level >= 2 ||
+            (debug_level >= 1 && (!is_kernel || pkt->completion_signal.handle != 0))) {
+            fprintf(stderr, "rtl-dbg: [%lu] pkt#%lu type=%u "
+                    "sig=0x%lx ko=0x%lx batch=%d pid=%d\n",
+                    this_call, pkt_num, type,
+                    pkt->completion_signal.handle, pkt->kernel_object,
+                    (int)batch_mode, getpid());
+        }
+
         if (!is_kernel) {
             g_drop_not_kernel.fetch_add(1, std::memory_order_relaxed);
+            continue;
+        }
+
+        // Skip packets that already have a completion signal.
+        // CUDAGraph replay and barriers set their own signals.
+        // Overwriting them causes HSA_STATUS_ERROR_INVALID_PACKET_FORMAT (0x1009).
+        if (pkt->completion_signal.handle != 0) {
+            g_skip_has_signal.fetch_add(1, std::memory_order_relaxed);
             continue;
         }
 
@@ -461,10 +512,19 @@ static hsa_status_t my_hsa_queue_create(
     void* data, uint32_t private_segment_size,
     uint32_t group_segment_size, hsa_queue_t** queue) {
 
-    // If intercept is not available, pass through to original queue_create.
-    if (!g_intercept_available) {
-        return g_orig_core.hsa_queue_create_fn(agent, size, type, callback, data,
-                                                private_segment_size, group_segment_size, queue);
+    // Check if safe mode is requested (disables intercept queue for cudagraph compat)
+    static const bool safe_mode = (getenv("RTL_SAFE_MODE") && atoi(getenv("RTL_SAFE_MODE")) > 0);
+
+    // If intercept is not available or safe mode requested, use plain queue
+    if (!g_intercept_available || safe_mode) {
+        hsa_status_t status = g_orig_core.hsa_queue_create_fn(
+            agent, size, type, callback, data,
+            private_segment_size, group_segment_size, queue);
+        if (status == HSA_STATUS_SUCCESS) {
+            // Enable profiling on plain queue (for observe-only mode)
+            g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(*queue, true);
+        }
+        return status;
     }
 
     // Create interceptible queue.
@@ -545,6 +605,9 @@ static void shutdown() {
     fprintf(stderr, "  signals injected:    %lu\n", g_injected.load());
     if (g_injected_fallback.load() > 0) {
         fprintf(stderr, "  fallback detect:     %lu\n", g_injected_fallback.load());
+    }
+    if (g_skip_has_signal.load() > 0) {
+        fprintf(stderr, "  skip (has signal):   %lu\n", g_skip_has_signal.load());
     }
     fprintf(stderr, "  drop (shutdown):     %lu\n", g_drop_shutdown.load());
     fprintf(stderr, "  drop (not kernel):   %lu\n", g_drop_not_kernel.load());
@@ -634,8 +697,14 @@ extern "C" bool OnLoad(void* pTable,
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
+    // Check safe mode before probing intercept
+    bool safe_mode = (getenv("RTL_SAFE_MODE") && atoi(getenv("RTL_SAFE_MODE")) > 0);
+
     // Probe: check if hsa_amd_queue_intercept_create is functional.
-    if (!g_gpu_agents.empty()) {
+    if (safe_mode) {
+        g_intercept_available = false;
+        fprintf(stderr, "rtl: safe mode (RTL_SAFE_MODE=1): intercept disabled, cudagraph compatible\n");
+    } else if (!g_gpu_agents.empty()) {
         hsa_queue_t* probe_q = nullptr;
         hsa_status_t probe_st = g_orig_ext.hsa_amd_queue_intercept_create_fn(
             g_gpu_agents[0], 64, HSA_QUEUE_TYPE_SINGLE, nullptr, nullptr,
