@@ -63,23 +63,72 @@ static std::unordered_map<uint64_t, QueueInfo> g_queue_map;  // keyed by hsa_que
 
 static std::atomic<uint64_t> g_dispatch_id{0};
 
-// ---- Profiling signal pool ----
-// Reuse HSA signals to avoid per-dispatch creation overhead.
-static std::mutex g_pool_mutex;
-static std::vector<hsa_signal_t> g_signal_pool;
-static constexpr size_t SIGNAL_POOL_MAX = 4096;
+// ---- Lock-free signal pool (Vyukov MPMC bounded ring buffer) ----
+// Replaces mutex + vector to eliminate contention on the per-dispatch hot path.
+// 256-slot ring buffer with per-slot atomic sequence numbers for ABA safety.
+// Head/tail on separate cache lines to prevent false sharing.
 
-static hsa_signal_t acquire_signal() {
-    {
-        std::lock_guard<std::mutex> lock(g_pool_mutex);
-        if (!g_signal_pool.empty()) {
-            hsa_signal_t sig = g_signal_pool.back();
-            g_signal_pool.pop_back();
-            g_orig_core.hsa_signal_store_relaxed_fn(sig, 1);
-            return sig;
+static constexpr size_t CENTRAL_CAPACITY = 256;  // must be power of 2
+static constexpr size_t CENTRAL_MASK = CENTRAL_CAPACITY - 1;
+
+struct alignas(64) CentralSlot {
+    std::atomic<uint64_t> sequence;
+    hsa_signal_t signal;
+};
+
+static CentralSlot g_central_slots[CENTRAL_CAPACITY];
+static std::atomic<uint64_t> g_central_head alignas(64) {0};  // consumers (acquire)
+static std::atomic<uint64_t> g_central_tail alignas(64) {0};  // producers (release)
+
+static bool central_try_pop(hsa_signal_t& out) {
+    uint64_t pos = g_central_head.load(std::memory_order_relaxed);
+    while (true) {
+        CentralSlot& slot = g_central_slots[pos & CENTRAL_MASK];
+        uint64_t seq = slot.sequence.load(std::memory_order_acquire);
+        int64_t diff = (int64_t)seq - (int64_t)(pos + 1);
+        if (diff == 0) {
+            if (g_central_head.compare_exchange_weak(pos, pos + 1,
+                    std::memory_order_relaxed, std::memory_order_relaxed)) {
+                out = slot.signal;
+                slot.sequence.store(pos + CENTRAL_CAPACITY, std::memory_order_release);
+                return true;
+            }
+        } else if (diff < 0) {
+            return false;  // empty
+        } else {
+            pos = g_central_head.load(std::memory_order_relaxed);
         }
     }
+}
+
+static bool central_try_push(hsa_signal_t sig) {
+    uint64_t pos = g_central_tail.load(std::memory_order_relaxed);
+    while (true) {
+        CentralSlot& slot = g_central_slots[pos & CENTRAL_MASK];
+        uint64_t seq = slot.sequence.load(std::memory_order_acquire);
+        int64_t diff = (int64_t)seq - (int64_t)pos;
+        if (diff == 0) {
+            if (g_central_tail.compare_exchange_weak(pos, pos + 1,
+                    std::memory_order_relaxed, std::memory_order_relaxed)) {
+                slot.signal = sig;
+                slot.sequence.store(pos + 1, std::memory_order_release);
+                return true;
+            }
+        } else if (diff < 0) {
+            return false;  // full
+        } else {
+            pos = g_central_tail.load(std::memory_order_relaxed);
+        }
+    }
+}
+
+static hsa_signal_t acquire_signal() {
     hsa_signal_t sig;
+    if (central_try_pop(sig)) {
+        g_orig_core.hsa_signal_store_relaxed_fn(sig, 1);
+        return sig;
+    }
+    // Slow path: create new signal (no lock held)
     hsa_status_t st = g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig);
     if (st != HSA_STATUS_SUCCESS) {
         sig.handle = 0;
@@ -89,12 +138,9 @@ static hsa_signal_t acquire_signal() {
 
 static void release_signal(hsa_signal_t sig) {
     if (sig.handle == 0) return;
-    std::lock_guard<std::mutex> lock(g_pool_mutex);
-    if (g_signal_pool.size() < SIGNAL_POOL_MAX) {
-        g_signal_pool.push_back(sig);
-    } else {
-        g_orig_core.hsa_signal_destroy_fn(sig);
-    }
+    if (central_try_push(sig)) return;
+    // Pool full: destroy outside any lock
+    g_orig_core.hsa_signal_destroy_fn(sig);
 }
 
 // ---- Diagnostic counters ----
@@ -518,13 +564,12 @@ static void shutdown() {
     rpd_lite::get_trace_db().flush();
     rpd_lite::get_trace_db().close();
 
-    // Destroy signal pool
+    // Destroy signal pool (drain lock-free ring buffer)
     {
-        std::lock_guard<std::mutex> lock(g_pool_mutex);
-        for (auto& sig : g_signal_pool) {
+        hsa_signal_t sig;
+        while (central_try_pop(sig)) {
             g_orig_core.hsa_signal_destroy_fn(sig);
         }
-        g_signal_pool.clear();
     }
 
     // Clean up queue info
@@ -563,15 +608,26 @@ extern "C" bool OnLoad(void* pTable,
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
-    // Pre-allocate signal pool (256 initial for multi-GPU workloads)
-    g_signal_pool.reserve(512);
-    for (int i = 0; i < 256; i++) {
+    // Initialize lock-free ring buffer slot sequences
+    for (size_t i = 0; i < CENTRAL_CAPACITY; i++) {
+        g_central_slots[i].sequence.store(i, std::memory_order_relaxed);
+    }
+
+    // Pre-allocate signals into ring buffer
+    size_t filled = 0;
+    for (size_t i = 0; i < 64; i++) {
         hsa_signal_t sig;
         if (g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig) == HSA_STATUS_SUCCESS) {
-            g_signal_pool.push_back(sig);
+            if (central_try_push(sig)) {
+                filled++;
+            } else {
+                g_orig_core.hsa_signal_destroy_fn(sig);
+                break;
+            }
         }
     }
-    fprintf(stderr, "rtl: signal pool initialized (%zu signals)\n", g_signal_pool.size());
+    fprintf(stderr, "rtl: signal pool initialized (%zu signals, lock-free ring capacity %zu)\n",
+            filled, CENTRAL_CAPACITY);
 
     // Start completion worker thread
     g_worker = std::thread(completion_worker);
