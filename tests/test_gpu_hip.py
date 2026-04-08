@@ -394,11 +394,15 @@ class TestHipGraph:
         """No 0x1009 errors during hipgraph replay."""
         trace, r = _trace(tmp_path, ["hipgraph_stress", "4", "20", "3"], timeout=120)
         assert r.returncode == 0
-        # Filter out path names that may contain "0x1009" from test directory naming
-        error_lines = [l for l in r.stderr.splitlines()
-                       if "0x1009" in l and "writing to" not in l and "librtl.so" not in l]
-        assert not error_lines, \
-            "Got 0x1009 during hipgraph: {}".format("\n".join(error_lines))
+        # Filter out path names that contain "0x1009" (test dir naming)
+        for line in r.stderr.splitlines():
+            if "0x1009" not in line:
+                continue
+            if "writing to" in line or "librtl.so" in line:
+                continue
+            raise AssertionError(
+                "Got 0x1009 during hipgraph: {}".format(line)
+            )
 
 
 @skip_no_workload
