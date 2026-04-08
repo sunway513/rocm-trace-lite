@@ -15,6 +15,11 @@ def main():
     # trace
     trace_p = sub.add_parser("trace", help="Trace a workload")
     trace_p.add_argument("-o", "--output", default="trace.db", help="Output trace file (default: trace.db)")
+    trace_p.add_argument("-m", "--mode", choices=["default", "lite", "full"], default=None,
+                         help="Profiling mode: "
+                              "default (GPU timing, skip graph replay), "
+                              "lite (like default but also skip has-signal packets, ~0%% overhead), "
+                              "full (profile everything including graph replay, requires ROCm 7.13+)")
     trace_p.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to trace")
 
     # convert

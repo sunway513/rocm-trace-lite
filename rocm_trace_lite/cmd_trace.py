@@ -129,6 +129,8 @@ def run_trace(args):
     env = os.environ.copy()
     env["HSA_TOOLS_LIB"] = lib
     env["RTL_OUTPUT"] = per_process_pattern
+    if hasattr(args, 'mode') and args.mode:
+        env["RTL_MODE"] = args.mode
 
     # Ensure the subprocess can dlopen librtl.so and its dependencies.
     # Add the .so's directory and common ROCm paths to LD_LIBRARY_PATH.
