@@ -66,6 +66,10 @@ static std::atomic<uint64_t> g_dispatch_id{0};
 // Whether queue intercept is available (checked in OnLoad via probe call)
 static bool g_intercept_available = false;
 
+// RTL_MODE: "full" (default) = signal injection + timing
+//           "observe" = no signal injection, record kernel names + counts only (~0% overhead)
+static bool g_observe_mode = false;
+
 // ---- Lock-free signal pool (Vyukov MPMC bounded ring buffer) ----
 // Replaces mutex + vector to eliminate contention on the per-dispatch hot path.
 // 256-slot ring buffer with per-slot atomic sequence numbers for ABA safety.
@@ -158,6 +162,7 @@ static std::atomic<uint64_t> g_injected{0};           // signals injected
 static std::atomic<uint64_t> g_injected_fallback{0};  // via kernel_object fallback
 static std::atomic<uint64_t> g_skip_has_signal{0};    // skipped: already has completion signal (e.g. graph replay)
 static std::atomic<uint64_t> g_recorded_ok{0};
+static std::atomic<uint64_t> g_observed{0};           // observe mode: kernels counted (no timing)
 
 // ---- Completion worker ----
 static std::string lookup_kernel_name(uint64_t kernel_object);
@@ -360,6 +365,28 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
     QueueInfo* qi = static_cast<QueueInfo*>(data);
     if (!qi) {
         g_drop_no_qi.fetch_add(count, std::memory_order_relaxed);
+        writer(in_packets, count);
+        return;
+    }
+
+    // Observe mode (RTL_MODE=observe): record kernel names and counts without
+    // modifying packets. No signal injection, no timing — just dispatches.
+    // ~0% overhead, suitable for always-on production profiling.
+    if (g_observe_mode) {
+        const size_t pkt_size = sizeof(hsa_kernel_dispatch_packet_t);
+        for (uint64_t i = 0; i < count; i++) {
+            const hsa_kernel_dispatch_packet_t* pkt =
+                reinterpret_cast<const hsa_kernel_dispatch_packet_t*>(
+                    static_cast<const char*>(in_packets) + i * pkt_size);
+            uint8_t type = ((pkt->header >> HSA_PACKET_HEADER_TYPE) & 0xFF);
+            if (type == HSA_PACKET_TYPE_KERNEL_DISPATCH) {
+                std::string name = lookup_kernel_name(pkt->kernel_object);
+                uint64_t ts = trace_db::tick();
+                get_trace_db().record_kernel(name.c_str(), qi->device_id, qi->queue_handle,
+                                              ts, ts + 1, next_correlation_id());
+                g_observed.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
         writer(in_packets, count);
         return;
     }
@@ -608,6 +635,9 @@ static void shutdown() {
     fprintf(stderr, "\n=== rtl diagnostic (PID %d) ===\n", getpid());
     fprintf(stderr, "  intercept calls:     %lu\n", g_total_intercepts.load());
     fprintf(stderr, "  signals injected:    %lu\n", g_injected.load());
+    if (g_observed.load() > 0) {
+        fprintf(stderr, "  observed (no sig):   %lu\n", g_observed.load());
+    }
     if (g_injected_fallback.load() > 0) {
         fprintf(stderr, "  fallback detect:     %lu\n", g_injected_fallback.load());
     }
@@ -702,7 +732,12 @@ extern "C" bool OnLoad(void* pTable,
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
-    // Check safe mode before probing intercept
+    // Check mode: RTL_MODE=observe for lightweight counting, RTL_SAFE_MODE=1 for no intercept
+    const char* mode_env = getenv("RTL_MODE");
+    if (mode_env && strcmp(mode_env, "observe") == 0) {
+        g_observe_mode = true;
+        fprintf(stderr, "rtl: observe mode (RTL_MODE=observe) — kernel counting only, no timing, ~0%% overhead\n");
+    }
     bool safe_mode = (getenv("RTL_SAFE_MODE") && atoi(getenv("RTL_SAFE_MODE")) > 0);
 
     // Probe: check if hsa_amd_queue_intercept_create is functional.

@@ -9,6 +9,7 @@
 #include <atomic>
 #include <mutex>
 #include <unistd.h>
+#include <sys/stat.h>
 
 namespace trace_db {
 
@@ -45,6 +46,20 @@ static void lazy_init_db() {
     auto pos = filename.find("%p");
     if (pos != std::string::npos) {
         filename.replace(pos, 2, std::to_string(getpid()));
+    }
+    // Create parent directories if needed (e.g., RTL_OUTPUT=/tmp/traces/trace_%p.db)
+    auto slash = filename.rfind('/');
+    if (slash != std::string::npos) {
+        std::string dir = filename.substr(0, slash);
+        // Simple recursive mkdir — ignore errors (open() will fail if dir is bad)
+        for (size_t i = 1; i < dir.size(); i++) {
+            if (dir[i] == '/') {
+                dir[i] = '\0';
+                mkdir(dir.c_str(), 0755);
+                dir[i] = '/';
+            }
+        }
+        mkdir(dir.c_str(), 0755);
     }
     if (g_db.open(filename)) {
         g_db_ready = true;
