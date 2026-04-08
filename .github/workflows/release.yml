@@ -39,7 +39,7 @@ jobs:
       - name: Verify wheel contents
         run: |
           /tmp/build-venv/bin/pip install dist/*.whl
-          /tmp/build-venv/bin/rpd-lite --version
+          /tmp/build-venv/bin/rtl --version
           /tmp/build-venv/bin/python -c "from rocm_trace_lite import get_lib_path; print(get_lib_path())"
 
       - uses: actions/upload-artifact@v4
