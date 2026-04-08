@@ -77,12 +77,20 @@ Key indicators:
 
 ## CUDAGraph compatibility
 
-When profiling CUDAGraph workloads (e.g., ATOM GPT-OSS TP=8), batch submissions from graph replay are automatically skipped. The `drop (not kernel)` counter reflects these skipped packets.
+When profiling CUDAGraph workloads (e.g., ATOM/vLLM with hipgraph), batch submissions from graph replay are automatically skipped in default and lite modes. The `drop (batch skip)` counter reflects these skipped packets.
 
-If you still see crashes, use `RTL_NO_INJECT=1` to disable signal injection entirely:
+For near-zero overhead with CUDAGraph workloads, use lite mode:
 
 ```bash
-RTL_NO_INJECT=1 rtl trace -o trace.db torchrun --nproc_per_node=8 my_model.py
+rtl trace --mode lite -o trace.db torchrun --nproc_per_node=8 my_model.py
+# or
+RTL_MODE=lite rtl trace -o trace.db torchrun --nproc_per_node=8 my_model.py
+```
+
+To profile graph replay kernels (requires ROCm 7.13+ with [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1)):
+
+```bash
+RTL_MODE=full rtl trace -o trace.db torchrun --nproc_per_node=8 my_model.py
 ```
 
 See `RTL_DEBUG=1` output for per-call diagnostics.

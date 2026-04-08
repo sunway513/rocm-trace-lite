@@ -111,9 +111,17 @@ but HIP API tracing still works.
 
 | Variable | Values | Description |
 |----------|--------|-------------|
-| `RTL_OUTPUT` | path | Output trace file (alternative to `-o` flag) |
-| `RTL_NO_INJECT` | `1` | Disable signal injection for full CUDAGraph compatibility |
+| `RTL_OUTPUT` | path | Output trace file (supports `%p` for PID). Alternative to `-o` flag. |
+| `RTL_MODE` | `default`, `lite`, `full` | Profiling mode (see below) |
 | `RTL_DEBUG` | `1`, `2` | Packet-level diagnostic logging (1=summary, 2=per-packet) |
+
+### Profiling modes
+
+| Mode | GPU timing | Graph replay | Overhead | Use case |
+|------|-----------|-------------|----------|----------|
+| **default** | Yes | Skipped | ~2-4% | General profiling |
+| **lite** | Yes (partial) | Skipped | ~0% | Production / always-on |
+| **full** | Yes (all) | Profiled | ~2-5% | Deep analysis (ROCm 7.13+ only) |
 
 ## Environment variable mode
 
@@ -122,5 +130,6 @@ For advanced control, set environment variables directly:
 ```bash
 export HSA_TOOLS_LIB=/path/to/librtl.so
 export RTL_OUTPUT=my_trace.db
+export RTL_MODE=lite    # optional: lite for ~0% overhead
 python3 my_model.py
 ```

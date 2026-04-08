@@ -1,7 +1,7 @@
 # ADR-001: HIP Graph Safety in rocm-trace-lite
 
 ## Status
-**Accepted** — Timeout-based signal wait + batch skip + RTL_NO_INJECT escape hatch
+**Accepted** — Timeout-based signal wait + batch skip + RTL_MODE profiling modes
 
 ## Problem 1: Worker signal wait crash (v0.1.x)
 
@@ -78,11 +78,17 @@ if (batch_mode) {
 
 Individual dispatches (`count == 1`) are still profiled normally. Graph-replayed kernels are not profiled.
 
-### Escape hatch: RTL_NO_INJECT
+### Profiling modes: RTL_MODE
 
-`RTL_NO_INJECT=1` disables `hsa_amd_queue_intercept_create` entirely. The profiler creates a plain queue with `hsa_amd_profiling_set_profiler_enabled` instead. No kernel timestamps are collected. HIP API tracing still works.
+`RTL_MODE` controls how aggressively RTL profiles kernel dispatches:
 
-Use when batch skip alone is insufficient (e.g., graph capture bakes stale signal handles into single-dispatch packets).
+| Mode | Behavior | Overhead |
+|------|----------|----------|
+| **default** (no flag) | Signal injection for all `count==1` dispatches, skip graph replay batches (`count > 1`) | ~2-4% |
+| **lite** | Like default, but also skip packets with existing `completion_signal` (NCCL, barriers) | ~0% |
+| **full** | Profile everything including graph replay batches. **Requires ROCm 7.13+** with [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1). Crashes on ROCm <= 7.2 due to `InterceptQueue::staging_buffer_` heap overflow. | ~2-5% |
+
+Set via env var (`RTL_MODE=lite`) or CLI (`rtl trace --mode lite`).
 
 ### Diagnostic logging: RTL_DEBUG
 
@@ -91,6 +97,7 @@ Use when batch skip alone is insufficient (e.g., graph capture bakes stale signa
 
 ### Known limitations
 
-- Batch skip also skips legitimate non-graph batched submissions. The HSA intercept API does not provide a way to distinguish graph replay from normal multi-packet submissions.
-- Graph-captured kernels dispatched individually during capture phase still get signal injection. This is correct for normal profiling but causes stale handles on replay.
-- Filed as ROCm runtime feature request: need graph-awareness in intercept callback (issue #67).
+- Default and lite modes skip all `count > 1` batched submissions (graph replay). The HSA intercept API does not distinguish graph replay from normal multi-packet submissions.
+- Graph-captured kernels dispatched individually during capture phase still get signal injection. This is correct for profiling.
+- Root cause is a ROCm runtime bug in `InterceptQueue::staging_buffer_` (hardcoded to 256 entries, heap overflow for larger batches). Fixed in [rocm-systems commit 559d48b1](https://github.com/ROCm/rocm-systems/commit/559d48b1), expected in ROCm 7.13+.
+- `RTL_MODE=full` re-enables graph replay profiling once the ROCR fix is available.

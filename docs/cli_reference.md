@@ -106,7 +106,7 @@ Trace: trace.db
 
 | Variable | Values | Description |
 |----------|--------|-------------|
-| `RTL_OUTPUT` | file path | Output trace file (alternative to `-o` flag) |
-| `RTL_NO_INJECT` | `1` | Disable `hsa_amd_queue_intercept_create` and signal injection. No kernel timestamps. HIP API tracing still works. Use for CUDAGraph compatibility. |
+| `RTL_OUTPUT` | file path | Output trace file (supports `%p` for PID). Alternative to `-o` flag. |
+| `RTL_MODE` | `default`, `lite`, `full` | Profiling mode. `default`: signal injection, skip graph replay. `lite`: also skip has-signal packets (~0% overhead). `full`: profile everything including graph replay (requires ROCm 7.13+). |
 | `RTL_DEBUG` | `1` | Log per-call summary: intercept call count, device ID, batch skip decisions |
 | `RTL_DEBUG` | `2` | Log per-packet details: AQL type, signal handle, kernel object address |
