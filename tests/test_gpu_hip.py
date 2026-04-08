@@ -394,5 +394,81 @@ class TestHipGraph:
         """No 0x1009 errors during hipgraph replay."""
         trace, r = _trace(tmp_path, ["hipgraph_stress", "4", "20", "3"], timeout=120)
         assert r.returncode == 0
-        assert "0x1009" not in r.stderr, \
-            "Got 0x1009 during hipgraph: {}".format(r.stderr[-500:])
+        # Filter out path names that contain "0x1009" (test dir naming)
+        for line in r.stderr.splitlines():
+            if "0x1009" not in line:
+                continue
+            if "writing to" in line or "librtl.so" in line:
+                continue
+            raise AssertionError(
+                "Got 0x1009 during hipgraph: {}".format(line)
+            )
+
+
+@skip_no_workload
+@skip_no_lib
+class TestRtlModes:
+    """GPU E2E tests for RTL_MODE=default/lite/full."""
+
+    def _trace_with_mode(self, tmp_path, mode, workload_args, timeout=60):
+        """Run gpu_workload under rtl trace with a specific mode."""
+        trace = str(tmp_path / "trace_{}.db".format(mode))
+        env = os.environ.copy()
+        env["PYTHONPATH"] = "{}:{}".format(REPO_ROOT, env.get("PYTHONPATH", ""))
+        if mode:
+            env["RTL_MODE"] = mode
+        cmd = [
+            sys.executable, "-m", "rocm_trace_lite.cli", "trace", "-o", trace,
+            WORKLOAD,
+        ] + workload_args
+        r = subprocess.run(cmd, env=env, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True,
+                           timeout=timeout)
+        return trace, r
+
+    def test_default_mode_captures_kernels(self, tmp_path):
+        """Default mode must capture kernel dispatches with GPU timing."""
+        trace, r = self._trace_with_mode(tmp_path, None, ["gemm", "128", "5"])
+        assert r.returncode == 0, r.stderr[-500:]
+        assert "mode=default" in r.stderr
+        import sqlite3
+        conn = sqlite3.connect(trace)
+        ops = conn.execute("SELECT COUNT(*) FROM rocpd_op").fetchone()[0]
+        assert ops > 0, "Default mode captured 0 ops"
+        # Check GPU timing is real (not 0 or 1ns)
+        avg = conn.execute("SELECT AVG(end - start) FROM rocpd_op WHERE gpuId >= 0").fetchone()[0]
+        assert avg > 100, "Default mode: avg duration {}ns too small (no GPU timing?)".format(avg)
+        conn.close()
+
+    def test_lite_mode_captures_kernels(self, tmp_path):
+        """Lite mode must capture kernels with GPU timing."""
+        trace, r = self._trace_with_mode(tmp_path, "lite", ["gemm", "128", "5"])
+        assert r.returncode == 0, r.stderr[-500:]
+        assert "mode=lite" in r.stderr
+        import sqlite3
+        conn = sqlite3.connect(trace)
+        ops = conn.execute("SELECT COUNT(*) FROM rocpd_op").fetchone()[0]
+        assert ops > 0, "Lite mode captured 0 ops"
+        avg = conn.execute("SELECT AVG(end - start) FROM rocpd_op WHERE gpuId >= 0").fetchone()[0]
+        assert avg > 100, "Lite mode: avg duration {}ns too small".format(avg)
+        conn.close()
+
+    def test_default_mode_skips_graph_replay(self, tmp_path):
+        """Default mode must skip graph replay (count > 1) batches."""
+        trace, r = self._trace_with_mode(tmp_path, None, ["hipgraph", "50", "3"])
+        assert r.returncode == 0, r.stderr[-500:]
+        assert "drop (batch skip)" in r.stderr, "No batch skip in default mode"
+
+    def test_lite_mode_skips_graph_replay(self, tmp_path):
+        """Lite mode must skip graph replay batches."""
+        trace, r = self._trace_with_mode(tmp_path, "lite", ["hipgraph", "50", "3"])
+        assert r.returncode == 0, r.stderr[-500:]
+        assert "drop (batch skip)" in r.stderr, "No batch skip in lite mode"
+
+    def test_mode_printed_at_startup(self, tmp_path):
+        """RTL must print the active mode at startup."""
+        for mode in [None, "lite", "full"]:
+            _, r = self._trace_with_mode(tmp_path, mode, ["noop"])
+            expected = "mode={}".format(mode or "default")
+            assert expected in r.stderr, \
+                "Expected '{}' in stderr, got: {}".format(expected, r.stderr[:200])

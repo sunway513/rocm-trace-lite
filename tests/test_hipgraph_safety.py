@@ -125,11 +125,12 @@ class TestBatchSkip:
             "No dedicated batch skip counter"
 
     def test_no_signal_injection_in_batch(self):
-        """Signal injection must not happen inside batch_mode block."""
+        """Batch submissions must return early (no signal injection) in default/lite modes."""
         body = self._get_interceptor()
         # The batch_mode block should return early before the signal injection loop
+        # Pattern: if (batch_mode && g_rtl_mode != RtlMode::FULL) { ... return; }
         batch_block = re.search(
-            r'if\s*\(batch_mode\)\s*\{.*?\breturn\b', body, re.DOTALL)
+            r'if\s*\(batch_mode.*?\{.*?\breturn\b', body, re.DOTALL)
         assert batch_block, \
             "batch_mode block must return early before signal injection"
 
@@ -154,52 +155,89 @@ class TestSignalForwarding:
             "Original signal not forwarded via subtract_screlease"
 
 
-class TestNoInjectMode:
-    """Verify RTL_NO_INJECT disables signal injection (issue #67).
-
-    RTL_NO_INJECT=1 disables hsa_amd_queue_intercept_create entirely.
-    No kernel timestamps are collected. HIP API tracing still works.
-    This is an escape hatch for cudagraph compatibility, not a profiling mode.
-    """
+class TestRtlModes:
+    """Verify RTL_MODE profiling modes (default/lite/full)."""
 
     def _get_source(self):
         with open(HSA_FILE) as f:
             return f.read()
 
-    def test_no_inject_env_var(self):
-        """RTL_NO_INJECT env var must be checked."""
+    def _get_interceptor(self):
         src = self._get_source()
-        assert "RTL_NO_INJECT" in src, \
-            "No RTL_NO_INJECT env var support"
+        match = re.search(r'static void queue_intercept_cb\(.*?\n\}', src, re.DOTALL)
+        assert match, "Could not find queue_intercept_cb"
+        return match.group()
 
-    def test_no_inject_disables_intercept(self):
-        """RTL_NO_INJECT must disable hsa_amd_queue_intercept_create."""
+    def test_rtl_mode_enum_defined(self):
+        """RtlMode enum must define DEFAULT, LITE, FULL."""
         src = self._get_source()
-        assert "g_intercept_available = false" in src or \
-               "signal injection disabled" in src, \
-            "RTL_NO_INJECT does not disable intercept"
+        assert "RtlMode" in src, "No RtlMode enum"
+        assert "DEFAULT" in src, "No DEFAULT mode"
+        assert "LITE" in src, "No LITE mode"
+        assert "FULL" in src, "No FULL mode"
 
-    def test_no_inject_plain_queue_profiling(self):
-        """RTL_NO_INJECT must still enable profiling on plain queue."""
+    def test_rtl_mode_env_var_parsed(self):
+        """RTL_MODE env var must be read in OnLoad."""
         src = self._get_source()
-        match = re.search(
-            r'if\s*\(!g_intercept_available\s*\|\|\s*no_inject\).*?\}',
-            src, re.DOTALL)
-        assert match, "No no_inject/!intercept queue path found"
-        body = match.group()
-        assert "profiling_set_profiler_enabled" in body, \
-            "RTL_NO_INJECT must enable profiling on plain queue"
+        assert 'getenv("RTL_MODE")' in src, "RTL_MODE env var not read"
 
-    def test_no_inject_null_guard(self):
-        """RTL_NO_INJECT path must guard against null function pointer."""
+    def test_default_mode_is_default(self):
+        """Default mode must be DEFAULT (not LITE or FULL)."""
         src = self._get_source()
-        match = re.search(
-            r'if\s*\(!g_intercept_available\s*\|\|\s*no_inject\).*?\}',
-            src, re.DOTALL)
-        assert match, "No no_inject/!intercept queue path found"
-        body = match.group()
-        assert "!= nullptr" in body or "!= NULL" in body, \
-            "No null pointer guard for extension function in RTL_NO_INJECT path"
+        assert "g_rtl_mode = RtlMode::DEFAULT" in src, \
+            "Default mode is not DEFAULT"
+
+    def test_mode_names_printed(self):
+        """Mode name must be printed at startup."""
+        src = self._get_source()
+        assert 'mode_names' in src and '"default"' in src and '"lite"' in src and '"full"' in src, \
+            "Mode names not defined for printing"
+
+    def test_lite_mode_skips_has_signal(self):
+        """Lite mode must skip packets with existing completion_signal."""
+        body = self._get_interceptor()
+        assert "RtlMode::LITE" in body and "completion_signal" in body, \
+            "Lite mode does not check completion_signal"
+
+    def test_full_mode_allows_batch(self):
+        """Full mode must NOT skip batch submissions (count > 1)."""
+        body = self._get_interceptor()
+        assert "RtlMode::FULL" in body, \
+            "Full mode not referenced in batch skip logic"
+        # The batch skip should check g_rtl_mode != FULL
+        assert "g_rtl_mode != RtlMode::FULL" in body, \
+            "Batch skip does not exempt FULL mode"
+
+    def test_full_mode_rocr_requirement_documented(self):
+        """Full mode must document ROCm 7.13+ / ROCR fix requirement."""
+        src = self._get_source()
+        assert "559d48b1" in src or "ROCm 7.13" in src or "rocm-systems" in src, \
+            "Full mode ROCR requirement not documented in source"
+
+    def test_default_skips_graph_replay(self):
+        """Default mode must skip graph replay batches (count > 1)."""
+        body = self._get_interceptor()
+        # batch_mode check should apply when mode is not FULL
+        batch_check = re.search(r'if\s*\(batch_mode.*?RtlMode::FULL', body, re.DOTALL)
+        assert batch_check, "Default mode batch skip logic not found"
+
+    def test_mode_lite_parse(self):
+        """RTL_MODE=lite must set LITE mode."""
+        src = self._get_source()
+        assert '"lite"' in src, "lite mode string not parsed"
+        assert "RtlMode::LITE" in src, "LITE mode not set"
+
+    def test_mode_full_parse(self):
+        """RTL_MODE=full must set FULL mode."""
+        src = self._get_source()
+        assert '"full"' in src, "full mode string not parsed"
+        assert "RtlMode::FULL" in src, "FULL mode not set"
+
+    def test_unknown_mode_warning(self):
+        """Unknown RTL_MODE value must print a warning."""
+        src = self._get_source()
+        assert "unknown RTL_MODE" in src or "WARNING" in src, \
+            "No warning for unknown RTL_MODE value"
 
 
 class TestDebugLogging:

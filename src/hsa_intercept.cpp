@@ -67,6 +67,14 @@ static std::atomic<uint64_t> g_dispatch_id{0};
 // Whether queue intercept is available (checked in OnLoad via probe call)
 static bool g_intercept_available = false;
 
+// RTL_MODE controls profiling behavior:
+//   (default) — signal injection + GPU timing, skip graph replay batches
+//   "lite"    — like default but also skip packets with existing completion_signal (~0% overhead)
+//   "full"    — profile everything including graph replay batches. Requires ROCm 7.13+
+//               with ROCR fix (rocm-systems commit 559d48b1). Will crash on ROCm <= 7.2.
+enum class RtlMode { DEFAULT, LITE, FULL };
+static RtlMode g_rtl_mode = RtlMode::DEFAULT;
+
 // ---- Lock-free signal pool (Vyukov MPMC bounded ring buffer) ----
 // Replaces mutex + vector to eliminate contention on the per-dispatch hot path.
 // 256-slot ring buffer with per-slot atomic sequence numbers for ABA safety.
@@ -412,18 +420,15 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
 
     // CUDAGraph replay submits batch packets (count > 1) containing
     // pre-recorded AQL packets.  Injecting profiling signals into these
-    // packets corrupts the graph's execution dependency chain and causes
-    // HSA_STATUS_ERROR_INVALID_PACKET_FORMAT (0x1009).  Issue #67.
+    // corrupts the graph's execution dependency chain (issue #67).
     //
-    // Solution: skip the entire batch — no signal injection, no modification.
-    // Individual (count == 1) dispatches are still profiled normally.
-    //
-    // KNOWN LIMITATION: this also skips any legitimate non-graph batched
-    // submissions.  The HSA intercept API does not provide a way to
-    // distinguish graph replay from normal multi-packet submissions.
+    // Default and lite modes skip batch submissions for safety.
+    // Full mode profiles everything — requires ROCm 7.13+ with ROCR fix
+    // (rocm-systems PR #1194, commit 559d48b1) to avoid SEGFAULT.
+    // See: https://github.com/ROCm/rocm-systems/commit/559d48b1
     const bool batch_mode = (count > 1);
 
-    if (batch_mode) {
+    if (batch_mode && g_rtl_mode != RtlMode::FULL) {
         g_drop_batch_skip.fetch_add(count, std::memory_order_relaxed);
         if (debug_level >= 1) {
             fprintf(stderr, "rtl-dbg: call#%" PRIu64 " count=%" PRIu64 " dev=%d pid=%d SKIP(batch)\n",
@@ -464,6 +469,15 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
         }
 
         if (!is_kernel) {
+            g_drop_not_kernel.fetch_add(1, std::memory_order_relaxed);
+            continue;
+        }
+
+        // Lite mode: skip packets that already have a completion signal.
+        // Only profile dispatches where HIP didn't set a signal (most dispatches).
+        // Avoids overwriting signals used by graph capture, barriers, etc.
+        // Result: ~0% overhead with partial GPU timing.
+        if (g_rtl_mode == RtlMode::LITE && pkt->completion_signal.handle != 0) {
             g_drop_not_kernel.fetch_add(1, std::memory_order_relaxed);
             continue;
         }
@@ -513,17 +527,7 @@ static hsa_status_t my_hsa_queue_create(
     void* data, uint32_t private_segment_size,
     uint32_t group_segment_size, hsa_queue_t** queue) {
 
-    // Check if no-inject mode is requested (disables intercept queue for cudagraph compat)
-    static const bool no_inject = []() {
-        const char* v = getenv("RTL_NO_INJECT");
-        return v && atoi(v) > 0;
-    }();
-
-    // If intercept is not available or no-inject mode requested, use plain queue.
-    // profiling_set_profiler_enabled is still called so hsa_amd_profiling_get_dispatch_time
-    // would work if the application provides its own completion signals (observe-only).
-    // No kernel timestamps are collected by RTL because we don't inject signals.
-    if (!g_intercept_available || no_inject) {
+    if (!g_intercept_available) {
         hsa_status_t status = g_orig_core.hsa_queue_create_fn(
             agent, size, type, callback, data,
             private_segment_size, group_segment_size, queue);
@@ -708,15 +712,23 @@ extern "C" bool OnLoad(void* pTable,
     hsa_iterate_agents(agent_iterate_cb, nullptr);
     fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
-    // Check no-inject mode before probing intercept
-    const char* no_inject_env = getenv("RTL_NO_INJECT");
-    bool no_inject = (no_inject_env && atoi(no_inject_env) > 0);
+    // Parse RTL_MODE
+    const char* mode_env = getenv("RTL_MODE");
+    if (mode_env) {
+        if (strcmp(mode_env, "lite") == 0) {
+            g_rtl_mode = RtlMode::LITE;
+        } else if (strcmp(mode_env, "full") == 0) {
+            g_rtl_mode = RtlMode::FULL;
+        } else {
+            fprintf(stderr, "rtl: WARNING: unknown RTL_MODE='%s', using default\n", mode_env);
+        }
+    }
+
+    static const char* mode_names[] = {"default", "lite", "full"};
+    fprintf(stderr, "rtl: mode=%s\n", mode_names[(int)g_rtl_mode]);
 
     // Probe: check if hsa_amd_queue_intercept_create is functional.
-    if (no_inject) {
-        g_intercept_available = false;
-        fprintf(stderr, "rtl: RTL_NO_INJECT=1: signal injection disabled (no kernel timestamps), cudagraph compatible\n");
-    } else if (!g_gpu_agents.empty()) {
+    if (!g_gpu_agents.empty()) {
         hsa_queue_t* probe_q = nullptr;
         hsa_status_t probe_st = g_orig_ext.hsa_amd_queue_intercept_create_fn(
             g_gpu_agents[0], 64, HSA_QUEUE_TYPE_SINGLE, nullptr, nullptr,

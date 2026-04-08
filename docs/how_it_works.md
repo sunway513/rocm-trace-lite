@@ -111,21 +111,22 @@ if (count > 1) {
 
 Graph-replayed kernels are not profiled, but the application runs correctly.
 
-### RTL_NO_INJECT (escape hatch)
+### Profiling modes (RTL_MODE)
 
-`RTL_NO_INJECT=1` disables `hsa_amd_queue_intercept_create` entirely. A plain queue is created with `hsa_amd_profiling_set_profiler_enabled` instead. No kernel timestamps are collected. Use when batch skip alone is insufficient.
+RTL supports three profiling modes to balance data completeness vs overhead:
+
+| Mode | Behavior | Overhead |
+|------|----------|----------|
+| **default** | Signal injection for all `count==1` kernel dispatches. Skip graph replay batches (`count > 1`). | ~2-4% |
+| **lite** | Like default, but also skip packets with existing `completion_signal` (NCCL, barriers). Matches v0.1.1 behavior. | ~0% |
+| **full** | Profile everything including graph replay batches. Requires ROCm 7.13+ with [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1). | ~2-5% |
+
+Set via `RTL_MODE=lite` env var or `rtl trace --mode lite` CLI flag.
 
 ### Known limitation
 
-The HSA intercept API does not distinguish graph replay from normal multi-packet submissions. Batch skip skips all `count > 1` submissions, including legitimate non-graph batches.
+The HSA intercept API does not distinguish graph replay from normal multi-packet submissions. Default and lite modes skip all `count > 1` submissions. Full mode profiles them but requires the ROCR staging buffer fix to avoid heap overflow (see [issue #67](https://github.com/sunway513/rocm-trace-lite/issues/67)).
 
-## Why not observe-only?
+### Why signal injection?
 
-Earlier versions (PR #29) attempted "observe-only" profiling: pass packets through
-unmodified and read timestamps from the original completion signal.
-
-This doesn't work because **HIP runtime does not set `completion_signal` on most
-kernel dispatch AQL packets** (ROCm 7.2+). HIP uses barrier packets with signals
-for synchronization instead. Result: 0 kernels captured.
-
-Signal injection is required for correct profiling on modern ROCm.
+HIP runtime does not set `completion_signal` on most kernel dispatch AQL packets (ROCm 7.2+). HIP uses barrier packets with signals for synchronization instead. Without signal injection, 0 kernels would be captured. RTL injects profiling signals and forwards original signals after profiling.

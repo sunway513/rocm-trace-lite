@@ -2,11 +2,17 @@
 
 ## v0.3.0
 
+### Profiling modes (RTL_MODE)
+- **Three modes**: `default` (signal injection, skip graph replay), `lite` (also skip has-signal packets, ~0% overhead), `full` (profile everything including graph replay, requires ROCm 7.13+)
+- Set via `RTL_MODE` env var or `rtl trace --mode` CLI flag
+- Default mode: profiles all `count==1` kernel dispatches with real GPU timing, skips graph replay batches
+- Lite mode: additionally skips NCCL and other kernels with existing completion signals, matching v0.1.1 behavior for near-zero overhead
+- Full mode: profiles graph replay batches (`count > 1`). Requires ROCm 7.13+ with [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1) to avoid `InterceptQueue::staging_buffer_` heap overflow
+
 ### CUDAGraph / HIP graph compatibility (#67)
-- **Batch skip**: Intercept callback skips signal injection for batch submissions (`count > 1`). CUDAGraph replay submits pre-recorded AQL packets that must not be modified. Injecting profiling signals corrupts the graph's execution chain and causes `HSA_STATUS_ERROR_INVALID_PACKET_FORMAT (0x1009)`.
-- **RTL_NO_INJECT=1**: Escape hatch that disables `hsa_amd_queue_intercept_create` entirely. No kernel timestamps are collected, but HIP API tracing still works. Use for full CUDAGraph compatibility when batch skip alone is insufficient (e.g., graph capture bakes stale signal handles).
-- **RTL_DEBUG=1/2**: Packet-level diagnostic logging. Level 1 logs per-call summary (count, device, batch skip). Level 2 adds per-packet details (type, signal, kernel object).
-- **Known limitation**: Batch skip also skips legitimate non-graph batched submissions. The HSA intercept API does not distinguish graph replay from normal multi-packet submissions.
+- Root cause identified: `hsa_amd_queue_intercept_create` has a heap overflow bug in `InterceptQueue::staging_buffer_` (hardcoded to 256 entries). Fixed upstream in [rocm-systems commit 559d48b1](https://github.com/ROCm/rocm-systems/commit/559d48b1).
+- Default and lite modes skip batch submissions (`count > 1`) as a workaround
+- **RTL_DEBUG=1/2**: Packet-level diagnostic logging. Level 1 logs per-call summary. Level 2 adds per-packet details.
 
 ### Signal forwarding
 - Original `completion_signal` is saved before injection and forwarded via `hsa_signal_subtract_screlease` after timestamp collection. Packets with app-provided signals are now profiled correctly instead of being skipped.
