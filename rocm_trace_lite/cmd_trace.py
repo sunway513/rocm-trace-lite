@@ -129,6 +129,10 @@ def run_trace(args):
     env = os.environ.copy()
     env["HSA_TOOLS_LIB"] = lib
     env["RTL_OUTPUT"] = per_process_pattern
+    # LD_PRELOAD librtl.so so roctx shim symbols are globally visible.
+    # Without this, ctypes.CDLL(None).roctxRangePushA won't find our symbols.
+    existing_preload = env.get("LD_PRELOAD", "")
+    env["LD_PRELOAD"] = "{}:{}".format(lib, existing_preload) if existing_preload else lib
     if hasattr(args, 'mode') and args.mode:
         env["RTL_MODE"] = args.mode
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.3
+
+- **Fix roctx support**: `rtl trace` now sets `LD_PRELOAD` automatically so roctx markers work without manual setup
+- Add tutorial: profiling prefill vs decode with roctx markers
+
 ## v0.3.2
 
 ### Bug fixes
