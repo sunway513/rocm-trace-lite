@@ -50,21 +50,25 @@ Quick Example
    # Open in Perfetto
    # trace.json.gz is auto-generated, open at https://ui.perfetto.dev
 
-Sample output:
+Sample output (DeepSeek-R1 671B, TP=8, MI355X):
 
 .. code-block:: text
 
-   Trace: trace.db (728 GPU ops)
+   Trace: trace.db (200590 GPU ops)
 
-   Kernel                                              Calls  Total(us)  Avg(us)      %
-   ========================================================================================
-   Cijk_Ailk_Bljk_HHS_BH_MT128x128x128                  240    28252.9    117.7   21.8
-   ncclDevKernel_Generic                                  160    29747.8    185.9   23.0
-   __amd_rocclr_fillBufferAligned.kd                     7900    27929.8      3.5   21.6
+   Kernel                                             Calls  Total(ms)  Avg(us)     %
+   ====================================================================================
+   ncclDevKernel_Generic_1                             4851    7879.5   1624.5   55.2%
+   aiter::fmoe_bf16_blockscaleFp8 (novs_silu)         3538    1239.8    350.4    8.7%
+   aiter::reduce_scatter_cross_device_store<bf16,8>    8906     927.2    104.1    6.5%
+   ck::kernel_gemm_xdl_cshuffle_v3 (blockscale)      20963     733.9     35.0    5.1%
 
    GPU Utilization:
-     GPU 0: 0.13% (2630 ops, 17.2ms busy)
-     GPU 1: 0.11% (2430 ops, 15.0ms busy)
+     GPU 0: 51.2% (25074 ops, 7.3s busy)
+     GPU 1: 50.8% (25081 ops, 7.2s busy)
+
+**< 1% overhead** validated on 6 ATOM dashboard models (DeepSeek-R1, GPT-OSS, Kimi-K2.5, MiniMax-M2.5).
+See `tutorial: profiling prefill vs decode <tutorial_roctx.html>`_ with built-in roctx markers.
 
 
 Supported Hardware
@@ -99,6 +103,13 @@ Supported Hardware
    installation
    quickstart
    cli_reference
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Tutorials
+   :hidden:
+
+   tutorial_roctx
 
 .. toctree::
    :maxdepth: 2
