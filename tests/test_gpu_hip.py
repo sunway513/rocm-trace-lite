@@ -427,10 +427,10 @@ class TestRtlModes:
         return trace, r
 
     def test_default_mode_captures_kernels(self, tmp_path):
-        """Default mode must capture kernel dispatches with GPU timing."""
+        """No explicit mode (lite default) must capture kernel dispatches with GPU timing."""
         trace, r = self._trace_with_mode(tmp_path, None, ["gemm", "128", "5"])
         assert r.returncode == 0, r.stderr[-500:]
-        assert "mode=default" in r.stderr
+        assert "mode=lite" in r.stderr  # lite is the default
         import sqlite3
         conn = sqlite3.connect(trace)
         ops = conn.execute("SELECT COUNT(*) FROM rocpd_op").fetchone()[0]
@@ -469,6 +469,6 @@ class TestRtlModes:
         """RTL must print the active mode at startup."""
         for mode in [None, "lite", "full"]:
             _, r = self._trace_with_mode(tmp_path, mode, ["noop"])
-            expected = "mode={}".format(mode or "default")
+            expected = "mode={}".format(mode or "lite")  # lite is the default
             assert expected in r.stderr, \
                 "Expected '{}' in stderr, got: {}".format(expected, r.stderr[:200])

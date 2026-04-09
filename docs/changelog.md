@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.2
+
+### Bug fixes
+- **Fix SQLite concurrency crash**: `flush()` and `close()` now hold `g_db_mutex`, preventing races with `record_kernel()` batch commits. GLM-5 TP=8 lite mode was crashing with 1788 SQLite errors leading to GPU memory fault.
+- **Default mode changed to lite**: Lite mode is now the default (`RTL_MODE` unset = lite). Safe for all ROCm versions including 7.2 which has the ROCR `InterceptQueue::staging_buffer_` heap overflow bug. Use `RTL_MODE=default` for full count==1 profiling (safe on ROCm 7.13+).
+- Removed redundant `atexit` handler for DB flush (shutdown already handles it).
+
 ## v0.3.0
 
 ### Profiling modes (RTL_MODE)
