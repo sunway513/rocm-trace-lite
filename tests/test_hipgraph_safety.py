@@ -181,11 +181,11 @@ class TestRtlModes:
         src = self._get_source()
         assert 'getenv("RTL_MODE")' in src, "RTL_MODE env var not read"
 
-    def test_default_mode_is_default(self):
-        """Default mode must be DEFAULT (not LITE or FULL)."""
+    def test_default_mode_is_lite(self):
+        """Default mode must be LITE (safe for ROCm <= 7.2)."""
         src = self._get_source()
-        assert "g_rtl_mode = RtlMode::DEFAULT" in src, \
-            "Default mode is not DEFAULT"
+        assert "g_rtl_mode = RtlMode::LITE" in src, \
+            "Default mode is not LITE"
 
     def test_mode_names_printed(self):
         """Mode name must be printed at startup."""

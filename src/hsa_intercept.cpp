@@ -73,7 +73,7 @@ static bool g_intercept_available = false;
 //   "full"    — profile everything including graph replay batches. Requires ROCm 7.13+
 //               with ROCR fix (rocm-systems commit 559d48b1). Will crash on ROCm <= 7.2.
 enum class RtlMode { DEFAULT, LITE, FULL };
-static RtlMode g_rtl_mode = RtlMode::DEFAULT;
+static RtlMode g_rtl_mode = RtlMode::LITE;  // safe default for ROCm <= 7.2 (avoids ROCR staging_buffer overflow)
 
 // ---- Lock-free signal pool (Vyukov MPMC bounded ring buffer) ----
 // Replaces mutex + vector to eliminate contention on the per-dispatch hot path.
@@ -717,10 +717,12 @@ extern "C" bool OnLoad(void* pTable,
     if (mode_env) {
         if (strcmp(mode_env, "lite") == 0) {
             g_rtl_mode = RtlMode::LITE;
+        } else if (strcmp(mode_env, "default") == 0) {
+            g_rtl_mode = RtlMode::DEFAULT;
         } else if (strcmp(mode_env, "full") == 0) {
             g_rtl_mode = RtlMode::FULL;
         } else {
-            fprintf(stderr, "rtl: WARNING: unknown RTL_MODE='%s', using default\n", mode_env);
+            fprintf(stderr, "rtl: WARNING: unknown RTL_MODE='%s', using lite\n", mode_env);
         }
     }
 

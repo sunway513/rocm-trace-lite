@@ -63,10 +63,8 @@ static void lazy_init_db() {
     if (g_db.open(filename)) {
         g_db_ready = true;
         fprintf(stderr, "rtl: lazy init, writing to %s\n", filename.c_str());
-        std::atexit([]() {
-            g_db.flush();
-            g_db.close();
-        });
+        // Note: flush/close is called by hsa_intercept::shutdown() which is
+        // registered via atexit in OnLoad. No separate atexit handler needed.
     }
 }
 
@@ -229,6 +227,7 @@ bool TraceDB::open(const std::string& filename) {
 }
 
 void TraceDB::close() {
+    std::lock_guard<std::mutex> lock(g_db_mutex);
     if (!db_) return;
     commit_transaction();
 
@@ -272,6 +271,8 @@ static bool step_ok(sqlite3_stmt* stmt) {
 }
 
 void TraceDB::flush() {
+    std::lock_guard<std::mutex> lock(g_db_mutex);
+    if (!db_) return;
     if (batch_count_ > 0) {
         commit_transaction();
         begin_transaction();
