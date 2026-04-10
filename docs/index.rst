@@ -79,7 +79,7 @@ Live benchmark results and kernel traces from the ATOM dashboard validation swee
 .. raw:: html
 
    <div style="display:flex;gap:14px;margin:16px 0;">
-     <a href="samples/benchmark.html" style="display:inline-flex;align-items:center;gap:8px;background:#0d1220;border:1px solid #2a3a5a;border-radius:4px;padding:10px 18px;color:#29d9ff;text-decoration:none;font-family:monospace;font-size:13px;">
+     <a href="samples/index.html" style="display:inline-flex;align-items:center;gap:8px;background:#0d1220;border:1px solid #2a3a5a;border-radius:4px;padding:10px 18px;color:#29d9ff;text-decoration:none;font-family:monospace;font-size:13px;">
        📊 Overhead Benchmark Results
        <span style="font-size:11px;color:#6a7a9a">→ v0.3.3 · 8 models · MI355X</span>
      </a>
