@@ -755,7 +755,7 @@ extern "C" bool OnLoad(void* pTable,
         const char* clr_env = getenv("GPU_CLR_PROFILE");
         if (!clr_env || clr_env[0] == '\0') {
             fprintf(stderr, "rtl[hip]: WARNING: RTL_MODE=hip requires GPU_CLR_PROFILE to be set\n"
-                            "rtl[hip]: set GPU_CLR_PROFILE=/dev/null (or any path) before launching\n"
+                            "rtl[hip]: set GPU_CLR_PROFILE=1 before launching\n"
                             "rtl[hip]: CLI: 'rtl trace --mode hip' handles this automatically\n");
         } else {
             fprintf(stderr, "rtl[hip]: GPU_CLR_PROFILE=%s\n", clr_env);

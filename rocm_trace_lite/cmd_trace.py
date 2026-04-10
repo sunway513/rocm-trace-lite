@@ -136,12 +136,11 @@ def run_trace(args):
     if hasattr(args, 'mode') and args.mode:
         env["RTL_MODE"] = args.mode
         # HIP mode requires the HIP CLR built-in profiler to self-activate
-        # during hip::init(). The CLR profiler reads GPU_CLR_PROFILE from the
-        # environment. Setting it to /dev/null suppresses the profiler's own
-        # JSON autosave — rtl extracts records via hipClrProfilerGetRecords()
-        # and writes the SQLite trace database itself.
+        # during hip::init(). HipClrProfilerInit() checks GPU_CLR_PROFILE
+        # and installs dispatch table wrappers + activity callback if set.
+        # rtl drains records via hipClrProfilerGetRecords() at shutdown.
         if args.mode == "hip" and not env.get("GPU_CLR_PROFILE"):
-            env["GPU_CLR_PROFILE"] = "/dev/null"
+            env["GPU_CLR_PROFILE"] = "1"
 
     # Ensure the subprocess can dlopen librtl.so and its dependencies.
     # Add the .so's directory and common ROCm paths to LD_LIBRARY_PATH.

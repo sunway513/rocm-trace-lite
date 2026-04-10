@@ -7,21 +7,25 @@
  * and the caller falls back to RTL_MODE=default.
  *
  * Activation flow:
- *   1. Python launcher sets GPU_CLR_PROFILE=/dev/null when --mode=hip
- *   2. libamdhip64.so initializes → HipClrProfilerInit() sees the env var →
- *      activates dispatch table wrappers + activity callback
- *   3. App runs → CLR profiler accumulates records in its internal buffer
+ *   1. Python launcher sets GPU_CLR_PROFILE=1 when --mode=hip
+ *   2. libamdhip64.so initializes, hip::init() calls HipClrProfilerInit()
+ *      which sees GPU_CLR_PROFILE env var and installs 510 dispatch table
+ *      wrappers + activity callback on ACTIVITY_DOMAIN_HIP_OPS
+ *   3. App runs: each HIP API call goes through wrapper that records CPU
+ *      start/end + sets correlation_id TLS; GPU activity callback writes
+ *      GPU timestamps into the same record slot via atomic correlation_id
  *   4. At shutdown, hsa_intercept.cpp calls hip_profiler_drain()
- *   5. hip_profiler_drain() calls Disable → GetRecords → iterate → Reset
+ *   5. hip_profiler_drain() calls Disable -> GetRecords -> iterate -> Reset
+ *   6. CLR's HipClrProfilerFinalizer static destructor may still run, but
+ *      Reset() emptied the buffer so it writes nothing useful
  *
- * Why GPU_CLR_PROFILE=/dev/null instead of hipClrProfilerEnable():
+ * Why GPU_CLR_PROFILE=1 instead of hipClrProfilerEnable():
  *   - librtl.so is loaded by HSA runtime during hip::init(), BEFORE HIP is
  *     fully loaded. Calling hipClrProfilerEnable() from our OnLoad would
  *     fail (symbol not yet resolvable).
- *   - Setting GPU_CLR_PROFILE in the environment lets the CLR profiler
- *     self-activate at the correct point in hip::init().
- *   - /dev/null suppresses the CLR profiler's own JSON autosave; we extract
- *     records via hipClrProfilerGetRecords() and write our own SQLite format.
+ *   - Setting GPU_CLR_PROFILE=1 in the environment lets the CLR profiler
+ *     self-activate at the correct point in hip::init() (HipClrProfilerInit
+ *     checks this env var and installs dispatch table wrappers if set).
  *
  * Dependency: libdl (already linked via Makefile). No compile-time dependency
  * on libamdhip64. All HIP profiler symbols are resolved at runtime via dlsym.
@@ -88,11 +92,17 @@ static hipClrProfilerGetRecords_fn g_fn_get_records = nullptr;
 static hipClrProfilerReset_fn      g_fn_reset      = nullptr;
 static bool g_api_ready = false;
 
-// Dispatch table wrappers do not expose an API name table yet.
-// Until the upstream header ships kHipClrApiNames[], we label all API
-// records with a generic "HipApi" tag. Once the name table is available,
-// dlsym it here and use it for per-API labeling.
-static const char* api_name_for(uint32_t /*api_id*/) {
+// API name table from CLR profiler's dispatch wrappers.
+// hip_clr_dispatch_wrappers.cpp exports kHipClrApiNames[] (510 entries)
+// and kHipClrApiNamesCount. Resolved at runtime via dlsym; falls back to
+// generic "HipApi" if the symbols are not available.
+static const char* const* g_api_names = nullptr;
+static size_t g_api_names_count = 0;
+
+static const char* api_name_for(uint32_t api_id) {
+    if (g_api_names && api_id < g_api_names_count) {
+        return g_api_names[api_id];
+    }
     return "HipApi";
 }
 
@@ -143,8 +153,24 @@ bool hip_profiler_probe() {
         return false;
     }
 
+    // Resolve optional API name table for per-call labeling.
+    // These symbols are exported by hip_clr_dispatch_wrappers.cpp.
+    g_api_names = reinterpret_cast<const char* const*>(
+        dlsym(g_hip_handle, "kHipClrApiNames"));
+    auto* names_count_ptr = reinterpret_cast<const size_t*>(
+        dlsym(g_hip_handle, "kHipClrApiNamesCount"));
+    if (g_api_names && names_count_ptr) {
+        g_api_names_count = *names_count_ptr;
+        fprintf(stderr, "rtl[hip]: resolved kHipClrApiNames (%zu entries)\n",
+                g_api_names_count);
+    } else {
+        fprintf(stderr, "rtl[hip]: kHipClrApiNames not found, using generic labels\n");
+        g_api_names = nullptr;
+        g_api_names_count = 0;
+    }
+
     g_api_ready = true;
-    fprintf(stderr, "rtl[hip]: hipClrProfiler API resolved — drain on exit enabled\n");
+    fprintf(stderr, "rtl[hip]: hipClrProfiler API resolved, drain on exit enabled\n");
     return true;
 }
 
@@ -160,8 +186,8 @@ bool hip_profiler_probe() {
 //   - Reset() frees the CLR-side buffer.
 //
 // The CLR profiler's HipClrProfilerFinalizer may still run later (static
-// destructor order) and attempt to write JSON to GPU_CLR_PROFILE path, but
-// we set that to /dev/null, so the write is a no-op.
+// destructor order), but Reset() empties the record buffer before it runs,
+// so the finalizer has nothing to write.
 // ============================================================
 void hip_profiler_drain() {
     if (!hip_profiler_probe()) return;
