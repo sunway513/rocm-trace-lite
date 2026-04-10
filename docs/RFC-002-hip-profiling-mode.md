@@ -119,34 +119,78 @@ When `RTL_MODE=hip`, the `OnLoad()` entry point:
    ```
 3. **Call** `hipClrProfilerEnable()` to activate profiling
 
-#### Phase 2: data collection in `OnUnload()` / `shutdown()`
+#### Phase 2: TraceDB schema changes to persist correlation
 
-On shutdown:
+**This phase is a prerequisite for launch latency and Perfetto correlation arrows.** The current schema in `trace_db.cpp` has no persisted API↔GPU join key:
 
-1. Call `hipClrProfilerDisable()` (drains in-flight GPU work internally)
-2. Call `hipClrProfilerGetRecords(&records, &count)`
-3. Iterate records, write to TraceDB:
-   - **`op=0` (dispatch)**: `trace_db.record_kernel(kernel_name, device_id, queue_id, gpu_begin_ns, gpu_end_ns, correlation_id)`
-   - **`op=1` (copy)**: `trace_db.record_copy(device_id, -1, bytes, gpu_begin_ns, gpu_end_ns, correlation_id)`
-   - **HIP API** (all records): `trace_db.record_hip_api(api_name, "", cpu_start_ns, cpu_end_ns - cpu_start_ns, correlation_id, pid, thread_id)`
-4. Call `hipClrProfilerReset()` to free CLR-side buffers
+- `rocpd_op` and `rocpd_api` tables have no `correlation_id` column
+- `record_hip_api`, `record_kernel`, `record_copy` accept a `correlation_id` parameter but silently drop it — no SQL binding exists
+- The `rocpd_api_ops` junction table exists in the schema but is never populated
 
-#### Phase 3: CLI + env var
+Without persistence, CPU→GPU correlation is lost when the trace is written to SQLite, which breaks both launch latency queries and Perfetto arrows.
+
+**Schema change (additive, backward compatible):**
+
+```sql
+ALTER TABLE rocpd_op  ADD COLUMN correlation_id INTEGER DEFAULT 0;
+ALTER TABLE rocpd_api ADD COLUMN correlation_id INTEGER DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_rocpd_op_corr  ON rocpd_op(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_rocpd_api_corr ON rocpd_api(correlation_id);
+```
+
+Existing trace readers that don't know about the column continue to work (column default = 0). New `rtl convert` / `rtl summary` can use the column when present.
+
+**Writer changes in `trace_db.cpp`:**
+
+- Update the prepared INSERT statements to bind `correlation_id`
+- `record_hip_api`: bind the CLR profiler's slot index
+- `record_kernel` / `record_copy`: bind the same slot index from `HipClrApiRecord.gpu`
+- HSA mode path: bind `trace_db::next_correlation_id()` (the existing counter) so schema is populated uniformly across modes
+
+The junction table `rocpd_api_ops` is left unused — a direct column is simpler and avoids double-write overhead in the hot path.
+
+#### Phase 3: HIP profiler integration and record drain
+
+On shutdown (or at an explicit drain point — see "Memory management" below):
+
+1. Call `hipClrProfilerDisable()`. Per the upstream implementation, this calls `DrainAllDevices()` internally to flush in-flight GPU work before clearing the enable flag.
+2. Call `hipClrProfilerGetRecords(&records, &count)` to obtain the flat record array.
+3. For each record, write **both** an API row and a GPU row, sharing the same `correlation_id` (the CLR slot index):
+   - `trace_db.record_hip_api(api_name, "", cpu_start_ns, cpu_end_ns - cpu_start_ns, correlation_id, pid, thread_id)`
+   - If `has_gpu_activity` and `op == OP_ID_DISPATCH`: `trace_db.record_kernel(kernel_name, device_id, queue_id, gpu_begin_ns, gpu_end_ns, correlation_id)`
+   - If `has_gpu_activity` and `op == OP_ID_COPY`: `trace_db.record_copy(device_id, -1, bytes, gpu_begin_ns, gpu_end_ns, correlation_id)`
+4. Call `hipClrProfilerReset()` to free CLR-side buffers.
+
+#### Phase 4: CLI + env var
 
 - `rtl trace --mode hip python3 model.py` or `RTL_MODE=hip`
 - Update CLI choices: `choices=["default", "lite", "full", "hip"]`
 - Update `how_it_works.md` documentation
 
-#### Phase 4: Perfetto output enrichment
+#### Phase 5: Perfetto output enrichment
 
-The HIP-level data enables richer Perfetto traces:
+With the schema change from Phase 2, the converter can emit correlated events:
 
-- **CPU process** (pid=1024): HIP API spans per thread (hipLaunchKernel, hipMemcpyAsync, etc.)
-- **GPU process** (pid=device_id): kernel execution spans per queue
-- **Correlation arrows**: CPU HIP call → GPU kernel execution (via `correlation_id`)
-- **Launch latency**: `gpu_begin_ns - cpu_start_ns` visible as gap between CPU and GPU spans
+- **CPU process** (pid=1024): HIP API spans per thread (hipLaunchKernel, hipMemcpyAsync, etc.) from `rocpd_api`
+- **GPU process** (pid=device_id): kernel execution spans per queue from `rocpd_op`
+- **Correlation arrows**: Chrome Trace flow events (`ph:"s"` / `ph:"f"`) joining rows where `rocpd_api.correlation_id = rocpd_op.correlation_id`
+- **Launch latency**: visible as the gap between CPU and GPU spans on the same flow ID
 
-This requires extending `cmd_convert.py` to emit HIP API records as Perfetto trace events. The existing `record_hip_api` table in TraceDB schema already supports this.
+SQL for the converter's join:
+
+```sql
+SELECT a.start AS cpu_start, a.end AS cpu_end,
+       o.start AS gpu_begin, o.end AS gpu_end,
+       a.correlation_id AS corr_id,
+       api.string AS api_name, op.string AS kernel_name
+FROM rocpd_api a
+JOIN rocpd_op  o  ON a.correlation_id = o.correlation_id
+JOIN rocpd_string api ON a.apiName_id = api.id
+JOIN rocpd_string op  ON o.description_id = op.id
+WHERE a.correlation_id != 0;
+```
+
+`cmd_convert.py` falls back to the pre-change behavior (independent tables) when correlation_id is 0, so older traces still render.
 
 ### New data available with `RTL_MODE=hip`
 
@@ -182,7 +226,8 @@ Log the fallback clearly. Do not crash.
 |------|--------|
 | `src/hsa_intercept.cpp` | Add `RtlMode::HIP` enum value. In `OnLoad()`: when mode is HIP, skip queue intercept/signal pool/worker init; call `hip_profiler_init()`. In `shutdown()`: call `hip_profiler_drain()`. |
 | `src/hip_intercept.cpp` | Replace placeholder with HIP CLR profiler integration: `hip_profiler_init()`, `hip_profiler_drain()`, dlopen/dlsym logic, record conversion to TraceDB. |
-| `src/trace_db.h` | No changes — existing `record_hip_api`, `record_kernel`, `record_copy` methods cover all needed record types. |
+| `src/trace_db.h` | No public API change — signature already has `correlation_id` parameter. |
+| `src/trace_db.cpp` | **Required change.** Add `correlation_id INTEGER` column to `rocpd_op` and `rocpd_api` in the `SCHEMA` DDL. Update the `INSERT INTO rocpd_api` and `INSERT INTO rocpd_op` prepared statements to bind the parameter. Add indexes on the new column. Today the parameter is silently dropped — this must be fixed before correlation-based queries can work. HSA-mode writers already pass a counter-based ID, so the same path lights up both modes. |
 | `rocm_trace_lite/cli.py` | Add `"hip"` to `--mode` choices. |
 | `rocm_trace_lite/cmd_trace.py` | No changes — already forwards `args.mode` to `RTL_MODE` env var. |
 | `rocm_trace_lite/cmd_convert.py` | Extend Perfetto JSON output to include HIP API spans (from `rocpd_api` table) and correlation arrows. |
@@ -247,14 +292,29 @@ Expected residual error on validated Linux/MI300+: sub-μs to a few μs. Good en
 
 ### Validation protocol (gating test — must pass before feature ships)
 
+Important: `hipLaunchKernel` is **asynchronous**. It returns after enqueueing the packet, typically well before the kernel finishes on the GPU. That means `cpu_end_launch < gpu_end` is the normal ordering, not an error. The validation tests below are written to reflect async semantics correctly.
+
 ```
-Test 1 — Causality (sync launch)
-  for i in 1..1000:
-    hipLaunchKernel(noop)
-    hipDeviceSynchronize()
-  Assert: cpu_start[i] < gpu_begin[i] < gpu_end[i] < cpu_end[i]
-  If this fails: clock domains are not aligned,
-                 all cross-domain metrics must be marked unreliable.
+Test 1 — Causality (async launch with bounding sync)
+  For each iteration:
+    record launch API:   cpu_start_L, cpu_end_L  (hipLaunchKernel)
+    record sync  API:    cpu_start_S, cpu_end_S  (hipDeviceSynchronize)
+    record GPU activity: gpu_begin, gpu_end      (attached to launch record)
+
+  For every i in 1..1000:
+    Assert: cpu_start_L < cpu_end_L                (API duration, trivially true)
+    Assert: cpu_start_L < gpu_begin                (causality — GPU can't start
+                                                    before the launch call)
+    Assert: gpu_begin   < gpu_end                  (kernel execution)
+    Assert: gpu_end     < cpu_end_S                (the sync call must not
+                                                    return until after the
+                                                    kernel completes)
+    Note: NO assertion on gpu_end vs cpu_end_L —
+          gpu_end > cpu_end_L is the expected async ordering.
+
+  If cpu_start_L > gpu_begin OR gpu_end > cpu_end_S:
+    clock domains are not aligned (or the CLR profiler is mis-stamping).
+    All cross-domain metrics must be marked unreliable.
 
 Test 2 — Known-duration kernel
   Launch a spin kernel with known 1ms duration (from rocprof ground truth)
@@ -262,16 +322,19 @@ Test 2 — Known-duration kernel
   Confirms GPU-side timing is trustworthy.
 
 Test 3 — Cross-domain sanity
-  Async-launch 1000 noop kernels back-to-back (no sync).
-  Assert: for all i, gpu_begin[i] > cpu_start[i]  (causality)
-  Assert: median(gpu_begin - cpu_start) < 100μs  (reasonable magnitude)
+  Async-launch 1000 noop kernels back-to-back (no per-call sync).
+  Assert: for all i, gpu_begin[i] >= cpu_start_L[i]  (causality)
+  Assert: median(gpu_begin - cpu_start_L) < 100μs    (reasonable magnitude)
+  Assert: for all i, gpu_end[i] >= gpu_begin[i]      (self-consistency)
 
 Test 4 — Cross-tool agreement
   Run the same 100-kernel workload under rocprof and under RTL_MODE=hip.
   Assert: median absolute difference on matched kernels' begin/end < 5μs.
 ```
 
-Tests 1 and 2 are gating. Test 3 and 4 are strongly recommended. These are added to `tests/test_gpu_hip.py` as a dedicated `test_hip_launch_latency_validation` suite.
+Tests 1 and 2 are gating. Tests 3 and 4 are strongly recommended. These are added to `tests/test_gpu_hip.py` as a dedicated `test_hip_launch_latency_validation` suite.
+
+Note on Test 1 implementation: the bounding relationship requires both the launch record and the sync record to be captured. The CLR profiler wraps every HIP API call via its dispatch table, so both records will be present in the `HipClrApiRecord` stream and can be paired by interleaving order within a single thread.
 
 ### Go / no-go decision point
 
@@ -354,7 +417,18 @@ The long-run soak test is new and specifically targets the CLR profiler's in-mem
 
 3. **Coexistence with HSA mode**: Should `RTL_MODE=hip` completely disable HSA queue intercept, or run both in parallel? Recommendation: completely disable HSA intercept in HIP mode. Running both would double-count kernels and add unnecessary overhead.
 
-4. **Periodic drain vs shutdown-only**: CLR profiler accumulates all records in memory (chunked allocation, 10000 records/chunk). For long-running workloads this could use significant memory. Should RTL periodically call `GetRecords` + `Reset`? Recommendation: drain every N seconds (configurable, default 30s) for long-running workloads. Add a timer thread or piggyback on roctx flush intervals. The long-run soak test in the validation plan is the empirical check for whether this is necessary.
+4. **Memory management for long-running workloads**: CLR profiler accumulates records in memory (chunked allocation, 10000 records/chunk). For a long vLLM serving run this can reach hundreds of MB. A naive "timer thread drains every N seconds" plan is **unsafe** per the upstream contract: the `hip_clr_profiler_ext.h` documentation states the returned buffer is profiler-owned, remains valid only until `Reset()` or unload, and that callers "should process records before issuing further HIP calls when profiling is active." Draining while the app is still issuing HIP calls risks invalidating the export buffer or racing with record insertion.
+
+  Plan of record:
+  - **Default (v1)**: shutdown-only drain. Simple, safe, correct. Sufficient for bounded workloads (benchmarks, test runs, CI).
+  - **Soak test as the empirical check**: the 30-minute vLLM run in the validation plan measures actual memory growth. If peak RSS growth stays below budget (say < 500MB for a typical serving run), shutdown-only is good enough and we ship v1 as-is.
+  - **If soak fails (v2)**: implement a cooperative "stop / drain / resume" cycle gated on a quiescence signal. Options:
+    1. Explicit user trigger (roctx marker "rtl_drain" that the HSA-side roctx shim can see, triggering `Disable → GetRecords → Reset → Enable`). The app guarantees quiescence by placing the marker at a known-idle point.
+    2. Piggyback on existing sync points: intercept `hipDeviceSynchronize` from the dispatch table and drain immediately after (device is known-idle at that moment).
+    3. Request a streaming/callback API upstream (German's v2) — the only truly concurrent-safe option.
+  - **What we are NOT doing**: a background timer thread calling `GetRecords`/`Reset` while the app runs. That contradicts the upstream contract and will race.
+
+  Decision: ship v1 with shutdown-only, use soak test to decide if v2 is needed before GA.
 
 5. **When will German's patch land in mainline ROCm?** This determines whether RTL can rely on the API or must treat it as experimental. Action: Peng to confirm with German.
 
