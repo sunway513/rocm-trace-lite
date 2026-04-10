@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS rocpd_op (
     start INTEGER,
     end INTEGER,
     description_id INTEGER REFERENCES rocpd_string(id),
-    opType_id INTEGER REFERENCES rocpd_string(id)
+    opType_id INTEGER REFERENCES rocpd_string(id),
+    correlation_id INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS rocpd_api (
     id INTEGER PRIMARY KEY,
@@ -95,8 +96,11 @@ CREATE TABLE IF NOT EXISTS rocpd_api (
     start INTEGER,
     end INTEGER,
     apiName_id INTEGER REFERENCES rocpd_string(id),
-    args_id INTEGER REFERENCES rocpd_string(id)
+    args_id INTEGER REFERENCES rocpd_string(id),
+    correlation_id INTEGER DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_rocpd_op_corr  ON rocpd_op(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_rocpd_api_corr ON rocpd_api(correlation_id);
 CREATE TABLE IF NOT EXISTS rocpd_api_ops (
     id INTEGER PRIMARY KEY,
     api_id INTEGER REFERENCES rocpd_api(id),
@@ -163,6 +167,18 @@ void TraceDB::create_schema() {
         fprintf(stderr, "rtl: schema error: %s\n", err);
         sqlite3_free(err);
     }
+    // Migration: pre-existing trace files may have rocpd_op / rocpd_api
+    // without the correlation_id column. CREATE TABLE IF NOT EXISTS is a
+    // no-op when the table already exists, so add the column separately.
+    // SQLite does not support ADD COLUMN IF NOT EXISTS, so we ignore errors.
+    sqlite3_exec(db_, "ALTER TABLE rocpd_op  ADD COLUMN correlation_id INTEGER DEFAULT 0",
+                 nullptr, nullptr, nullptr);
+    sqlite3_exec(db_, "ALTER TABLE rocpd_api ADD COLUMN correlation_id INTEGER DEFAULT 0",
+                 nullptr, nullptr, nullptr);
+    sqlite3_exec(db_, "CREATE INDEX IF NOT EXISTS idx_rocpd_op_corr  ON rocpd_op(correlation_id)",
+                 nullptr, nullptr, nullptr);
+    sqlite3_exec(db_, "CREATE INDEX IF NOT EXISTS idx_rocpd_api_corr ON rocpd_api(correlation_id)",
+                 nullptr, nullptr, nullptr);
 }
 
 void TraceDB::begin_transaction() {
@@ -208,17 +224,19 @@ bool TraceDB::open(const std::string& filename) {
                  &stmt_api_, "string_insert"))
         return false;
 
-    if (!prepare("INSERT INTO rocpd_api(pid,tid,start,end,apiName_id,args_id) "
+    if (!prepare("INSERT INTO rocpd_api(pid,tid,start,end,apiName_id,args_id,correlation_id) "
                  "VALUES(?1,?2,?3,?4,"
                  "(SELECT id FROM rocpd_string WHERE string=?5),"
-                 "(SELECT id FROM rocpd_string WHERE string=?6))",
+                 "(SELECT id FROM rocpd_string WHERE string=?6),"
+                 "?7)",
                  &stmt_kernel_, "api_insert"))
         return false;
 
-    if (!prepare("INSERT INTO rocpd_op(gpuId,queueId,sequenceId,start,end,description_id,opType_id) "
+    if (!prepare("INSERT INTO rocpd_op(gpuId,queueId,sequenceId,start,end,description_id,opType_id,correlation_id) "
                  "VALUES(?1,?2,0,?3,?4,"
                  "(SELECT id FROM rocpd_string WHERE string=?5),"
-                 "(SELECT id FROM rocpd_string WHERE string=?6))",
+                 "(SELECT id FROM rocpd_string WHERE string=?6),"
+                 "?7)",
                  &stmt_copy_, "op_insert"))
         return false;
 
@@ -297,6 +315,7 @@ void TraceDB::record_hip_api(const char* name, const char* args,
     sqlite3_bind_int64(stmt_kernel_, 4, start_ns + duration_ns);
     sqlite3_bind_text(stmt_kernel_, 5, name, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_kernel_, 6, safe_args, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt_kernel_, 7, (sqlite3_int64)correlation_id);
     if (step_ok(stmt_kernel_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
@@ -321,6 +340,7 @@ void TraceDB::record_kernel(const char* name, int device_id, uint64_t queue_id,
     sqlite3_bind_int64(stmt_copy_, 4, end_ns);
     sqlite3_bind_text(stmt_copy_, 5, name, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_copy_, 6, "KernelExecution", -1, SQLITE_STATIC);
+    sqlite3_bind_int64(stmt_copy_, 7, (sqlite3_int64)correlation_id);
     if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
@@ -347,6 +367,7 @@ void TraceDB::record_copy(int src_device, int dst_device, size_t bytes,
     sqlite3_bind_int64(stmt_copy_, 4, end_ns);
     sqlite3_bind_text(stmt_copy_, 5, desc, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_copy_, 6, "CopyDeviceToDevice", -1, SQLITE_STATIC);
+    sqlite3_bind_int64(stmt_copy_, 7, (sqlite3_int64)correlation_id);
     if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
@@ -370,6 +391,7 @@ void TraceDB::record_roctx(const char* message, uint64_t start_ns, uint64_t dura
     sqlite3_bind_int64(stmt_copy_, 4, start_ns + duration_ns);
     sqlite3_bind_text(stmt_copy_, 5, message, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_copy_, 6, "UserMarker", -1, SQLITE_STATIC);
+    sqlite3_bind_int64(stmt_copy_, 7, (sqlite3_int64)correlation_id);
     if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
