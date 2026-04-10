@@ -144,8 +144,6 @@ ol li{margin-bottom:2px}
 <div style="display:flex;align-items:center;gap:16px;padding:7px 28px;border-bottom:1px solid var(--border);background:var(--bg2);font-size:10px;letter-spacing:1px">
   <a class="nav-item active" href="#overhead">Overhead</a>
   <span class="nav-sep">/</span>
-  <a class="nav-item" href="#atom-v032">v0.3.2 Ref</a>
-  <span class="nav-sep">/</span>
   <a class="nav-item" href="#kernels">Kernel Hotspots</a>
   <span class="nav-sep">/</span>
   <a class="nav-item" href="#modes">RTL Modes</a>
@@ -204,26 +202,6 @@ ol li{margin-bottom:2px}
   </table>
   </div>
 
-  <div class="callout">
-    <b>Note:</b> The -22.3% GLM-5 overhead reported in a prior run did <b>not reproduce</b> in this sweep (+0.0% / +0.5%). Prior result was a measurement artifact. Issue <a href="https://github.com/sunway513/rocm-trace-lite/issues/75">#75</a> closed.
-  </div>
-</div>
-
-<!-- ======= ATOM v0.3.2 REFERENCE ======= -->
-<div id="atom-v032" class="section">
-  <h2>Earlier ATOM Dashboard Results <span class="vbadge vbadge-old" style="margin-left:8px">v0.3.2 reference</span></h2>
-  <p class="note">Reference data from prior release. Use the tables above for current v0.3.3 numbers.</p>
-  <div class="tbl-wrap">
-  <table>
-    <tr><th>Model</th><th>TP</th><th>Baseline (tok/s)</th><th>RTL (tok/s)</th><th>Overhead</th><th>Perfetto</th></tr>
-    <tr><td>DeepSeek-R1-0528 FP8</td><td class="num">8</td><td class="num">2924</td><td class="num">2916</td><td class="pass">-0.3%</td><td><a href="mode_full/perfetto_rank0.json.gz">trace</a></td></tr>
-    <tr><td>DeepSeek-R1 MXFP4-MTP</td><td class="num">4</td><td class="num">2616</td><td class="num">2590</td><td class="pass">-1.0%</td><td><a href="model_mxfp4mtp/perfetto_rank0.json.gz">trace</a></td></tr>
-    <tr><td>gpt-oss-120b</td><td class="num">1</td><td class="num">6063</td><td class="num">5906</td><td class="pass">-2.6%</td><td><a href="model_gptoss_tp1/perfetto_rank0.json.gz">trace</a></td></tr>
-    <tr><td>Kimi-K2.5-MXFP4</td><td class="num">4</td><td class="num">2201</td><td class="num">2214</td><td class="pass">+0.6%</td><td><a href="model_kimi/perfetto_rank0.json.gz">trace</a></td></tr>
-    <tr><td>MiniMax-M2.5</td><td class="num">2</td><td class="num">2380</td><td class="num">2365</td><td class="pass">-0.6%</td><td><a href="model_minimax/perfetto_rank0.json.gz">trace</a></td></tr>
-    <tr><td>GLM-5-FP8</td><td class="num">8</td><td class="num">1924</td><td class="num">1494</td><td class="warn">-22.3% (not reproduced)</td><td><a href="model_glm5/perfetto_rank0.json.gz">trace</a></td></tr>
-  </table>
-  </div>
 </div>
 
 <!-- ======= KERNEL HOTSPOTS ======= -->
