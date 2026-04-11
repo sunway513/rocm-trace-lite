@@ -5,3 +5,4 @@ __pycache__/
 *.db
 tests/gpu_workload
 docs/_build/
+repro_hipgraph_stress
