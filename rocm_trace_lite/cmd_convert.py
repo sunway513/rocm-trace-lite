@@ -7,6 +7,7 @@ Inlines the converter logic so it works after pip install (tools/ not in package
 import sys
 import os
 import json
+import gzip
 import sqlite3
 
 
@@ -32,7 +33,8 @@ def convert(input_rpd, output_json):
     # Collect all GPU ops
     ops = []
     for r in conn.execute("""
-        SELECT o.gpuId, o.queueId, o.start, o.end, s.string, ot.string
+        SELECT o.gpuId, o.queueId, o.start, o.end, s.string, ot.string,
+               o.completionSignal
         FROM rocpd_op o
         JOIN rocpd_string s ON o.description_id = s.id
         LEFT JOIN rocpd_string ot ON o.opType_id = ot.id
@@ -75,7 +77,7 @@ def convert(input_rpd, output_json):
 
     # GPU ops -> complete events
     op_count = 0
-    for gpu_id, queue_id, start_ns, end_ns, name, op_type in ops:
+    for gpu_id, queue_id, start_ns, end_ns, name, op_type, dispatch_info in ops:
         if gpu_id is None or gpu_id < 0:
             gpu_id = 0
 
@@ -95,6 +97,21 @@ def convert(input_rpd, output_json):
             pid = int(gpu_id)
             tid = int(queue_id) if queue_id else 0
 
+        args = {
+            "full_name": name,
+            "gpu": gpu_id,
+            "queue": queue_id,
+        }
+        # Parse dispatch_info: "hwq=0x... wg=X,Y,Z grid=X,Y,Z"
+        if dispatch_info:
+            for part in dispatch_info.split():
+                if part.startswith("hwq="):
+                    args["hwq"] = part[4:]
+                elif part.startswith("wg="):
+                    args["workgroup"] = part[3:]
+                elif part.startswith("grid="):
+                    args["grid"] = part[5:]
+
         events.append({
             "name": short_name,
             "cat": op_type or "gpu",
@@ -103,11 +120,7 @@ def convert(input_rpd, output_json):
             "tid": tid,
             "ts": (start_ns - base_ns) / 1000.0,
             "dur": (end_ns - start_ns) / 1000.0,
-            "args": {
-                "full_name": name,
-                "gpu": gpu_id,
-                "queue": queue_id,
-            }
+            "args": args,
         })
         op_count += 1
 
@@ -161,10 +174,14 @@ def convert(input_rpd, output_json):
 
     conn.close()
 
-    # Write JSON
+    # Write JSON (gzip if output ends with .gz)
     trace = {"traceEvents": events}
-    with open(output_json, 'w') as f:
-        json.dump(trace, f)
+    if output_json.endswith('.gz'):
+        with gzip.open(output_json, 'wt') as f:
+            json.dump(trace, f)
+    else:
+        with open(output_json, 'w') as f:
+            json.dump(trace, f)
 
     size_mb = os.path.getsize(output_json) / 1024 / 1024
     print(f"Written {output_json} ({size_mb:.1f} MB)")
@@ -176,7 +193,7 @@ def convert(input_rpd, output_json):
 def run_convert(args):
     """Entry point for the 'convert' subcommand."""
     input_rpd = args.input
-    output_json = args.output or input_rpd.replace(".db", ".json")
+    output_json = args.output or input_rpd.replace(".db", ".json.gz")
 
     if not os.path.exists(input_rpd):
         print(f"Error: {input_rpd} not found", file=sys.stderr)

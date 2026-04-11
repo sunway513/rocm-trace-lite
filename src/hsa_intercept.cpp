@@ -54,10 +54,11 @@ static std::unordered_map<uint64_t, std::string> g_symbols;
 static std::vector<hsa_agent_t> g_gpu_agents;
 static std::mutex g_agent_mutex;
 
-// Queue info: maps queue handle -> device index
+// Queue info: maps queue handle -> device index + queue base address
 struct QueueInfo {
     int device_id;
-    uint64_t queue_handle;  // for stable queue identification
+    uint64_t queue_handle;   // hsa_queue_t pointer (for stable identification)
+    uint64_t hw_queue_addr;  // hsa_queue_t::base_address (AQL ring buffer)
 };
 static std::mutex g_queue_mutex;
 static std::unordered_map<uint64_t, QueueInfo> g_queue_map;  // keyed by hsa_queue_t pointer
@@ -180,6 +181,9 @@ struct DispatchData {
     uint64_t queue_id;
     hsa_signal_t profiling_signal;  // injected signal (we own this)
     hsa_signal_t original_signal;   // original from packet (may be null)
+    uint64_t hw_queue_addr;         // HW queue base_address
+    uint16_t wg_x, wg_y, wg_z;     // workgroup size from AQL packet
+    uint32_t grid_x, grid_y, grid_z; // grid size from AQL packet
 };
 
 static std::mutex g_work_mutex;
@@ -250,8 +254,15 @@ static void completion_worker() {
             g_drop_ts_invalid.fetch_add(1, std::memory_order_relaxed);
         } else {
             std::string name = lookup_kernel_name(dd->kernel_object);
+            char dispatch_info[128];
+            snprintf(dispatch_info, sizeof(dispatch_info),
+                     "hwq=0x%" PRIx64 " wg=%u,%u,%u grid=%u,%u,%u",
+                     dd->hw_queue_addr,
+                     (unsigned)dd->wg_x, (unsigned)dd->wg_y, (unsigned)dd->wg_z,
+                     dd->grid_x, dd->grid_y, dd->grid_z);
             get_trace_db().record_kernel(name.c_str(), dd->device_id, dd->queue_id,
-                                          time.start, time.end, dd->correlation_id);
+                                          time.start, time.end, dd->correlation_id,
+                                          dispatch_info);
             g_recorded_ok.fetch_add(1, std::memory_order_relaxed);
         }
 
@@ -501,6 +512,13 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
         dd->queue_id = qi->queue_handle;
         dd->profiling_signal = prof_sig;
         dd->original_signal = orig_sig;
+        dd->hw_queue_addr = qi->hw_queue_addr;
+        dd->wg_x = pkt->workgroup_size_x;
+        dd->wg_y = pkt->workgroup_size_y;
+        dd->wg_z = pkt->workgroup_size_z;
+        dd->grid_x = pkt->grid_size_x;
+        dd->grid_y = pkt->grid_size_y;
+        dd->grid_z = pkt->grid_size_z;
 
         dd_list[dd_count++] = dd;
         g_injected.fetch_add(1, std::memory_order_relaxed);
@@ -565,10 +583,11 @@ static hsa_status_t my_hsa_queue_create(
         fprintf(stderr, "rtl: warning: failed to enable profiling on queue (status=%d)\n", (int)prof_status);
     }
 
-    // Build queue info
+    // Build queue info — read base_address from the queue struct.
     auto* qi = new QueueInfo;
     qi->device_id = 0;
     qi->queue_handle = (uint64_t)(*queue);
+    qi->hw_queue_addr = (*queue) ? (uint64_t)(*queue)->base_address : 0;
 
     {
         std::lock_guard<std::mutex> lock(g_agent_mutex);
