@@ -37,7 +37,7 @@ WORKLOADS = {
 # Workloads that require torchrun (multi-GPU)
 _DISTRIBUTED_WORKLOADS = {"nccl_comm"}
 
-PROFILERS = ["none", "rtl", "rocprofv3", "roctracer"]
+PROFILERS = ["none", "rtl", "rtl_hip", "rocprofv3", "roctracer"]
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +120,46 @@ def _run_rtl(workload_script: str, workload_args: List[str], tmpdir: Path, nproc
     return cmd, env
 
 
+def _run_rtl_hip(workload_script: str, workload_args: List[str], tmpdir: Path, nproc: int):
+    """RTL HIP mode: CLR profiler path instead of HSA signal injection.
+
+    Requires a custom-built libamdhip64.so with hipProfiler*Ext symbols.
+    Uses LD_PRELOAD to override the system library at runtime without
+    replacing it (which would break PyTorch's eager symbol resolution).
+    """
+    lib = _find_librtl()
+    if lib is None:
+        raise RuntimeError(
+            "librtl.so not found. Build the library first (make) or install the wheel."
+        )
+    # Find the custom-built libamdhip64.so with profiler extensions
+    hip_lib = "/opt/rocm/lib/libamdhip64.so.7.2.0-8e637b7173"
+    if not os.path.isfile(hip_lib):
+        raise RuntimeError(
+            f"Custom libamdhip64.so not found at {hip_lib}. "
+            "Build from rocm-systems ROCM-1667-12 branch first."
+        )
+    if nproc > 1:
+        cmd = _torchrun_cmd(nproc, workload_script, workload_args)
+    else:
+        cmd = [sys.executable, workload_script] + workload_args
+    env = _add_distributed_env(os.environ.copy(), nproc)
+    env["HSA_TOOLS_LIB"] = lib
+    env["RTL_OUTPUT"] = str(tmpdir / "trace_%p.db")
+    env["RTL_MODE"] = "hip"
+    env["GPU_CLR_PROFILE_OUTPUT"] = "/dev/null"
+    # LD_PRELOAD the custom library + stubs for missing ROCR symbols.
+    # The stubs satisfy hsa_ext_image_* and hsa_amd_memory_async_batch_copy
+    # which exist in newer ROCR but not in ROCm 7.2. These are only called
+    # on image API paths, never during compute workloads.
+    stubs_lib = "/opt/rocm/lib/libhsa_stubs.so"
+    preload = hip_lib
+    if os.path.isfile(stubs_lib):
+        preload = f"{stubs_lib} {hip_lib}"
+    env["LD_PRELOAD"] = preload
+    return cmd, env
+
+
 def _run_rocprofv3(workload_script: str, workload_args: List[str], tmpdir: Path, nproc: int):
     """rocprofv3: use --runtime-trace flag."""
     if shutil.which("rocprofv3") is None:
@@ -158,6 +198,7 @@ def _run_roctracer(workload_script: str, workload_args: List[str], tmpdir: Path,
 _BUILDERS = {
     "none": _run_none,
     "rtl": _run_rtl,
+    "rtl_hip": _run_rtl_hip,
     "rocprofv3": _run_rocprofv3,
     "roctracer": _run_roctracer,
 }

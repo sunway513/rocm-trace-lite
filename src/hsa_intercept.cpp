@@ -748,17 +748,19 @@ extern "C" bool OnLoad(void* pTable,
     fprintf(stderr, "rtl: mode=%s\n", mode_names[(int)g_rtl_mode]);
 
     // HIP mode: skip all HSA-level interception. The HIP CLR profiler
-    // activates via GPU_CLR_PROFILE env var during hip::init() and records
-    // everything we need. We only need to register a shutdown handler
-    // that drains the CLR profiler's record buffer into the trace DB.
+    // activates via GPU_CLR_PROFILE_OUTPUT env var during hip::init() and
+    // records everything we need. Additionally, hip_profiler_probe() calls
+    // hipProfilerEnableExt() at shutdown to ensure activation. We only need
+    // to register a shutdown handler that drains the CLR profiler's record
+    // buffer into the trace DB.
     if (g_rtl_mode == RtlMode::HIP) {
-        const char* clr_env = getenv("GPU_CLR_PROFILE");
+        const char* clr_env = getenv("GPU_CLR_PROFILE_OUTPUT");
         if (!clr_env || clr_env[0] == '\0') {
-            fprintf(stderr, "rtl[hip]: WARNING: RTL_MODE=hip requires GPU_CLR_PROFILE to be set\n"
-                            "rtl[hip]: set GPU_CLR_PROFILE=1 before launching\n"
+            fprintf(stderr, "rtl[hip]: WARNING: GPU_CLR_PROFILE_OUTPUT not set\n"
+                            "rtl[hip]: CLR profiler may not auto-activate during hip::init()\n"
                             "rtl[hip]: CLI: 'rtl trace --mode hip' handles this automatically\n");
         } else {
-            fprintf(stderr, "rtl[hip]: GPU_CLR_PROFILE=%s\n", clr_env);
+            fprintf(stderr, "rtl[hip]: GPU_CLR_PROFILE_OUTPUT=%s\n", clr_env);
         }
         fprintf(stderr, "rtl[hip]: skipping HSA queue intercept; CLR profiler handles capture\n");
         std::atexit(shutdown);

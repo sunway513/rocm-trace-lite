@@ -135,12 +135,16 @@ def run_trace(args):
     env["LD_PRELOAD"] = "{}:{}".format(lib, existing_preload) if existing_preload else lib
     if hasattr(args, 'mode') and args.mode:
         env["RTL_MODE"] = args.mode
-        # HIP mode requires the HIP CLR built-in profiler to self-activate
-        # during hip::init(). HipClrProfilerInit() checks GPU_CLR_PROFILE
-        # and installs dispatch table wrappers + activity callback if set.
-        # rtl drains records via hipClrProfilerGetRecords() at shutdown.
-        if args.mode == "hip" and not env.get("GPU_CLR_PROFILE"):
-            env["GPU_CLR_PROFILE"] = "1"
+        # HIP mode: CLR profiler activates via GPU_CLR_PROFILE_OUTPUT env var
+        # during hip::init() -> HipProfilerInitExt(). The value is the JSON
+        # output path for CLR's built-in trace writer (we don't use it, RTL
+        # drains records via hipProfilerGetRecordsExt at shutdown).
+        # Additionally, hip_profiler_probe() calls hipProfilerEnableExt() as
+        # a belt-and-suspenders activation in case the app is already past
+        # hip::init() when librtl.so loads.
+        if args.mode == "hip":
+            if not env.get("GPU_CLR_PROFILE_OUTPUT"):
+                env["GPU_CLR_PROFILE_OUTPUT"] = "/dev/null"
 
     # Ensure the subprocess can dlopen librtl.so and its dependencies.
     # Add the .so's directory and common ROCm paths to LD_LIBRARY_PATH.

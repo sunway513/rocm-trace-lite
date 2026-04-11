@@ -7,15 +7,15 @@
  * ROCm, the dlsym probe fails gracefully and reports 0 records.
  *
  * Activation flow:
- *   1. Python launcher sets GPU_CLR_PROFILE=1 when --mode=hip
+ *   1. Python launcher sets GPU_CLR_PROFILE_OUTPUT=/dev/null when --mode=hip
  *   2. libamdhip64.so initializes, hip::init() calls HipProfilerInitExt()
- *      which sees GPU_CLR_PROFILE env var and installs 510 dispatch table
- *      wrappers + activity callback on ACTIVITY_DOMAIN_HIP_OPS
+ *      which sees GPU_CLR_PROFILE_OUTPUT env var and installs 510 dispatch
+ *      table wrappers + activity callback on ACTIVITY_DOMAIN_HIP_OPS
  *   3. App runs: each HIP API call goes through wrapper that records CPU
  *      start/end + sets correlation_id TLS; GPU activity callback writes
  *      GPU timestamps into the same record slot via atomic correlation_id
  *   4. At shutdown, hsa_intercept.cpp calls hip_profiler_drain()
- *   5. hip_profiler_drain() calls Disable -> GetRecords -> iterate -> Reset
+ *   5. hip_profiler_drain() calls Enable -> Disable -> GetRecords -> Reset
  *   6. CLR's HipProfilerFinalizer static destructor may still run, but
  *      Reset() emptied the buffer so it writes nothing useful
  *
@@ -23,13 +23,11 @@
  * per chunk, up to 1024 chunks = 10M records). GetRecords returns a 2D
  * array of chunk pointers -- zero-copy, no export buffer needed.
  *
- * Why GPU_CLR_PROFILE=1 instead of hipProfilerEnableExt():
- *   - librtl.so is loaded by HSA runtime during hip::init(), BEFORE HIP is
- *     fully loaded. Calling hipProfilerEnableExt() from our OnLoad would
- *     fail (symbol not yet resolvable).
- *   - Setting GPU_CLR_PROFILE=1 in the environment lets the CLR profiler
- *     self-activate at the correct point in hip::init() (HipProfilerInitExt
- *     checks this env var and installs dispatch table wrappers if set).
+ * Two-phase activation:
+ *   - GPU_CLR_PROFILE_OUTPUT=/dev/null triggers HipProfilerInitExt() during
+ *     hip::init() which installs dispatch wrappers and activity callback.
+ *   - hip_profiler_probe() also calls hipProfilerEnableExt() at drain time
+ *     as belt-and-suspenders (in case the env var was not set).
  *
  * Dependency: libdl (already linked via Makefile). No compile-time dependency
  * on libamdhip64. All HIP profiler symbols are resolved at runtime via dlsym.
@@ -263,7 +261,12 @@ bool hip_profiler_probe() {
 
     if (g_fn_enable && g_fn_disable && g_fn_get_records && g_fn_reset) {
         g_api_ready = true;
-        fprintf(stderr, "rtl[hip]: hipProfiler*Ext API resolved, drain on exit enabled\n");
+        // Activate the CLR profiler so dispatch wrappers start recording.
+        // GPU_CLR_PROFILE_OUTPUT only triggers at HipProfilerInitExt() during
+        // hip::init(); if the app is already past that point, we need an
+        // explicit Enable call.
+        int rc = g_fn_enable();
+        fprintf(stderr, "rtl[hip]: hipProfiler*Ext API resolved, Enable returned %d\n", rc);
         return true;
     }
 
@@ -345,7 +348,9 @@ void hip_profiler_drain() {
             }
 
             // Write GPU-side activity records.
-            if (!rec.has_gpu_activity) continue;
+            // CLR profiler uses gpu_op_count (not has_gpu_activity flag) to
+            // indicate whether GPU timestamps were captured for this API call.
+            if (rec.gpu.gpu_op_count == 0) continue;
 
             // Graph launches may have multiple GPU ops (gpu_op_count > 1).
             if (rec.gpu.gpu_op_count > 1 && rec.gpu.gpu_ops) {
