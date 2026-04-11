@@ -199,14 +199,14 @@ class TestConverterOutput:
         assert os.path.getsize(out_json) > 0
 
     def test_default_output_name(self, tmp_path):
-        """Default output should be input.db -> input.json."""
+        """Default output should be input.db -> input.json.gz."""
         rpd_path = str(tmp_path / "mytrace.db")
         populate_synthetic_trace(rpd_path, num_kernels=5)
         subprocess.run(
             [sys.executable, RPD2TRACE, rpd_path],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
-        json_path = str(tmp_path / "mytrace.json")
+        json_path = str(tmp_path / "mytrace.json.gz")
         assert os.path.exists(json_path)
 
     def test_metadata_events_present(self, tmp_rpd, tmp_path):

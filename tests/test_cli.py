@@ -159,7 +159,7 @@ class TestConvertCommand:
         populate_synthetic_trace(rpd, num_kernels=5)
         rc, _, _ = _run_cli("convert", rpd)
         assert rc == 0
-        json_path = str(tmp_path / "test.json")
+        json_path = str(tmp_path / "test.json.gz")
         assert os.path.exists(json_path)
 
     def test_convert_missing_file(self):

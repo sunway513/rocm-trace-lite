@@ -33,9 +33,11 @@ public:
                         uint64_t correlation_id, int pid, int tid);
 
     // Record a GPU kernel dispatch (device-side)
+    // dispatch_info: optional "hwq=0x... wg=X,Y,Z grid=X,Y,Z" stored in completionSignal
     void record_kernel(const char* name, int device_id, uint64_t queue_id,
                        uint64_t start_ns, uint64_t end_ns,
-                       uint64_t correlation_id);
+                       uint64_t correlation_id,
+                       const char* dispatch_info = nullptr);
 
     // Record a GPU memory copy (device-side)
     void record_copy(int src_device, int dst_device, size_t bytes,
