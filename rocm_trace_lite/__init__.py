@@ -1,6 +1,6 @@
 """rocm-trace-lite: Self-contained GPU kernel profiler for ROCm."""
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 
 
 def get_lib_path() -> str:
