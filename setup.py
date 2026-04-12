@@ -5,6 +5,7 @@ This setup.py attempts compilation during `pip install` from source.
 If ROCm is not available, the install succeeds but tracing is disabled.
 """
 import os
+import time
 import shutil
 import sys
 
@@ -48,8 +49,15 @@ class BuildWithLibrtl(build_py):
         # to avoid packaging a stale .so
         for src_so in ["librtl.so", os.path.join("rocm_trace_lite", "lib", "librtl.so")]:
             if os.path.isfile(src_so):
+                age_s = time.time() - os.path.getmtime(src_so)
+                if age_s > 3600:
+                    print("rocm-trace-lite: WARNING: packaging %s (%.0f min old) "
+                          "— run `make` to rebuild" % (src_so, age_s / 60),
+                          file=sys.stderr)
                 os.makedirs(lib_dest, exist_ok=True)
                 shutil.copy2(src_so, so_path)
+                print("rocm-trace-lite: packaged %s (%.1f KB)" %
+                      (src_so, os.path.getsize(so_path) / 1024))
                 return
 
         # Attempt JIT compilation

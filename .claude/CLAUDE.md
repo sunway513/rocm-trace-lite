@@ -13,7 +13,6 @@
 ## Known Issues
 - RTL lite mode: ~0% overhead on MoE models with CUDAGraph, ~5-6% on enforce-eager
 - RTL hip mode: GPU_CLR_PROFILE_OUTPUT + CUDAGraph replay = crash (issue #79)
-- roctracer: ROCP_OUTPUT_DIR must be set or stdout floods cause OOM
 
 ## Code Style
 - All GitHub issues/PRs/commits in English

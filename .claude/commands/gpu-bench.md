@@ -82,8 +82,6 @@ HSA_TOOLS_LIB="$LIBRTL" RTL_OUTPUT="$OUTDIR/trace_%p.db" RTL_MODE=lite
 # hip mode (requires CLR profiler-enabled libamdhip64.so)
 HSA_TOOLS_LIB="$LIBRTL" RTL_MODE=hip RTL_OUTPUT="$OUTDIR/trace_%p.db" GPU_CLR_PROFILE_OUTPUT=/dev/null
 
-# roctracer (MUST set ROCP_OUTPUT_DIR or stdout OOM)
-HSA_TOOLS_LIB="/opt/rocm/lib/roctracer/libroctracer_tool.so" ROCTRACER_DOMAIN="hip" ROCP_OUTPUT_DIR="/tmp/roctracer_output"
 ```
 
 ## Process Cleanup (CRITICAL)
@@ -112,5 +110,4 @@ done
 
 - RTL lite: ~0% overhead on MoE with CUDAGraph, ~5-6% on enforce-eager
 - RTL hip mode: GPU_CLR_PROFILE_OUTPUT + CUDAGraph = crash (CLR dispatch wrapper incompatibility)
-- roctracer on serving: unusable without ROCP_OUTPUT_DIR (stdout OOM)
 - setup.py packaging: always `make` before `bdist_wheel` — repo-root librtl.so takes priority
