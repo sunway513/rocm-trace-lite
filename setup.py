@@ -44,11 +44,13 @@ class BuildWithLibrtl(build_py):
             return
 
         # Check if user already ran `make` in source tree
-        src_so = os.path.join("rocm_trace_lite", "lib", "librtl.so")
-        if os.path.isfile(src_so):
-            os.makedirs(lib_dest, exist_ok=True)
-            shutil.copy2(src_so, so_path)
-            return
+        # Prefer repo-root librtl.so (make output) over package-dir copy
+        # to avoid packaging a stale .so
+        for src_so in ["librtl.so", os.path.join("rocm_trace_lite", "lib", "librtl.so")]:
+            if os.path.isfile(src_so):
+                os.makedirs(lib_dest, exist_ok=True)
+                shutil.copy2(src_so, so_path)
+                return
 
         # Attempt JIT compilation
         try:
