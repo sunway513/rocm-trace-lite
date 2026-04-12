@@ -15,11 +15,12 @@ def main():
     # trace
     trace_p = sub.add_parser("trace", help="Trace a workload")
     trace_p.add_argument("-o", "--output", default="trace.db", help="Output trace file (default: trace.db)")
-    trace_p.add_argument("-m", "--mode", choices=["lite", "default", "full"], default=None,
+    trace_p.add_argument("-m", "--mode", choices=["lite", "default", "full", "hip"], default=None,
                          help="Profiling mode: "
                               "lite (~0%% overhead, skip has-signal packets, safe for all ROCm, default), "
-                              "default (GPU timing for all count==1 dispatches, skip graph replay), "
-                              "full (profile everything including graph replay, requires ROCm 7.13+)")
+                              "default (HSA signal injection, GPU timing, skip graph replay), "
+                              "full (profile everything including graph replay, requires ROCm 7.13+), "
+                              "hip (HIP CLR profiler, multi-process safe, requires ROCm with rocm-systems 5dc10a8+)")
     trace_p.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to trace")
 
     # convert

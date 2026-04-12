@@ -76,12 +76,17 @@ class TestShutdownSafety:
         assert "delete" in body, "shutdown does not delete pending items"
 
     def test_join_before_close(self):
-        """Worker join must happen before DB close."""
+        """Worker join must happen before DB close in HSA path.
+
+        HIP mode has its own early close() (no worker thread exists),
+        so we check the HSA path: close() after join().
+        """
         src = self._get_source()
         match = re.search(r'static void shutdown\(\).*?\n\}', src, re.DOTALL)
         body = match.group()
         join_pos = body.find("join()")
-        close_pos = body.find("close()")
+        close_pos = body.find("close()", join_pos)
+        assert close_pos >= 0, "No close() after join() in HSA shutdown path"
         assert join_pos < close_pos, "DB close before worker join"
 
     def test_adr_document_exists(self):

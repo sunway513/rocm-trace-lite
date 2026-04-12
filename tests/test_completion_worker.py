@@ -81,7 +81,11 @@ class TestShutdownCoordination:
         assert "shutdown()" in match.group(), "OnUnload does not call shutdown()"
 
     def test_db_close_after_worker_join(self):
-        """DB should close after worker join, not before."""
+        """DB should close after worker join in HSA mode, not before.
+
+        HIP mode has its own early close() before return (no worker thread),
+        so we check the HSA path specifically: the close() after join().
+        """
         with open(HSA_INTERCEPT) as f:
             content = f.read()
         # Find shutdown function
@@ -89,9 +93,10 @@ class TestShutdownCoordination:
         assert match, "Could not find shutdown function"
         body = match.group()
         join_pos = body.find("join()")
-        close_pos = body.find("close()")
         assert join_pos >= 0, "No join() in shutdown"
-        assert close_pos >= 0, "No close() in shutdown"
+        # Find the close() that comes AFTER join() (HSA path)
+        close_pos = body.find("close()", join_pos)
+        assert close_pos >= 0, "No close() after join() in shutdown"
         assert join_pos < close_pos, (
             "DB close() happens before worker join() — data loss risk"
         )
