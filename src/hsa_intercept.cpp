@@ -72,8 +72,19 @@ static bool g_intercept_available = false;
 //   "lite"    — like default but also skip packets with existing completion_signal (~0% overhead)
 //   "full"    — profile everything including graph replay batches. Requires ROCm 7.13+
 //               with ROCR fix (rocm-systems commit 559d48b1). Will crash on ROCm <= 7.2.
-enum class RtlMode { DEFAULT, LITE, FULL };
+//   "hip"     — use HIP CLR built-in profiler (hipClrProfiler*) instead of HSA signal
+//               injection. Multi-process safe, no CUDAGraph interference. Requires
+//               ROCm build with rocm-systems commit 5dc10a8 or later.
+enum class RtlMode { DEFAULT, LITE, FULL, HIP };
 static RtlMode g_rtl_mode = RtlMode::LITE;  // safe default for ROCm <= 7.2 (avoids ROCR staging_buffer overflow)
+} // namespace hsa_intercept
+
+// Forward declaration of the HIP profiler drain function.
+// Implemented in src/hip_intercept.cpp and called from hsa_intercept::shutdown()
+// when RTL_MODE=hip.
+namespace hip_intercept { void hip_profiler_drain(); }
+
+namespace hsa_intercept {
 
 // ---- Lock-free signal pool (Vyukov MPMC bounded ring buffer) ----
 // Replaces mutex + vector to eliminate contention on the per-dispatch hot path.
@@ -615,7 +626,21 @@ static void shutdown() {
     static std::atomic<bool> shutdown_done{false};
     if (shutdown_done.exchange(true)) return;  // prevent double shutdown
 
-    // Print diagnostic counters
+    // HIP mode: drain the HIP CLR profiler records into the trace DB,
+    // flush and close, then return. No signal pool, no worker thread, no
+    // queue map to clean up — those were never initialized.
+    if (g_rtl_mode == RtlMode::HIP) {
+        fprintf(stderr, "\n=== rtl diagnostic (PID %d) ===\n", getpid());
+        fprintf(stderr, "  mode: hip (CLR profiler drain)\n");
+        hip_intercept::hip_profiler_drain();
+        fprintf(stderr, "====================================\n\n");
+        // Flush and close trace DB (hip mode has no worker thread to clean up)
+        trace_db::get_trace_db().flush();
+        trace_db::get_trace_db().close();
+        return;
+    }
+
+    // Print diagnostic counters (HSA modes)
     fprintf(stderr, "\n=== rtl diagnostic (PID %d) ===\n", getpid());
     fprintf(stderr, "  intercept calls:     %" PRIu64 "\n", g_total_intercepts.load());
     fprintf(stderr, "  signals injected:    %" PRIu64 "\n", g_injected.load());
@@ -704,15 +729,7 @@ extern "C" bool OnLoad(void* pTable,
     g_orig_core = *table->core_;
     g_orig_ext = *table->amd_ext_;
 
-    // Replace queue creation and executable freeze
-    table->core_->hsa_queue_create_fn = my_hsa_queue_create;
-    table->core_->hsa_executable_freeze_fn = my_hsa_executable_freeze;
-
-    // Discover GPU agents (immutable after this point)
-    hsa_iterate_agents(agent_iterate_cb, nullptr);
-    fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
-
-    // Parse RTL_MODE
+    // Parse RTL_MODE first — HIP mode skips most of the HSA-side setup.
     const char* mode_env = getenv("RTL_MODE");
     if (mode_env) {
         if (strcmp(mode_env, "lite") == 0) {
@@ -721,13 +738,43 @@ extern "C" bool OnLoad(void* pTable,
             g_rtl_mode = RtlMode::DEFAULT;
         } else if (strcmp(mode_env, "full") == 0) {
             g_rtl_mode = RtlMode::FULL;
+        } else if (strcmp(mode_env, "hip") == 0) {
+            g_rtl_mode = RtlMode::HIP;
         } else {
             fprintf(stderr, "rtl: WARNING: unknown RTL_MODE='%s', using lite\n", mode_env);
         }
     }
 
-    static const char* mode_names[] = {"default", "lite", "full"};
+    static const char* mode_names[] = {"default", "lite", "full", "hip"};
     fprintf(stderr, "rtl: mode=%s\n", mode_names[(int)g_rtl_mode]);
+
+    // HIP mode: skip all HSA-level interception. The HIP CLR profiler
+    // activates via GPU_CLR_PROFILE_OUTPUT env var during hip::init() and
+    // records everything we need. Additionally, hip_profiler_probe() calls
+    // hipProfilerEnableExt() at shutdown to ensure activation. We only need
+    // to register a shutdown handler that drains the CLR profiler's record
+    // buffer into the trace DB.
+    if (g_rtl_mode == RtlMode::HIP) {
+        const char* clr_env = getenv("GPU_CLR_PROFILE_OUTPUT");
+        if (!clr_env || clr_env[0] == '\0') {
+            fprintf(stderr, "rtl[hip]: WARNING: GPU_CLR_PROFILE_OUTPUT not set\n"
+                            "rtl[hip]: CLR profiler may not auto-activate during hip::init()\n"
+                            "rtl[hip]: CLI: 'rtl trace --mode hip' handles this automatically\n");
+        } else {
+            fprintf(stderr, "rtl[hip]: GPU_CLR_PROFILE_OUTPUT=%s\n", clr_env);
+        }
+        fprintf(stderr, "rtl[hip]: skipping HSA queue intercept; CLR profiler handles capture\n");
+        std::atexit(shutdown);
+        return true;
+    }
+
+    // Replace queue creation and executable freeze (HSA modes only)
+    table->core_->hsa_queue_create_fn = my_hsa_queue_create;
+    table->core_->hsa_executable_freeze_fn = my_hsa_executable_freeze;
+
+    // Discover GPU agents (immutable after this point)
+    hsa_iterate_agents(agent_iterate_cb, nullptr);
+    fprintf(stderr, "rtl: found %zu GPU agent(s)\n", g_gpu_agents.size());
 
     // Probe: check if hsa_amd_queue_intercept_create is functional.
     if (!g_gpu_agents.empty()) {
