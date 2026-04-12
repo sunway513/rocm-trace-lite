@@ -626,16 +626,17 @@ static void shutdown() {
     static std::atomic<bool> shutdown_done{false};
     if (shutdown_done.exchange(true)) return;  // prevent double shutdown
 
-    // HIP mode: drain the HIP CLR profiler records into the trace DB and
-    // return. No signal pool, no worker thread, no queue map to clean up —
-    // those were never initialized. trace_db flush/close is handled by the
-    // atexit handler registered during lazy_init_db(), so the per-mode
-    // teardown order invariant (worker.join() before DB close) stays intact.
+    // HIP mode: drain the HIP CLR profiler records into the trace DB,
+    // flush and close, then return. No signal pool, no worker thread, no
+    // queue map to clean up — those were never initialized.
     if (g_rtl_mode == RtlMode::HIP) {
         fprintf(stderr, "\n=== rtl diagnostic (PID %d) ===\n", getpid());
         fprintf(stderr, "  mode: hip (CLR profiler drain)\n");
         hip_intercept::hip_profiler_drain();
         fprintf(stderr, "====================================\n\n");
+        // Flush and close trace DB (hip mode has no worker thread to clean up)
+        trace_db::get_trace_db().flush();
+        trace_db::get_trace_db().close();
         return;
     }
 

@@ -46,16 +46,21 @@
 namespace hip_intercept {
 
 // ============================================================
-// Local copies of hip_profiler_ext.h types.
+// HIP CLR profiler types.
 //
-// We cannot include the upstream header because it is not yet shipped in
-// mainline ROCm. Once the header is available we can switch to including
-// it directly. Layout must stay in sync with ROCm/rocm-systems branch
+// Prefer the official header (shipped by German's CLR build in
+// amd/dev/gandryey/ROCM-1667-12; path: hip/amd_detail/hip_profiler_ext.h).
+// Fall back to local copies for builds against stock ROCm.
+//
+// Layout must stay in sync with ROCm/rocm-systems branch
 // amd/dev/gandryey/ROCM-1667-12 (commit 8e637b7 or later).
-//
-// Key design: fixed-size records (HipGpuActivityExt=128B, HipApiRecordExt=256B)
-// with reserved padding for future extension without ABI breaks.
 // ============================================================
+#if __has_include(<hip/amd_detail/hip_profiler_ext.h>)
+#  include <hip/amd_detail/hip_profiler_ext.h>
+// Bring the official types into our namespace alias
+namespace hip_intercept { using ::HipGpuOpExt; using ::HipCopyKindExt; }
+#define RTL_HIP_PROFILER_EXT_TYPES_FROM_HEADER 1
+#else
 
 enum HipGpuOpExt : uint32_t {
     OP_DISPATCH = 0,
@@ -149,6 +154,7 @@ struct HipApiRecordExt {
     HipGpuActivityExt gpu;
 };
 static_assert(sizeof(HipApiRecordExt) == 256, "HipApiRecordExt must be 256 bytes");
+#endif // !RTL_HIP_PROFILER_EXT_TYPES_FROM_HEADER
 
 // hipError_t is 32-bit; we treat it as int to avoid pulling hip headers.
 using hipProfilerEnableExt_fn     = int (*)(void);
