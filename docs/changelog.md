@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.5
+
+### Documentation
+- Fix 7 documentation inconsistencies with codebase (#89): remove fictional `RTL_NO_INJECT`, document all 8 DB tables, add missing roctx functions, fix stale `rpd-lite`/`rpd_lite` references
+
 ## v0.3.4
 
 - **Dispatch info**: Record hardware queue ID, workgroup size, and grid dimensions per kernel in the `completionSignal` column of `rocpd_op`
