@@ -22,7 +22,9 @@ ssh $NODE 'docker pull $IMAGE && docker inspect $IMAGE --format "{{.Created}}"'
 ### 3. Check ATOM Server Args
 Different ATOM versions support different args. ALWAYS check before scripting:
 ```bash
+# Try module path first, fall back to script path
 ssh $NODE 'docker run --rm $IMAGE python3 -m atom.entrypoints.openai_server --help 2>&1 | head -30'
+# If that fails, try: python3 /app/ATOM/atom/entrypoints/openai_server.py --help
 ```
 
 ### 4. Verify Benchmark Module Path
@@ -86,12 +88,18 @@ HSA_TOOLS_LIB="$LIBRTL" RTL_MODE=hip RTL_OUTPUT="$OUTDIR/trace_%p.db" GPU_CLR_PR
 
 ## Process Cleanup (CRITICAL)
 
-kill $PID only kills main process. ATOM spawns 8+ workers:
+kill $PID only kills main process. ATOM spawns 8+ workers.
+WARNING: `pkill -f openai_server` inside docker exec can kill the rtl trace wrapper too,
+causing container restart and trace data loss. Use targeted PID kill instead:
 ```bash
-pkill -9 -f "atom.entrypoints.openai_server"
+# Kill server by PID, not pattern — preserves rtl trace wrapper
+kill $(pgrep -f "openai_server.py" | head -1) 2>/dev/null
+# Wait for RTL to finalize trace DB
+wait $RTL_PID 2>/dev/null
+sleep 5
+# Then clean up remaining workers
 pkill -9 -f "multiprocessing.spawn"
 pkill -9 -f "compile_worker"
-sleep 10
 # Verify GPU release
 for i in $(seq 1 60); do
     pids=$(cat /sys/class/kfd/kfd/proc/*/pasid 2>/dev/null | wc -l)
