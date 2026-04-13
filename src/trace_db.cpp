@@ -215,8 +215,8 @@ bool TraceDB::open(const std::string& filename) {
                  &stmt_kernel_, "api_insert"))
         return false;
 
-    if (!prepare("INSERT INTO rocpd_op(gpuId,queueId,sequenceId,start,end,description_id,opType_id) "
-                 "VALUES(?1,?2,0,?3,?4,"
+    if (!prepare("INSERT INTO rocpd_op(gpuId,queueId,sequenceId,completionSignal,start,end,description_id,opType_id) "
+                 "VALUES(?1,?2,0,?7,?3,?4,"
                  "(SELECT id FROM rocpd_string WHERE string=?5),"
                  "(SELECT id FROM rocpd_string WHERE string=?6))",
                  &stmt_copy_, "op_insert"))
@@ -307,7 +307,8 @@ void TraceDB::record_hip_api(const char* name, const char* args,
 
 void TraceDB::record_kernel(const char* name, int device_id, uint64_t queue_id,
                              uint64_t start_ns, uint64_t end_ns,
-                             uint64_t correlation_id) {
+                             uint64_t correlation_id,
+                             const char* dispatch_info) {
     std::lock_guard<std::mutex> lock(g_db_mutex);
     if (!db_) return;
 
@@ -321,6 +322,11 @@ void TraceDB::record_kernel(const char* name, int device_id, uint64_t queue_id,
     sqlite3_bind_int64(stmt_copy_, 4, end_ns);
     sqlite3_bind_text(stmt_copy_, 5, name, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_copy_, 6, "KernelExecution", -1, SQLITE_STATIC);
+    if (dispatch_info && dispatch_info[0]) {
+        sqlite3_bind_text(stmt_copy_, 7, dispatch_info, -1, SQLITE_TRANSIENT);
+    } else {
+        sqlite3_bind_null(stmt_copy_, 7);
+    }
     if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
@@ -347,6 +353,7 @@ void TraceDB::record_copy(int src_device, int dst_device, size_t bytes,
     sqlite3_bind_int64(stmt_copy_, 4, end_ns);
     sqlite3_bind_text(stmt_copy_, 5, desc, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_copy_, 6, "CopyDeviceToDevice", -1, SQLITE_STATIC);
+    sqlite3_bind_null(stmt_copy_, 7);
     if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
@@ -370,6 +377,7 @@ void TraceDB::record_roctx(const char* message, uint64_t start_ns, uint64_t dura
     sqlite3_bind_int64(stmt_copy_, 4, start_ns + duration_ns);
     sqlite3_bind_text(stmt_copy_, 5, message, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_copy_, 6, "UserMarker", -1, SQLITE_STATIC);
+    sqlite3_bind_null(stmt_copy_, 7);
     if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
