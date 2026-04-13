@@ -1,6 +1,6 @@
 # CLI Reference
 
-rocm-trace-lite provides the `rtl` command-line tool. (`rpd-lite` also works as an alias.)
+rocm-trace-lite provides the `rtl` command-line tool. (`rtl-legacy` also works as an alias.)
 
 ## rtl trace
 
@@ -95,7 +95,7 @@ rtl info trace.db
 ```text
 Trace: trace.db
   Size: 1.2 MB
-  Tables: rocpd_api, rocpd_metadata, rocpd_op, rocpd_string
+  Tables: rocpd_api, rocpd_api_ops, rocpd_copyapi, rocpd_kernelapi, rocpd_metadata, rocpd_monitor, rocpd_op, rocpd_string
   rocpd_op: 728 rows
   rocpd_string: 45 rows
   Duration: 13.247s
