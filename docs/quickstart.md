@@ -83,10 +83,18 @@ Applications that use roctx markers are captured automatically:
 import ctypes
 lib = ctypes.CDLL("librtl.so")
 
+# Nested ranges (push/pop)
 lib.roctxRangePushA(b"forward_pass")
 # ... GPU work ...
 lib.roctxRangePop()
 
+# Non-nested ranges (start/stop)
+lib.roctxRangeStartA.restype = ctypes.c_uint64
+rid = lib.roctxRangeStartA(b"data_loading")
+# ... work ...
+lib.roctxRangeStop(rid)
+
+# Instant markers
 lib.roctxMarkA(b"checkpoint")
 ```
 
@@ -98,20 +106,20 @@ CUDAGraph replay submits batch AQL packets that are incompatible with signal inj
 rocm-trace-lite automatically skips batch submissions (`count > 1`), so graph-replayed
 kernels are not profiled but the application runs correctly.
 
-If you still see crashes (e.g., graph capture baking stale signal handles), use:
+If you still see crashes (e.g., graph capture baking stale signal handles), use
+**lite** mode which skips packets that already have a completion signal:
 
 ```bash
-RTL_NO_INJECT=1 rtl trace -o trace.db python3 my_cudagraph_model.py
+rtl trace --mode lite -o trace.db python3 my_cudagraph_model.py
 ```
 
-This disables signal injection entirely. No kernel timestamps are collected,
-but HIP API tracing still works.
+Lite mode provides near-zero overhead and is the safest option for CUDAGraph workloads.
 
 ## Environment variables
 
 | Variable | Values | Description |
 |----------|--------|-------------|
-| `RTL_OUTPUT` | path | Output trace file (supports `%p` for PID). Alternative to `-o` flag. |
+| `RTL_OUTPUT` | path | Output trace file (supports `%p` for PID). Alternative to `-o` flag. `RPD_LITE_OUTPUT` also accepted for backward compatibility. |
 | `RTL_MODE` | `default`, `lite`, `full` | Profiling mode (see below) |
 | `RTL_DEBUG` | `1`, `2` | Packet-level diagnostic logging (1=summary, 2=per-packet) |
 

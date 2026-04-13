@@ -37,7 +37,7 @@ if [ $# -eq 0 ]; then
 fi
 
 rm -f "$OUTPUT"
-echo "rpd_lite: tracing to $OUTPUT"
+echo "rtl: tracing to $OUTPUT"
 
 RTL_OUTPUT="$OUTPUT" \
 HSA_TOOLS_LIB="$LIB" \

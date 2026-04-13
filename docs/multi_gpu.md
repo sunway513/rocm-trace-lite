@@ -54,7 +54,7 @@ This reports per-file kernel counts, GPU IDs, and flags asymmetry between proces
 Each process prints diagnostic counters at shutdown:
 
 ```text
-=== rpd_lite diagnostic (PID 336455) ===
+=== rtl diagnostic (PID 336455) ===
   intercept calls:     3380
   signals injected:    2630
   drop (shutdown):     0

@@ -1,9 +1,18 @@
 # Changelog
 
+## v0.3.4
+
+- **Dispatch info**: Record hardware queue ID, workgroup size, and grid dimensions per kernel in the `completionSignal` column of `rocpd_op`
+- **Gzip Perfetto output**: `rtl trace` now produces compressed `.json.gz` files for Perfetto timeline visualization
+- **Build fix**: prefer repo-root `librtl.so` over system-installed version during development
+- Add ROCR interceptible queue SEGFAULT reproducer (`repro/`)
+- Sync `__version__` with `pyproject.toml`
+
 ## v0.3.3
 
 - **Fix roctx support**: `rtl trace` now sets `LD_PRELOAD` automatically so roctx markers work without manual setup
 - Add tutorial: profiling prefill vs decode with roctx markers
+- Add MI355X benchmark results and hot trace viewer as sample pages
 
 ## v0.3.2
 

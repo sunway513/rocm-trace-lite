@@ -13,6 +13,7 @@ GPU operations (kernel dispatches, roctx markers).
 | `gpuId` | INTEGER | GPU device index (0-based). -1 for host-side markers |
 | `queueId` | INTEGER | HSA queue handle |
 | `sequenceId` | INTEGER | Sequence number |
+| `completionSignal` | TEXT | Dispatch info string (hwq, workgroup, grid dimensions). NULL for markers. |
 | `start` | INTEGER | Start timestamp (nanoseconds) |
 | `end` | INTEGER | End timestamp (nanoseconds) |
 | `description_id` | INTEGER | FK to `rocpd_string` (kernel name) |
@@ -38,7 +39,66 @@ Trace-level metadata.
 
 ### rocpd_api
 
-HIP API calls (empty in rocm-trace-lite; reserved for RPD compatibility).
+HIP API calls (reserved for RPD compatibility; populated in future HIP profiling mode).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `pid` | INTEGER | Process ID |
+| `tid` | INTEGER | Thread ID |
+| `start` | INTEGER | Start timestamp (nanoseconds) |
+| `end` | INTEGER | End timestamp (nanoseconds) |
+| `apiName_id` | INTEGER | FK to `rocpd_string` (API function name) |
+| `args_id` | INTEGER | FK to `rocpd_string` (API arguments) |
+
+### rocpd_api_ops
+
+Association table linking API calls to GPU operations.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `api_id` | INTEGER | FK to `rocpd_api` |
+| `op_id` | INTEGER | FK to `rocpd_op` |
+
+### rocpd_kernelapi
+
+Kernel launch details (grid/workgroup dimensions).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `api_id` | INTEGER | FK to `rocpd_api` (PK) |
+| `stream` | TEXT | HIP stream handle |
+| `gridX/Y/Z` | INTEGER | Grid dimensions |
+| `workgroupX/Y/Z` | INTEGER | Workgroup dimensions |
+| `groupSegmentSize` | INTEGER | Group segment size (bytes) |
+| `privateSegmentSize` | INTEGER | Private segment size (bytes) |
+| `kernelName_id` | INTEGER | FK to `rocpd_string` |
+
+### rocpd_copyapi
+
+Memory copy details.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `api_id` | INTEGER | FK to `rocpd_api` (PK) |
+| `stream` | TEXT | HIP stream handle |
+| `size` | INTEGER | Copy size (bytes) |
+| `dst` | TEXT | Destination address |
+| `src` | TEXT | Source address |
+| `kind` | INTEGER | Copy kind (H2D, D2H, D2D, etc.) |
+| `sync` | INTEGER | Synchronous flag |
+
+### rocpd_monitor
+
+Monitoring data (reserved for future use).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `deviceType` | TEXT | Device type |
+| `deviceId` | INTEGER | Device ID |
+| `monitorType` | TEXT | Monitor metric type |
+| `start` | INTEGER | Start timestamp |
+| `end` | INTEGER | End timestamp |
+| `value` | TEXT | Metric value |
 
 ## Built-in views
 

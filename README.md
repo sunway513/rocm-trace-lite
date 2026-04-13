@@ -110,7 +110,7 @@ Output files:
 2. **Queue intercept** — We replace `hsa_queue_create` to create interceptible queues via `hsa_amd_queue_intercept_create`, then register a callback on every AQL packet
 3. **Kernel profiling** — For each kernel dispatch packet, we insert a profiling signal, wait for completion, then read GPU timestamps via `hsa_amd_profiling_get_dispatch_time`
 4. **Symbol resolution** — We intercept `hsa_executable_freeze` to enumerate kernel symbols from code objects
-5. **roctx shim** — Provides `roctxRangePushA`/`roctxRangePop`/`roctxMarkA` symbols so applications using roctx markers get captured without linking libroctx64
+5. **roctx shim** — Provides `roctxRangePushA`/`roctxRangePop`/`roctxMarkA`/`roctxRangeStartA`/`roctxRangeStop` symbols so applications using roctx markers get captured without linking libroctx64
 
 ## Output format
 

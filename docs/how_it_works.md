@@ -78,8 +78,10 @@ hsa_executable_iterate_symbols(executable, symbol_iterate_cb, nullptr);
 
 ### 6. roctx shim
 
-The library exports `roctxRangePushA`, `roctxRangePop`, and `roctxMarkA` symbols,
-allowing applications that use roctx markers to work without linking `libroctx64`.
+The library exports `roctxRangePushA`, `roctxRangePop`, `roctxMarkA`, `roctxRangeStartA`,
+and `roctxRangeStop` symbols, allowing applications that use roctx markers to work
+without linking `libroctx64`. Both nested (push/pop) and non-nested (start/stop) ranges
+are supported.
 
 ## Signal pool design
 
