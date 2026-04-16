@@ -43,41 +43,89 @@ def convert(input_rpd, output_json):
     """):
         ops.append(r)
 
-    # Figure out GPU mapping: if all gpuId=0, distribute by queueId
-    gpu_ids = set(r[0] for r in ops if r[0] is not None)
-    all_same_gpu = len(gpu_ids) <= 1
+    # Pre-parse dispatch_info to extract hwq for each op
+    parsed_ops = []
+    for gpu_id, queue_id, start_ns, end_ns, name, op_type, dispatch_info in ops:
+        hwq = None
+        wg = None
+        grid = None
+        if dispatch_info:
+            for part in dispatch_info.split():
+                if part.startswith("hwq="):
+                    hwq = part[4:]
+                elif part.startswith("wg="):
+                    wg = part[3:]
+                elif part.startswith("grid="):
+                    grid = part[5:]
+        parsed_ops.append((gpu_id, queue_id, start_ns, end_ns, name, op_type, hwq, wg, grid))
 
-    if all_same_gpu and len(ops) > 0:
-        queue_ids = sorted(set(r[1] for r in ops if r[1] is not None))
-        if len(queue_ids) > 100:
-            queue_to_track = {q: 0 for q in queue_ids}
-            print(f"  Single GPU detected, {len(queue_ids)} unique queue IDs (per-dispatch) -> collapsing to 1 track")
-        else:
-            queue_to_track = {q: i for i, q in enumerate(queue_ids)}
-            print(f"  Single GPU detected, {len(queue_ids)} queues -> using queue-based tracks")
-    else:
-        queue_to_track = None
+    # Decide track layout: hwq-based (if dispatch_info present) or queue-based (fallback)
+    gpu_ids = sorted(set(r[0] for r in parsed_ops if r[0] is not None and r[0] >= 0))
+    if not gpu_ids:
+        gpu_ids = [0]
 
-    # GPU process metadata
-    if queue_to_track:
-        events.append({
-            "name": "process_name", "ph": "M",
-            "pid": 0, "tid": 0,
-            "args": {"name": "GPU 0"}
-        })
-    else:
-        for gid in sorted(gpu_ids):
-            if gid is None or gid < 0:
-                continue
+    # Collect unique hwq addresses per GPU
+    hwq_by_gpu = {}
+    for gpu_id, _q, _s, _e, _n, _t, hwq, _wg, _grid in parsed_ops:
+        gid = gpu_id if gpu_id is not None and gpu_id >= 0 else 0
+        if hwq:
+            hwq_by_gpu.setdefault(gid, set()).add(hwq)
+
+    use_hwq_tracks = len(hwq_by_gpu) > 0
+
+    if use_hwq_tracks:
+        # HWQ-based tracks: one track per hardware queue address
+        hwq_track = {}
+        for gid in sorted(hwq_by_gpu):
+            for i, hwq in enumerate(sorted(hwq_by_gpu[gid])):
+                hwq_track[(gid, hwq)] = i
+        fallback_tid = max(hwq_track.values(), default=-1) + 1
+
+        print(f"  {len(hwq_track)} HW queues across {len(gpu_ids)} GPU(s)")
+
+        for gid in gpu_ids:
             events.append({
                 "name": "process_name", "ph": "M",
                 "pid": int(gid), "tid": 0,
                 "args": {"name": f"GPU {gid}"}
             })
+        for (gid, hwq), tid in hwq_track.items():
+            events.append({
+                "name": "thread_name", "ph": "M",
+                "pid": int(gid), "tid": tid,
+                "args": {"name": f"HWQ {hwq}"}
+            })
+    else:
+        # Queue-based fallback (no dispatch_info in trace)
+        hwq_track = None
+        all_same_gpu = len(gpu_ids) <= 1
+
+        if all_same_gpu:
+            queue_ids = sorted(set(r[1] for r in parsed_ops if r[1] is not None))
+            if len(queue_ids) > 100:
+                queue_to_track = {q: 0 for q in queue_ids}
+                print(f"  Single GPU detected, {len(queue_ids)} unique queue IDs (per-dispatch) -> collapsing to 1 track")
+            else:
+                queue_to_track = {q: i for i, q in enumerate(queue_ids)}
+                print(f"  Single GPU detected, {len(queue_ids)} queues -> using queue-based tracks")
+
+            events.append({
+                "name": "process_name", "ph": "M",
+                "pid": 0, "tid": 0,
+                "args": {"name": "GPU 0"}
+            })
+        else:
+            queue_to_track = None
+            for gid in gpu_ids:
+                events.append({
+                    "name": "process_name", "ph": "M",
+                    "pid": int(gid), "tid": 0,
+                    "args": {"name": f"GPU {gid}"}
+                })
 
     # GPU ops -> complete events
     op_count = 0
-    for gpu_id, queue_id, start_ns, end_ns, name, op_type, dispatch_info in ops:
+    for gpu_id, queue_id, start_ns, end_ns, name, op_type, hwq, wg, grid in parsed_ops:
         if gpu_id is None or gpu_id < 0:
             gpu_id = 0
 
@@ -90,7 +138,10 @@ def convert(input_rpd, output_json):
             elif len(name) > 120:
                 short_name = name[:60] + "..." + name[-40:]
 
-        if queue_to_track:
+        if hwq_track is not None:
+            pid = int(gpu_id)
+            tid = hwq_track.get((gpu_id, hwq), fallback_tid)
+        elif queue_to_track is not None:
             pid = 0
             tid = queue_to_track.get(queue_id, 0)
         else:
@@ -102,15 +153,12 @@ def convert(input_rpd, output_json):
             "gpu": gpu_id,
             "queue": queue_id,
         }
-        # Parse dispatch_info: "hwq=0x... wg=X,Y,Z grid=X,Y,Z"
-        if dispatch_info:
-            for part in dispatch_info.split():
-                if part.startswith("hwq="):
-                    args["hwq"] = part[4:]
-                elif part.startswith("wg="):
-                    args["workgroup"] = part[3:]
-                elif part.startswith("grid="):
-                    args["grid"] = part[5:]
+        if hwq:
+            args["hwq"] = hwq
+        if wg:
+            args["workgroup"] = wg
+        if grid:
+            args["grid"] = grid
 
         events.append({
             "name": short_name,
@@ -124,8 +172,8 @@ def convert(input_rpd, output_json):
         })
         op_count += 1
 
-    # Add thread names for queues
-    if queue_to_track:
+    # Add thread names for queues (fallback mode only)
+    if hwq_track is None and queue_to_track is not None:
         for qid, track in queue_to_track.items():
             events.append({
                 "name": "thread_name", "ph": "M",
