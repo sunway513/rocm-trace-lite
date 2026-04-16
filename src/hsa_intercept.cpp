@@ -73,7 +73,7 @@ static bool g_intercept_available = false;
 //   "standard" — signal injection + GPU timing for all count==1 dispatches, skip graph replay
 //   "full"     — profile everything including graph replay batches. Requires ROCm 7.13+
 //                with ROCR fix (rocm-systems commit 559d48b1). Will crash on ROCm <= 7.2.
-enum class RtlMode { STANDARD, LITE, FULL };
+enum class RtlMode { STANDARD = 0, LITE = 1, FULL = 2 };
 static RtlMode g_rtl_mode = RtlMode::LITE;
 
 // ---- Lock-free signal pool (Vyukov MPMC bounded ring buffer) ----

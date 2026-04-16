@@ -80,6 +80,7 @@ class TestCLIHelp:
         assert "standard" in out
         assert "lite" in out
         assert "full" in out
+        assert "default" in out  # accepted as alias for standard
 
     def test_convert_help(self):
         rc, out, _ = _run_cli("convert", "--help")
