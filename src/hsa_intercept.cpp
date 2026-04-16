@@ -69,12 +69,12 @@ static std::atomic<uint64_t> g_dispatch_id{0};
 static bool g_intercept_available = false;
 
 // RTL_MODE controls profiling behavior:
-//   (default) — signal injection + GPU timing, skip graph replay batches
-//   "lite"    — like default but also skip packets with existing completion_signal (~0% overhead)
-//   "full"    — profile everything including graph replay batches. Requires ROCm 7.13+
-//               with ROCR fix (rocm-systems commit 559d48b1). Will crash on ROCm <= 7.2.
-enum class RtlMode { DEFAULT, LITE, FULL };
-static RtlMode g_rtl_mode = RtlMode::LITE;  // safe default for ROCm <= 7.2 (avoids ROCR staging_buffer overflow)
+//   "lite"     — skip packets with existing completion_signal (~0% overhead). Default.
+//   "standard" — signal injection + GPU timing for all count==1 dispatches, skip graph replay
+//   "full"     — profile everything including graph replay batches. Requires ROCm 7.13+
+//                with ROCR fix (rocm-systems commit 559d48b1). Will crash on ROCm <= 7.2.
+enum class RtlMode { STANDARD, LITE, FULL };
+static RtlMode g_rtl_mode = RtlMode::LITE;
 
 // ---- Lock-free signal pool (Vyukov MPMC bounded ring buffer) ----
 // Replaces mutex + vector to eliminate contention on the per-dispatch hot path.
@@ -736,8 +736,8 @@ extern "C" bool OnLoad(void* pTable,
     if (mode_env) {
         if (strcmp(mode_env, "lite") == 0) {
             g_rtl_mode = RtlMode::LITE;
-        } else if (strcmp(mode_env, "default") == 0) {
-            g_rtl_mode = RtlMode::DEFAULT;
+        } else if (strcmp(mode_env, "standard") == 0 || strcmp(mode_env, "default") == 0) {
+            g_rtl_mode = RtlMode::STANDARD;
         } else if (strcmp(mode_env, "full") == 0) {
             g_rtl_mode = RtlMode::FULL;
         } else {
@@ -745,7 +745,7 @@ extern "C" bool OnLoad(void* pTable,
         }
     }
 
-    static const char* mode_names[] = {"default", "lite", "full"};
+    static const char* mode_names[] = {"standard", "lite", "full"};
     fprintf(stderr, "rtl: mode=%s\n", mode_names[(int)g_rtl_mode]);
 
     // Probe: check if hsa_amd_queue_intercept_create is functional.

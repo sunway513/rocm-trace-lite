@@ -15,10 +15,10 @@ def main():
     # trace
     trace_p = sub.add_parser("trace", help="Trace a workload")
     trace_p.add_argument("-o", "--output", default="trace.db", help="Output trace file (default: trace.db)")
-    trace_p.add_argument("-m", "--mode", choices=["lite", "default", "full"], default=None,
+    trace_p.add_argument("-m", "--mode", choices=["lite", "standard", "full"], default=None,
                          help="Profiling mode: "
                               "lite (~0%% overhead, skip has-signal packets, safe for all ROCm, default), "
-                              "default (GPU timing for all count==1 dispatches, skip graph replay), "
+                              "standard (GPU timing for all count==1 dispatches, skip graph replay), "
                               "full (profile everything including graph replay, requires ROCm 7.13+)")
     trace_p.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to trace")
 
