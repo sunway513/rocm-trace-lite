@@ -77,9 +77,10 @@ class TestCLIHelp:
         rc, out, _ = _run_cli("trace", "--help")
         assert rc == 0
         assert "--mode" in out or "-m" in out
-        assert "default" in out
+        assert "standard" in out
         assert "lite" in out
         assert "full" in out
+        assert "default" in out  # accepted as alias for standard
 
     def test_convert_help(self):
         rc, out, _ = _run_cli("convert", "--help")

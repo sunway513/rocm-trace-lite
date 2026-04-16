@@ -60,22 +60,22 @@ Requirements:
 ## Quick start
 
 ```bash
-rtl trace python3 my_model.py                    # default mode
-rtl trace --mode lite python3 my_model.py        # lite mode (~0% overhead)
-rtl trace --mode full python3 my_model.py        # full mode (requires ROCm 7.13+)
+rtl trace python3 my_model.py                        # lite mode (default)
+rtl trace --mode standard python3 my_model.py        # standard mode (~2-4% overhead)
+rtl trace --mode full python3 my_model.py             # full mode (requires ROCm 7.13+)
 ```
 
 ### Profiling modes
 
 | Mode | GPU timing | Graph replay | Overhead | Use case |
 |------|-----------|-------------|----------|----------|
-| **lite** (default) | Yes (partial) | Skipped | ~0% | Production / always-on |
-| default | Yes | Skipped | ~2-4% | General profiling |
+| **lite** | Yes (partial) | Skipped | ~0% | Production / always-on **(default)** |
+| **standard** | Yes | Skipped | ~2-4% | General profiling |
 | **full** | Yes (all) | Profiled | ~2-5% | Deep analysis (requires ROCm 7.13+ with [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1)) |
 
 Set via CLI (`--mode`) or env var (`RTL_MODE=lite`).
 
-**lite** (default) skips packets that already have a completion signal (e.g., NCCL kernels, barriers), resulting in near-zero overhead and safety on ROCm <= 7.2. **default** mode profiles all count==1 dispatches including those with signals. **full** profiles everything including CUDAGraph replay batches, but requires ROCm 7.13+ to avoid a [known ROCR heap overflow](https://github.com/sunway513/rocm-trace-lite/issues/67).
+**lite** skips packets that already have a completion signal (e.g., NCCL kernels, barriers), resulting in near-zero overhead and safety on ROCm <= 7.2. This is the default when `--mode` is not specified. **standard** mode profiles all count==1 dispatches including those with signals. **full** profiles everything including CUDAGraph replay batches, but requires ROCm 7.13+ to avoid a [known ROCR heap overflow](https://github.com/sunway513/rocm-trace-lite/issues/67).
 
 Sample output:
 
