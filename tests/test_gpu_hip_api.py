@@ -65,18 +65,16 @@ class TestHipApiCapture:
         conn.close()
         os.unlink(db)
 
-    def test_hip_api_capture_memcpy(self):
-        db, r = _run_with_rtl("hip", ["memcpy", "1048576", "5"])
+    def test_hip_api_capture_malloc_free(self):
+        """Verify hipMalloc/hipFree are captured (gemm workload allocates GPU memory)."""
+        db, r = _run_with_rtl("hip", ["gemm", "256", "5"])
         assert r.returncode == 0
         conn = sqlite3.connect(db)
         api_names = [row[0] for row in conn.execute(
             "SELECT s.string FROM rocpd_api a "
             "JOIN rocpd_string s ON a.apiName_id = s.id").fetchall()]
-        memcpy_apis = [n for n in api_names if "Memcpy" in n or "memcpy" in n]
-        # gpu_workload may use hipMemcpyHtoD/DtoH which are not yet intercepted
-        if len(memcpy_apis) == 0:
-            total = conn.execute("SELECT count(*) FROM rocpd_api").fetchone()[0]
-            assert total > 0, f"No HIP APIs at all. Got: {set(api_names)}"
+        malloc_apis = [n for n in api_names if "Malloc" in n or "Free" in n]
+        assert len(malloc_apis) > 0, f"No malloc/free APIs. Got: {set(api_names)}"
         conn.close()
         os.unlink(db)
 
