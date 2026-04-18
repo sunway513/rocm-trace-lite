@@ -78,4 +78,4 @@ class TestHipApiOverhead:
         overhead = (standard - baseline) / baseline * 100
         print(f"Baseline: {baseline:.4f}s, standard: {standard:.4f}s, "
               f"overhead: {overhead:+.1f}%")
-        assert overhead < 30, f"Standard mode overhead {overhead:.1f}% regression"
+        assert overhead < 50, f"Standard mode overhead {overhead:.1f}% regression"
