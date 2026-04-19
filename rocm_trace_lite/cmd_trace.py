@@ -273,7 +273,8 @@ def _merge_traces(input_files, output_path):
                 src_strings = src.execute("SELECT string FROM rocpd_string").fetchall()
                 src_ops = src.execute(
                     "SELECT o.gpuId, o.queueId, o.sequenceId, o.start, o.end, "
-                    "s.string AS desc_str, ot.string AS type_str "
+                    "s.string AS desc_str, ot.string AS type_str, "
+                    "o.completionSignal "
                     "FROM rocpd_op o "
                     "JOIN rocpd_string s ON o.description_id = s.id "
                     "JOIN rocpd_string ot ON o.opType_id = ot.id"
@@ -310,15 +311,15 @@ def _merge_traces(input_files, output_path):
 
             # Batch insert ops using pre-resolved string IDs
             op_rows = []
-            for gpuId, queueId, seqId, start, end, desc, optype in src_ops:
+            for gpuId, queueId, seqId, start, end, desc, optype, csig in src_ops:
                 desc_id = str_map.get(desc)
                 type_id = str_map.get(optype)
                 if desc_id is not None and type_id is not None:
-                    op_rows.append((gpuId, queueId, seqId, start, end, desc_id, type_id))
+                    op_rows.append((gpuId, queueId, seqId, csig, start, end, desc_id, type_id))
 
             dst.executemany(
-                "INSERT INTO rocpd_op(gpuId, queueId, sequenceId, start, end, "
-                "description_id, opType_id) VALUES(?,?,?,?,?,?,?)",
+                "INSERT INTO rocpd_op(gpuId, queueId, sequenceId, completionSignal, "
+                "start, end, description_id, opType_id) VALUES(?,?,?,?,?,?,?,?)",
                 op_rows,
             )
 
