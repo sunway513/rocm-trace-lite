@@ -7,7 +7,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 
 import pytest
 
@@ -40,16 +39,25 @@ print(f"ELAPSED={elapsed:.4f}")
 
 def _run_bench(mode=None):
     env = os.environ.copy()
+    trace_fd = None
+    trace_path = None
     if mode:
+        # mkstemp avoids the TOCTOU/race window of the deprecated mktemp.
+        trace_fd, trace_path = tempfile.mkstemp(suffix=".db", prefix="rtl_bench_")
+        os.close(trace_fd)
         env["HSA_TOOLS_LIB"] = LIB_PATH
         env["LD_PRELOAD"] = LIB_PATH
-        env["RTL_OUTPUT"] = tempfile.mktemp(suffix=".db")
+        env["RTL_OUTPUT"] = trace_path
         env["RTL_MODE"] = mode
 
-    r = subprocess.run(
-        [sys.executable, "-c", BENCH_SCRIPT],
-        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=120
-    )
+    try:
+        r = subprocess.run(
+            [sys.executable, "-c", BENCH_SCRIPT],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=120
+        )
+    finally:
+        if trace_path and os.path.exists(trace_path):
+            os.unlink(trace_path)
     assert r.returncode == 0, f"Bench failed: {r.stderr[-300:]}"
     for line in r.stdout.splitlines():
         if line.startswith("ELAPSED="):

@@ -38,22 +38,41 @@ def _run_hip_mode(workload_args):
                     reason="Need librtl.so and gpu_workload")
 class TestCorrelation:
 
-    def test_api_op_link_exists(self):
+    def test_phase1_link_count_is_zero(self):
+        """Phase 1 invariant: hip_api_intercept records APIs and hsa_intercept
+        records kernels independently — rocpd_api_ops is not populated yet.
+
+        This test PINS the Phase 1 behavior so a future wiring change flips
+        it loudly (and the Phase 2 PR must update this assertion). Without
+        this pin, a regression that silently breaks the future correlation
+        plumbing cannot be distinguished from the current "not yet wired"
+        state.
+        """
         db, r = _run_hip_mode(["gemm", "256", "10"])
         assert r.returncode == 0
         conn = sqlite3.connect(db)
-        link_count = conn.execute("SELECT count(*) FROM rocpd_api_ops").fetchone()[0]
-        # Links may be zero in Phase 1 (correlation plumbing not yet wired)
-        # This test documents the expected behavior
-        api_count = conn.execute("SELECT count(*) FROM rocpd_api").fetchone()[0]
-        op_count = conn.execute("SELECT count(*) FROM rocpd_op").fetchone()[0]
+        link_count = conn.execute(
+            "SELECT count(*) FROM rocpd_api_ops").fetchone()[0]
+        api_count = conn.execute(
+            "SELECT count(*) FROM rocpd_api").fetchone()[0]
+        op_count = conn.execute(
+            "SELECT count(*) FROM rocpd_op").fetchone()[0]
         print(f"API events: {api_count}, GPU ops: {op_count}, links: {link_count}")
         assert api_count > 0, "Need HIP API events"
         assert op_count > 0, "Need GPU kernel ops"
+        assert link_count == 0, (
+            "Phase 1 expects no API↔op links yet. If you intentionally wired "
+            "correlation, update this test (and test_correlation_timing_order "
+            "below) to the Phase 2 expectation."
+        )
         conn.close()
         os.unlink(db)
 
+    @pytest.mark.skip(reason="Phase 2: correlation consumer not yet wired in hsa_intercept.cpp")
     def test_correlation_timing_order(self):
+        """Re-enable once rocpd_api_ops is populated. Validates that each
+        linked API call's start timestamp precedes its linked kernel's start.
+        """
         db, r = _run_hip_mode(["gemm", "512", "5"])
         assert r.returncode == 0
         conn = sqlite3.connect(db)
@@ -64,23 +83,28 @@ class TestCorrelation:
             JOIN rocpd_api a ON ao.api_id = a.id
             JOIN rocpd_op o ON ao.op_id = o.id
         """).fetchall()
+        assert len(links) > 0, "Phase 2: expect at least one link for gemm workload"
         for api_start, api_end, op_start, op_end in links:
             assert api_start <= op_start, \
                 f"API start ({api_start}) should be <= GPU start ({op_start})"
         conn.close()
         os.unlink(db)
 
+    @pytest.mark.skip(reason="Phase 2: correlation consumer not yet wired in hsa_intercept.cpp")
     def test_multi_kernel_unique_correlation(self):
+        """Re-enable with Phase 2. Validates each link row references a
+        distinct api_id and op_id — catches duplicate/aliased correlation.
+        """
         db, r = _run_hip_mode(["gemm", "256", "20"])
         assert r.returncode == 0
         conn = sqlite3.connect(db)
-        api_ids = [r[0] for r in conn.execute(
+        api_ids = [row[0] for row in conn.execute(
             "SELECT DISTINCT api_id FROM rocpd_api_ops").fetchall()]
-        op_ids = [r[0] for r in conn.execute(
+        op_ids = [row[0] for row in conn.execute(
             "SELECT DISTINCT op_id FROM rocpd_api_ops").fetchall()]
-        if len(api_ids) > 0:
-            assert len(api_ids) == len(set(api_ids)), "API IDs should be unique"
-            assert len(op_ids) == len(set(op_ids)), "Op IDs should be unique"
+        assert len(api_ids) > 0, "Phase 2: expect links for gemm x20"
+        assert len(api_ids) == len(set(api_ids)), "API IDs should be unique"
+        assert len(op_ids) == len(set(op_ids)), "Op IDs should be unique"
         conn.close()
         os.unlink(db)
 
