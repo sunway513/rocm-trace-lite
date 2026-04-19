@@ -2,7 +2,6 @@
 
 Requires: ROCm GPU + PyTorch + librtl.so.
 """
-import json
 import os
 import sqlite3
 import subprocess
