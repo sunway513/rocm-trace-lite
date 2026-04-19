@@ -408,7 +408,7 @@ class TestHipGraph:
 @skip_no_workload
 @skip_no_lib
 class TestRtlModes:
-    """GPU E2E tests for RTL_MODE=default/lite/full."""
+    """GPU E2E tests for RTL_MODE=lite/standard/full."""
 
     def _trace_with_mode(self, tmp_path, mode, workload_args, timeout=60):
         """Run gpu_workload under rtl trace with a specific mode."""

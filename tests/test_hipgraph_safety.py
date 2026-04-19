@@ -156,7 +156,7 @@ class TestSignalForwarding:
 
 
 class TestRtlModes:
-    """Verify RTL_MODE profiling modes (default/lite/full)."""
+    """Verify RTL_MODE profiling modes (lite/standard/full)."""
 
     def _get_source(self):
         with open(HSA_FILE) as f:
@@ -169,10 +169,10 @@ class TestRtlModes:
         return match.group()
 
     def test_rtl_mode_enum_defined(self):
-        """RtlMode enum must define DEFAULT, LITE, FULL."""
+        """RtlMode enum must define STANDARD, LITE, FULL."""
         src = self._get_source()
         assert "RtlMode" in src, "No RtlMode enum"
-        assert "DEFAULT" in src, "No DEFAULT mode"
+        assert "STANDARD" in src, "No STANDARD mode"
         assert "LITE" in src, "No LITE mode"
         assert "FULL" in src, "No FULL mode"
 
@@ -190,7 +190,7 @@ class TestRtlModes:
     def test_mode_names_printed(self):
         """Mode name must be printed at startup."""
         src = self._get_source()
-        assert 'mode_names' in src and '"default"' in src and '"lite"' in src and '"full"' in src, \
+        assert 'mode_names' in src and '"standard"' in src and '"lite"' in src and '"full"' in src, \
             "Mode names not defined for printing"
 
     def test_lite_mode_skips_has_signal(self):
