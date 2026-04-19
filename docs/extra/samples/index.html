@@ -132,11 +132,11 @@ ol li{margin-bottom:2px}
   <div class="logo-mark">RTL</div>
   <div class="header-titles">
     <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">rocm-trace-lite</div>
-    <h1><span>v0.3.3</span> — GPU Kernel Profiler</h1>
+    <h1><span>v0.3.5</span> — GPU Kernel Profiler</h1>
     <div class="header-sub">Zero-overhead. No roctracer. No rocprofiler-sdk.</div>
   </div>
   <div class="header-right">
-    <div><a href="https://github.com/sunway513/rocm-trace-lite">GitHub</a> · <a href="https://github.com/sunway513/rocm-trace-lite/releases/tag/v0.3.3">Download v0.3.3</a></div>
+    <div><a href="https://github.com/sunway513/rocm-trace-lite">GitHub</a> · <a href="https://github.com/sunway513/rocm-trace-lite/releases/tag/v0.3.5">Download v0.3.5</a></div>
     <div style="margin-top:6px"><a class="hot-link" href="hot_trace.html">Hot Trace Viewer</a></div>
   </div>
 </header>
@@ -147,6 +147,8 @@ ol li{margin-bottom:2px}
   <a class="nav-item" href="#kernels">Kernel Hotspots</a>
   <span class="nav-sep">/</span>
   <a class="nav-item" href="#modes">RTL Modes</a>
+  <span class="nav-sep">/</span>
+  <a class="nav-item" href="#hip-api">HIP API</a>
   <span class="nav-sep">/</span>
   <a class="nav-item" href="#versions">Version History</a>
   <span class="nav-sep">/</span>
@@ -159,7 +161,7 @@ ol li{margin-bottom:2px}
 <div class="quickstart">
   <div class="qs-badge">Quick Start</div>
   <div>
-<pre><span class="cmd">pip install</span> rocm_trace_lite-0.3.3-py3-none-linux_x86_64.whl
+<pre><span class="cmd">pip install</span> rocm_trace_lite-0.3.5-py3-none-linux_x86_64.whl
 <span class="cmd">rtl trace</span> python3 my_model.py
 <span class="cmd">rtl summary</span> trace.db            <span class="cmt"># kernel breakdown by phase</span>
 <span class="cmd">rtl export</span> trace.db              <span class="cmt"># → Perfetto JSON for ui.perfetto.dev</span></pre>
@@ -168,7 +170,7 @@ ol li{margin-bottom:2px}
 
 <!-- ======= OVERHEAD VALIDATION ======= -->
 <div id="overhead" class="section">
-  <h2>Overhead Validation — v0.3.3 (lite mode, MI355X, Apr 2026)</h2>
+  <h2>Overhead Validation — v0.3.5 (lite mode, MI355X, Apr 2026)</h2>
   <p class="note">All models measured at conc=1 and conc=64. Symbol audit: <b style="color:var(--pass)">0 unresolved kernel symbols</b> across all traces.</p>
 
   <h3>Standard Benchmark (ISL=1024, OSL=1024)</h3>
@@ -507,9 +509,62 @@ ol li{margin-bottom:2px}
     <tr><td><b style="color:var(--pass)">lite</b> (default)</td><td class="num">211K</td><td class="num">108</td><td>Yes (partial)</td><td class="pass">~0%</td><td><a href="mode_lite/perfetto_rank0.json.gz">trace</a></td></tr>
     <tr><td>default</td><td class="num">260K</td><td class="num">109</td><td>Yes</td><td class="num">~2–4%</td><td><a href="mode_full/perfetto_rank0.json.gz">trace</a></td></tr>
     <tr><td>full</td><td class="num">5.49M*</td><td class="num">112*</td><td>Yes (all)</td><td class="num">~2–5%</td><td><a href="mode_observe/perfetto_rank0.json.gz">trace*</a></td></tr>
+    <tr style="background:#29d9ff08"><td><b style="color:var(--prefill)">hip</b> <span style="font-size:9px;color:var(--muted)">(new in v0.3.5)</span></td><td class="num">—</td><td class="num">—</td><td>Yes + HIP API</td><td class="num">~5–10%</td><td>—</td></tr>
   </table>
   </div>
-  <p class="note">* full mode requires ROCm 7.13+ with <a href="https://github.com/ROCm/rocm-systems/commit/559d48b1">ROCR fix 559d48b1</a>.</p>
+  <p class="note">* full mode requires ROCm 7.13+ with <a href="https://github.com/ROCm/rocm-systems/commit/559d48b1">ROCR fix 559d48b1</a>. hip mode adds HIP API interception via LD_PRELOAD for CPU–GPU correlation.</p>
+</div>
+
+<!-- ======= HIP API INTERCEPTION ======= -->
+<div id="hip-api" class="section">
+  <h2>HIP API Interception — v0.3.5 (MI355X, Apr 2026)</h2>
+  <p class="note">New in v0.3.5: <code>RTL_MODE=hip</code> captures CPU-side HIP runtime API calls alongside GPU kernel timing. Zero new dependencies — uses <code>dlsym(RTLD_NEXT)</code> interposition, no roctracer, no rocprofiler-sdk, no special libamdhip64.</p>
+
+  <h3>Intercepted HIP APIs</h3>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>Function</th><th>Category</th><th>Captures</th></tr>
+    <tr><td>hipModuleLaunchKernel</td><td>Kernel launch</td><td>grid, block, shared mem, stream, timing</td></tr>
+    <tr><td>hipExtModuleLaunchKernel</td><td>Kernel launch (ATOM/Triton)</td><td>grid, block, shared mem, timing</td></tr>
+    <tr><td>hipMemcpy / hipMemcpyAsync</td><td>Memory copy</td><td>size, kind, timing</td></tr>
+    <tr><td>hipMalloc / hipFree</td><td>Memory allocation</td><td>size, timing</td></tr>
+    <tr><td>hipStreamSynchronize</td><td>Stream sync</td><td>timing</td></tr>
+    <tr><td>hipDeviceSynchronize</td><td>Device sync</td><td>timing</td></tr>
+    <tr><td>hipGraphLaunch</td><td>Graph replay</td><td>stream, timing</td></tr>
+  </table>
+  </div>
+
+  <h3>Validation — PyTorch on MI355X (ROCm 7.2.2)</h3>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>Workload</th><th>HIP APIs</th><th>GPU Ops</th><th>CUDAGraph</th><th>Status</th></tr>
+    <tr><td>torch.mm 512×512 FP16 × 20</td><td class="num">24</td><td class="num">22</td><td>—</td><td class="pass">PASS</td></tr>
+    <tr><td>CUDAGraph capture + 20 replays</td><td class="num">56</td><td class="num">70</td><td>Yes</td><td class="pass">PASS</td></tr>
+    <tr><td>64L Transformer, 200 iters (eager)</td><td class="num">~28K</td><td class="num">~28K</td><td>—</td><td class="pass">PASS</td></tr>
+  </table>
+  </div>
+
+  <h3>vs roctracer — Profiler Reliability Comparison</h3>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>Metric</th><th>roctracer</th><th>rocprofiler-sdk</th><th style="color:var(--prefill)">RTL</th></tr>
+    <tr><td>Kernel event drop (decode)</td><td class="fail">54%</td><td class="num">0%</td><td class="pass">0%</td></tr>
+    <tr><td>hipGraphLaunch overhead</td><td class="num">50us</td><td class="fail">316us</td><td class="pass">50us</td></tr>
+    <tr><td>Segfault at exit</td><td class="pass">No</td><td class="fail">Yes (masked CI 1 month)</td><td class="pass">No</td></tr>
+    <tr><td>Startup overhead</td><td class="pass">None</td><td class="fail">CI timeout</td><td class="pass">None</td></tr>
+    <tr><td>CUDAGraph compatible</td><td class="warn">Drops events</td><td class="fail">Crash</td><td class="pass">Works</td></tr>
+    <tr><td>External dependencies</td><td class="num">roctracer + HSA</td><td class="num">rocprofsdk + register</td><td class="pass">libhsa-runtime64 only</td></tr>
+  </table>
+  </div>
+  <p class="note">Data from <a href="https://github.com/ROCm/AI-Frameworks-Dashboard/issues/73">issue #73</a> and <a href="https://github.com/ROCm/ATOM/pull/432">ATOM PR #432</a>. Kernel drop measured with <a href="https://gist.github.com/Rohan138/0d7966021c906519ff667a77e8b9ee5e">Rohan's regression test</a> on MI355X.</p>
+
+  <h3>Quick Start</h3>
+<pre><span class="cmt"># Capture HIP API + GPU kernels in one trace</span>
+<span class="cmd">rtl trace</span> --mode hip python3 my_model.py
+
+<span class="cmt"># View results</span>
+<span class="cmd">rtl summary</span> trace.db                <span class="cmt"># GPU kernel hotspots</span>
+<span class="cmd">sqlite3</span> trace.db "SELECT * FROM rocpd_api LIMIT 10;"  <span class="cmt"># HIP API calls</span></pre>
 </div>
 
 <!-- ======= VERSION REGRESSION ======= -->
@@ -525,7 +580,8 @@ ol li{margin-bottom:2px}
     <tr><td>v0.3.0</td><td class="num">2656</td><td class="fail">-5.3%</td><td><a href="v0.3.0/perfetto_rank0.json.gz">trace</a></td></tr>
     <tr><td>main (v0.3.1)</td><td class="num">2699</td><td class="num">-3.7%</td><td><a href="main/perfetto_rank0.json.gz">trace</a></td></tr>
     <tr><td>v0.3.2 (lite)</td><td class="num">2916</td><td class="pass">-0.3%</td><td>—</td></tr>
-    <tr style="background:#29d9ff08"><td><b style="color:var(--prefill)">v0.3.3 (lite)</b></td><td class="num">2285</td><td class="pass">-0.0%</td><td>—</td></tr>
+    <tr><td>v0.3.5 (lite)</td><td class="num">2285</td><td class="pass">-0.0%</td><td>—</td></tr>
+    <tr style="background:#29d9ff08"><td><b style="color:var(--prefill)">v0.3.5 (lite)</b></td><td class="num">—</td><td class="pass">~0%</td><td>—</td></tr>
   </table>
   </div>
 </div>
@@ -600,7 +656,7 @@ GROUP BY s.string ORDER BY SUM(o.end - o.start) DESC LIMIT 10;</pre>
 </div><!-- /container -->
 
 <footer>
-  <a href="https://github.com/sunway513/rocm-trace-lite">rocm-trace-lite</a> v0.3.3 &nbsp;·&nbsp; updated 2026-04-10 &nbsp;·&nbsp; <a href="hot_trace.html">Hot Trace Viewer →</a>
+  <a href="https://github.com/sunway513/rocm-trace-lite">rocm-trace-lite</a> v0.3.5 &nbsp;·&nbsp; updated 2026-04-18 &nbsp;·&nbsp; <a href="hot_trace.html">Hot Trace Viewer →</a>
 </footer>
 
 </body>
