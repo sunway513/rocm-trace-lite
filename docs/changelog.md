@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.3.6
+
+### Bug fixes
+- **Preserve `dispatch_info` during multi-process merge (#91)**: `_merge_traces()` now selects and inserts the `completionSignal` column so per-op `hwq`/`wg`/`grid` metadata survives merging across processes.
+- **HWQ-based Perfetto tracks (#91)**: `rtl convert` groups GPU ops by hardware queue address (`HWQ 0x…`) when `dispatch_info` is present, giving a clearer view of actual GPU scheduling. Falls back to queue-based tracks when no `dispatch_info` is recorded (backward compatible).
+
+### Changes
+- **Rename profiling mode `default` → `standard` (#92)**: The name `default` conflicted with `lite` being the actual default when `--mode` is unspecified. CLI flag is now `--mode standard`; `RTL_MODE=default` is still accepted for backward compatibility.
+
 ## v0.3.5
 
 ### Documentation
