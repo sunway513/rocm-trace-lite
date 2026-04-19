@@ -77,6 +77,11 @@ typedef void* hipStream_t;
 typedef void* hipDeviceptr_t;
 typedef void* hipFunction_t;
 typedef void* hipGraphExec_t;
+typedef void* hipGraph_t;
+typedef void* hipEvent_t;
+typedef void* hipModule_t;
+
+struct hipDeviceProp_t;  // opaque, only passed by pointer
 
 typedef enum {
     hipMemcpyHostToHost = 0,
@@ -134,6 +139,20 @@ DECLARE_REAL(hipError_t, hipStreamSynchronize, hipStream_t)
 DECLARE_REAL(hipError_t, hipDeviceSynchronize)
 
 DECLARE_REAL(hipError_t, hipGraphLaunch, hipGraphExec_t, hipStream_t)
+
+// Low-frequency APIs (zero overhead tier — called a few times per process)
+DECLARE_REAL(hipError_t, hipSetDevice, int)
+DECLARE_REAL(hipError_t, hipStreamCreate, hipStream_t*)
+DECLARE_REAL(hipError_t, hipStreamDestroy, hipStream_t)
+DECLARE_REAL(hipError_t, hipEventCreate, hipEvent_t*)
+DECLARE_REAL(hipError_t, hipEventDestroy, hipEvent_t)
+DECLARE_REAL(hipError_t, hipEventRecord, hipEvent_t, hipStream_t)
+DECLARE_REAL(hipError_t, hipEventSynchronize, hipEvent_t)
+DECLARE_REAL(hipError_t, hipGraphCreate, hipGraph_t*, unsigned int)
+DECLARE_REAL(hipError_t, hipGraphInstantiate, hipGraphExec_t*, hipGraph_t, void*, void*, size_t)
+DECLARE_REAL(hipError_t, hipGraphExecDestroy, hipGraphExec_t)
+DECLARE_REAL(hipError_t, hipHostMalloc, void**, size_t, unsigned int)
+DECLARE_REAL(hipError_t, hipHostFree, void*)
 
 // ---- HIP API Wrappers ----
 
@@ -345,6 +364,229 @@ hipError_t hipGraphLaunch(hipGraphExec_t graphExec, hipStream_t stream) {
     hipError_t ret = real_hipGraphLaunch(graphExec, stream);
     uint64_t t1 = tick();
     get_trace_db().record_hip_api("hipGraphLaunch", "", t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+// ---- Low-frequency API Wrappers (zero overhead tier) ----
+
+hipError_t hipSetDevice(int deviceId) {
+    resolve_hipSetDevice();
+    if (!real_hipSetDevice) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipSetDevice(deviceId);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipSetDevice(deviceId);
+    uint64_t t1 = tick();
+    char args[32];
+    snprintf(args, sizeof(args), "device=%d", deviceId);
+    get_trace_db().record_hip_api("hipSetDevice", args, t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+hipError_t hipStreamCreate(hipStream_t* stream) {
+    resolve_hipStreamCreate();
+    if (!real_hipStreamCreate) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipStreamCreate(stream);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipStreamCreate(stream);
+    uint64_t t1 = tick();
+    get_trace_db().record_hip_api("hipStreamCreate", "", t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+hipError_t hipStreamDestroy(hipStream_t stream) {
+    resolve_hipStreamDestroy();
+    if (!real_hipStreamDestroy) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipStreamDestroy(stream);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipStreamDestroy(stream);
+    uint64_t t1 = tick();
+    get_trace_db().record_hip_api("hipStreamDestroy", "", t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+hipError_t hipEventCreate(hipEvent_t* event) {
+    resolve_hipEventCreate();
+    if (!real_hipEventCreate) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipEventCreate(event);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipEventCreate(event);
+    uint64_t t1 = tick();
+    get_trace_db().record_hip_api("hipEventCreate", "", t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+hipError_t hipEventDestroy(hipEvent_t event) {
+    resolve_hipEventDestroy();
+    if (!real_hipEventDestroy) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipEventDestroy(event);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipEventDestroy(event);
+    uint64_t t1 = tick();
+    get_trace_db().record_hip_api("hipEventDestroy", "", t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+hipError_t hipEventRecord(hipEvent_t event, hipStream_t stream) {
+    resolve_hipEventRecord();
+    if (!real_hipEventRecord) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipEventRecord(event, stream);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipEventRecord(event, stream);
+    uint64_t t1 = tick();
+    get_trace_db().record_hip_api("hipEventRecord", "", t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+hipError_t hipEventSynchronize(hipEvent_t event) {
+    resolve_hipEventSynchronize();
+    if (!real_hipEventSynchronize) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipEventSynchronize(event);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipEventSynchronize(event);
+    uint64_t t1 = tick();
+    get_trace_db().record_hip_api("hipEventSynchronize", "", t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+hipError_t hipGraphCreate(hipGraph_t* graph, unsigned int flags) {
+    resolve_hipGraphCreate();
+    if (!real_hipGraphCreate) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipGraphCreate(graph, flags);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipGraphCreate(graph, flags);
+    uint64_t t1 = tick();
+    get_trace_db().record_hip_api("hipGraphCreate", "", t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+hipError_t hipGraphInstantiate(hipGraphExec_t* exec, hipGraph_t graph,
+                               void* errNode, void* errLog, size_t bufSize) {
+    resolve_hipGraphInstantiate();
+    if (!real_hipGraphInstantiate) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipGraphInstantiate(exec, graph, errNode, errLog, bufSize);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipGraphInstantiate(exec, graph, errNode, errLog, bufSize);
+    uint64_t t1 = tick();
+    get_trace_db().record_hip_api("hipGraphInstantiate", "", t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+hipError_t hipGraphExecDestroy(hipGraphExec_t exec) {
+    resolve_hipGraphExecDestroy();
+    if (!real_hipGraphExecDestroy) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipGraphExecDestroy(exec);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipGraphExecDestroy(exec);
+    uint64_t t1 = tick();
+    get_trace_db().record_hip_api("hipGraphExecDestroy", "", t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+hipError_t hipHostMalloc(void** ptr, size_t size, unsigned int flags) {
+    resolve_hipHostMalloc();
+    if (!real_hipHostMalloc) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipHostMalloc(ptr, size, flags);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipHostMalloc(ptr, size, flags);
+    uint64_t t1 = tick();
+    char args[64];
+    snprintf(args, sizeof(args), "size=%zu flags=%u", size, flags);
+    get_trace_db().record_hip_api("hipHostMalloc", args, t0, t1 - t0,
+                                  corr, getpid(), get_tid());
+    tls_in_hip_api = false;
+    return ret;
+}
+
+hipError_t hipHostFree(void* ptr) {
+    resolve_hipHostFree();
+    if (!real_hipHostFree) return 1;
+    if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
+        || !is_trace_ready()) {
+        return real_hipHostFree(ptr);
+    }
+    tls_in_hip_api = true;
+    uint64_t corr = next_correlation_id();
+    uint64_t t0 = tick();
+    hipError_t ret = real_hipHostFree(ptr);
+    uint64_t t1 = tick();
+    get_trace_db().record_hip_api("hipHostFree", "", t0, t1 - t0,
                                   corr, getpid(), get_tid());
     tls_in_hip_api = false;
     return ret;

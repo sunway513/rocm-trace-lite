@@ -92,7 +92,13 @@ class TestHipApiSourceGuard:
         wrappers = ["hipModuleLaunchKernel", "hipExtModuleLaunchKernel",
                      "hipMemcpy", "hipMemcpyAsync", "hipMalloc", "hipFree",
                      "hipStreamSynchronize", "hipDeviceSynchronize",
-                     "hipGraphLaunch"]
+                     "hipGraphLaunch",
+                     "hipSetDevice", "hipStreamCreate", "hipStreamDestroy",
+                     "hipEventCreate", "hipEventDestroy",
+                     "hipEventRecord", "hipEventSynchronize",
+                     "hipGraphCreate", "hipGraphInstantiate",
+                     "hipGraphExecDestroy",
+                     "hipHostMalloc", "hipHostFree"]
         for w in wrappers:
             assert f"resolve_{w}" in src, f"Missing resolve for {w}"
 
