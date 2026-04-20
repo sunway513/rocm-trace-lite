@@ -15,6 +15,7 @@
  * Dependencies: libhsa-runtime64 only (part of ROCm runtime)
  */
 #include "trace_db.h"
+#include "hip_api_intercept.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -740,13 +741,17 @@ extern "C" bool OnLoad(void* pTable,
             g_rtl_mode = RtlMode::STANDARD;
         } else if (strcmp(mode_env, "full") == 0) {
             g_rtl_mode = RtlMode::FULL;
+        } else if (strcmp(mode_env, "hip") == 0) {
+            g_rtl_mode = RtlMode::STANDARD;
+            hip_api::g_enabled.store(true);
         } else {
             fprintf(stderr, "rtl: WARNING: unknown RTL_MODE='%s', using lite\n", mode_env);
         }
     }
 
     static const char* mode_names[] = {"standard", "lite", "full"};
-    fprintf(stderr, "rtl: mode=%s\n", mode_names[(int)g_rtl_mode]);
+    fprintf(stderr, "rtl: mode=%s%s\n", mode_names[(int)g_rtl_mode],
+            hip_api::g_enabled.load() ? "+hip" : "");
 
     // Probe: check if hsa_amd_queue_intercept_create is functional.
     if (!g_gpu_agents.empty()) {

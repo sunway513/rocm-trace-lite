@@ -18,7 +18,7 @@ LDFLAGS = -shared -rdynamic \
           -ldl -lpthread
 
 SRCDIR = src
-SRCS = trace_db.cpp hip_intercept.cpp roctx_shim.cpp hsa_intercept.cpp
+SRCS = trace_db.cpp hip_api_intercept.cpp roctx_shim.cpp hsa_intercept.cpp
 OBJS = $(addprefix $(SRCDIR)/,$(SRCS:.cpp=.o))
 TARGET = librtl.so
 
@@ -31,7 +31,7 @@ $(TARGET): $(OBJS)
 	@echo "Built $(TARGET)"
 	@echo "  Dependencies: libhsa-runtime64, libsqlite3"
 	@echo "  NO roctracer, NO rocprofiler-sdk"
-	@ldd $@ | grep -E "roctracer|rocprofiler-sdk" && echo "ERROR: unwanted dependency!" && exit 1 || echo "  Verified: clean dependency chain"
+	@ldd $@ | grep -E "roctracer|rocprofiler-sdk|libamdhip64" && echo "ERROR: unwanted dependency!" && exit 1 || echo "  Verified: clean dependency chain (no roctracer, no rocprofiler-sdk, no libamdhip64)"
 
 $(SRCDIR)/%.o: $(SRCDIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
