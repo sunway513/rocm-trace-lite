@@ -12,12 +12,16 @@
  * exception.
  *
  * Symbol resolution: std::call_once ensures each real function pointer
- * is resolved exactly once per symbol, via dlsym(RTLD_NEXT, ...). We
- * do NOT dlopen libamdhip64.so explicitly — that would introduce a
- * runtime dependency on HIP even when the host process does not use it.
- * If the symbol cannot be resolved via RTLD_NEXT, the wrapper fails
- * closed by returning a non-zero error code without invoking any HIP
- * runtime.
+ * is resolved exactly once per symbol. Primary: dlsym(RTLD_NEXT, ...).
+ * Fallback: dlopen("libamdhip64.so", RTLD_LAZY | RTLD_NOLOAD) guarded
+ * by RTLD_NOLOAD so we never force-load HIP in processes that don't
+ * already pull it in. The fallback exists because multi-process LLM
+ * serving frameworks (vLLM, ATOM TP>1) fork-exec worker processes in
+ * which librtl.so is LD_PRELOAD'd BEFORE libamdhip64 is brought in by
+ * Python imports — early HIP wrappers otherwise see null from RTLD_NEXT
+ * and the worker process shuts down fatally before any GPU work
+ * dispatches. If even RTLD_NOLOAD-then-LAZY fails, the wrapper fails
+ * closed and returns kHipErrorUnresolved.
  *
  * Correlation (Phase 2 — NOT YET WIRED): API→kernel linking requires
  * mapping a HIP stream pointer to the HSA queue used for dispatch. That
@@ -112,8 +116,33 @@ typedef enum {
     hipMemcpyDefault = 4
 } hipMemcpyKind;
 
-// Real function pointers resolved exactly once via dlsym(RTLD_NEXT, ...).
-// std::call_once provides the publication barrier that a plain
+// libamdhip64 handle — lazily populated as a fork-safe fallback when
+// RTLD_NEXT cannot resolve a HIP symbol in the caller's link namespace.
+// This is needed for multi-process DP/TP serving frameworks (vLLM, ATOM
+// DSR1 TP=4) where the Python multiprocessing spawn workers exec into a
+// state in which librtl.so is LD_PRELOAD'd BEFORE libamdhip64 is loaded
+// via Python imports — early wrappers then see null from RTLD_NEXT and
+// the worker shuts down fatally. RTLD_NOLOAD first so we never force-
+// load libamdhip64 into a process that genuinely does not use HIP; only
+// if the symbol is reachable via any later-loaded HIP copy do we accept
+// the dlopen fallback. Resolution still goes through std::call_once so
+// publication is race-free.
+static void* get_hip_handle() {
+    static std::once_flag hip_handle_once;
+    static void* hip_handle = nullptr;
+    std::call_once(hip_handle_once, []() {
+        hip_handle = dlopen("libamdhip64.so", RTLD_LAZY | RTLD_NOLOAD);
+        if (!hip_handle) {
+            hip_handle = dlopen("libamdhip64.so", RTLD_LAZY);
+        }
+    });
+    return hip_handle;
+}
+
+// Real function pointers resolved exactly once. Primary path is
+// dlsym(RTLD_NEXT, ...); the fallback covers fork-exec'd children where
+// RTLD_NEXT walks past our librtl.so and does not find libamdhip64 yet.
+// std::call_once gives the publication barrier that a plain
 // check-then-set on a raw pointer lacks (UB under the C++ memory model).
 #define DECLARE_REAL(ret, name, ...) \
     typedef ret (*name##_fn)(__VA_ARGS__); \
@@ -122,6 +151,10 @@ typedef enum {
     static void resolve_##name() { \
         std::call_once(resolve_##name##_flag, []() { \
             real_##name = (name##_fn)dlsym(RTLD_NEXT, #name); \
+            if (!real_##name) { \
+                void* h = get_hip_handle(); \
+                if (h) real_##name = (name##_fn)dlsym(h, #name); \
+            } \
         }); \
     }
 
