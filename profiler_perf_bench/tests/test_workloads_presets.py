@@ -1,4 +1,7 @@
-"""Unit tests for L1/L2/L3 preset config correctness — 3 tests as per spec §6."""
+"""Unit tests for L1/L2/L3 preset config correctness — 3 tests as per spec §6.
+
+Extended: L1-gemm-steady preset (TDD RED phase for task PR#96 correction).
+"""
 
 import pytest
 from profiler_perf_bench.workloads.base import Level
@@ -58,3 +61,34 @@ def test_l3_dsr1_preset_config():
     cmd_str = " ".join(w.cmd()) if w.cmd() else ""
     # Check that config references the expected model or TP configuration
     assert w.name == "L3-dsr1-mxfp4-tp4"
+
+
+# Test 4: L1-gemm-steady preset — TDD RED phase
+def test_l1_gemm_steady_preset_config():
+    """L1-gemm-steady: gemm 64 5000 (~2.5s run), registered as 'L1-gemm-steady'.
+
+    This is the production-representative preset where fixed startup cost
+    (~25-40ms) falls to ~1-2% of total wall time, versus ~10-17% for the
+    250ms short presets.
+    """
+    from profiler_perf_bench.workloads.l1.gemm_steady_hip import GemmHipSteady
+
+    w = GemmHipSteady()
+    assert w.level == Level.L1
+    assert w.name == "L1-gemm-steady"
+
+    cmd = w.cmd()
+    assert "gemm" in " ".join(cmd), f"Expected gemm mode in cmd: {cmd}"
+    assert "64" in cmd, f"Expected matrix dim 64 in cmd: {cmd}"
+    assert "5000" in cmd, f"Expected 5000 iterations in cmd: {cmd}"
+
+
+def test_l1_gemm_steady_registered_in_workload_map():
+    """L1-gemm-steady must be discoverable via the CLI workload_map (for 'run' command)."""
+    # The CLI's workload_map (in _cmd_run) must include 'L1-gemm-steady'
+    # We test by importing the module and checking the name is importable
+    from profiler_perf_bench.workloads.l1.gemm_steady_hip import GemmHipSteady
+    from profiler_perf_bench.workloads.l1 import ALL_L1_WORKLOADS
+
+    names = [cls().name for cls in ALL_L1_WORKLOADS]
+    assert "L1-gemm-steady" in names, f"L1-gemm-steady not in ALL_L1_WORKLOADS: {names}"
