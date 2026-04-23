@@ -13,12 +13,12 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.22864437568932772,
-        "subprocess_s": 0.2286417568102479,
+        "wall_s": 0.23012990970164537,
+        "subprocess_s": 0.23012743890285492,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.796875,
+        "peak_rss_MB": 423.796875,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -30,12 +30,12 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.24689602199941874,
-        "subprocess_s": 0.2468916131183505,
+        "wall_s": 0.24150498304516077,
+        "subprocess_s": 0.24150041304528713,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.796875,
+        "peak_rss_MB": 425.890625,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -47,12 +47,12 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.24558608792722225,
-        "subprocess_s": 0.24558156915009022,
+        "wall_s": 0.23649704176932573,
+        "subprocess_s": 0.23649239167571068,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.94140625,
+        "peak_rss_MB": 425.890625,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -64,12 +64,12 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.2562780249863863,
-        "subprocess_s": 0.2562729548662901,
+        "wall_s": 0.2515312545001507,
+        "subprocess_s": 0.25152719393372536,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.94140625,
+        "peak_rss_MB": 425.890625,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -81,12 +81,12 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.23249763902276754,
-        "subprocess_s": 0.23249253910034895,
+        "wall_s": 0.24329499807208776,
+        "subprocess_s": 0.24329037871211767,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.94140625,
+        "peak_rss_MB": 425.890625,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -98,12 +98,12 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.25174425542354584,
-        "subprocess_s": 0.25173864513635635,
+        "wall_s": 0.23960238136351109,
+        "subprocess_s": 0.23959761019796133,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.94140625,
+        "peak_rss_MB": 425.890625,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -115,12 +115,12 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.28608096204698086,
-        "subprocess_s": 0.2860741224139929,
+        "wall_s": 0.2716112546622753,
+        "subprocess_s": 0.2716066837310791,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.94140625,
+        "peak_rss_MB": 425.890625,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -132,12 +132,12 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.29625027999281883,
-        "subprocess_s": 0.296245570294559,
+        "wall_s": 0.27317319344729185,
+        "subprocess_s": 0.2731679929420352,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.94140625,
+        "peak_rss_MB": 425.890625,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -149,12 +149,12 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.2786143505945802,
-        "subprocess_s": 0.27861030027270317,
+        "wall_s": 0.28037703037261963,
+        "subprocess_s": 0.28037262987345457,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.94140625,
+        "peak_rss_MB": 425.890625,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -166,12 +166,12 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.3286933433264494,
-        "subprocess_s": 0.3286886243149638,
+        "wall_s": 0.33178136590868235,
+        "subprocess_s": 0.3317766860127449,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
-        "peak_rss_MB": 1009.59375,
+        "peak_rss_MB": 1011.79296875,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -183,12 +183,12 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.32394871674478054,
-        "subprocess_s": 0.32394362706691027,
+        "wall_s": 0.3268981548026204,
+        "subprocess_s": 0.3268935037776828,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
-        "peak_rss_MB": 1011.796875,
+        "peak_rss_MB": 1011.79296875,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -200,8 +200,8 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.33200550731271505,
-        "subprocess_s": 0.33200039621442556,
+        "wall_s": 0.30811509769409895,
+        "subprocess_s": 0.30811003781855106,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 0,
@@ -217,8 +217,8 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.2802641373127699,
-        "subprocess_s": 0.2798412265256047,
+        "wall_s": 0.27747072745114565,
+        "subprocess_s": 0.27704800572246313,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 81920,
@@ -234,8 +234,8 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.27680330723524094,
-        "subprocess_s": 0.2767390478402376,
+        "wall_s": 0.25793137587606907,
+        "subprocess_s": 0.25786640867590904,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 81920,
@@ -251,8 +251,8 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.26906725112348795,
-        "subprocess_s": 0.2690002713352442,
+        "wall_s": 0.27986276987940073,
+        "subprocess_s": 0.2797964010387659,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 81920,
@@ -268,8 +268,8 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.2709097731858492,
-        "subprocess_s": 0.2708453945815563,
+        "wall_s": 0.25657588336616755,
+        "subprocess_s": 0.256513524800539,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 61440,
@@ -285,8 +285,8 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.2692676270380616,
-        "subprocess_s": 0.2692085178568959,
+        "wall_s": 0.2675312850624323,
+        "subprocess_s": 0.2674685660749674,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 61440,
@@ -302,8 +302,8 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.2821092111989856,
-        "subprocess_s": 0.2820636322721839,
+        "wall_s": 0.32368169724941254,
+        "subprocess_s": 0.32361788861453533,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 61440,
@@ -319,8 +319,8 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.3131815120577812,
-        "subprocess_s": 0.3131221029907465,
+        "wall_s": 0.3057006346061826,
+        "subprocess_s": 0.3056375365704298,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 696320,
@@ -336,8 +336,8 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.31331038009375334,
-        "subprocess_s": 0.3132416605949402,
+        "wall_s": 0.30625041387975216,
+        "subprocess_s": 0.3061849158257246,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 696320,
@@ -353,8 +353,8 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.2974260365590453,
-        "subprocess_s": 0.29736685659736395,
+        "wall_s": 0.30870247446000576,
+        "subprocess_s": 0.30863638687878847,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 696320,
@@ -370,12 +370,12 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.35000117775052786,
-        "subprocess_s": 0.34993609972298145,
+        "wall_s": 0.35628516878932714,
+        "subprocess_s": 0.35622479021549225,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 40960,
-        "peak_rss_MB": 1018.96484375,
+        "peak_rss_MB": 1015.69921875,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -387,8 +387,8 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.35669476445764303,
-        "subprocess_s": 0.35662749595940113,
+        "wall_s": 0.3452328275889158,
+        "subprocess_s": 0.34517136961221695,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 40960,
@@ -404,8 +404,8 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.3528716713190079,
-        "subprocess_s": 0.3528068531304598,
+        "wall_s": 0.35681047942489386,
+        "subprocess_s": 0.3567482903599739,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 40960,
@@ -421,8 +421,8 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.2705304026603699,
-        "subprocess_s": 0.27046435326337814,
+        "wall_s": 0.28054042533040047,
+        "subprocess_s": 0.28047771751880646,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 81920,
@@ -438,8 +438,8 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.2781772892922163,
-        "subprocess_s": 0.27811059076339006,
+        "wall_s": 0.29174926318228245,
+        "subprocess_s": 0.29168544337153435,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 81920,
@@ -455,8 +455,8 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.27147755213081837,
-        "subprocess_s": 0.27141436375677586,
+        "wall_s": 0.2939647287130356,
+        "subprocess_s": 0.29389873053878546,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 81920,
@@ -472,8 +472,8 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.25455084908753633,
-        "subprocess_s": 0.2544879810884595,
+        "wall_s": 0.2864207597449422,
+        "subprocess_s": 0.28634103015065193,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 61440,
@@ -489,8 +489,8 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.2651202091947198,
-        "subprocess_s": 0.26505704037845135,
+        "wall_s": 0.27620622236281633,
+        "subprocess_s": 0.27615328412503004,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 61440,
@@ -506,8 +506,8 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.2865436924621463,
-        "subprocess_s": 0.2864484637975693,
+        "wall_s": 0.27293745800852776,
+        "subprocess_s": 0.272871189750731,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 61440,
@@ -523,8 +523,8 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.3142488105222583,
-        "subprocess_s": 0.3141799019649625,
+        "wall_s": 0.3030904373154044,
+        "subprocess_s": 0.30304202903062105,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 696320,
@@ -540,8 +540,8 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.3075656844303012,
-        "subprocess_s": 0.30749798472970724,
+        "wall_s": 0.310886412858963,
+        "subprocess_s": 0.31080680433660746,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 696320,
@@ -557,8 +557,8 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.3046397529542446,
-        "subprocess_s": 0.30457712430506945,
+        "wall_s": 0.30417617596685886,
+        "subprocess_s": 0.30412759631872177,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 696320,
@@ -574,8 +574,8 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.3480163374915719,
-        "subprocess_s": 0.3479542192071676,
+        "wall_s": 0.3533273180946708,
+        "subprocess_s": 0.3532667187973857,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 40960,
@@ -591,8 +591,8 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.3503061030060053,
-        "subprocess_s": 0.35023998375982046,
+        "wall_s": 0.35400922410190105,
+        "subprocess_s": 0.35394219495356083,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 40960,
@@ -608,8 +608,8 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.35049848910421133,
-        "subprocess_s": 0.35043266974389553,
+        "wall_s": 0.35782759822905064,
+        "subprocess_s": 0.35776166897267103,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 40960,
@@ -625,8 +625,8 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.28577127773314714,
-        "subprocess_s": 0.2857053503394127,
+        "wall_s": 0.2657219311222434,
+        "subprocess_s": 0.26565959211438894,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 81920,
@@ -642,8 +642,8 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.27583280578255653,
-        "subprocess_s": 0.2757545877248049,
+        "wall_s": 0.26739819813519716,
+        "subprocess_s": 0.26732168067246675,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 81920,
@@ -659,8 +659,8 @@
       "workload_name": "L1-gemm-small",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.2728607952594757,
-        "subprocess_s": 0.272784486413002,
+        "wall_s": 0.2777300626039505,
+        "subprocess_s": 0.27766073402017355,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 81920,
@@ -676,8 +676,8 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.27847003377974033,
-        "subprocess_s": 0.27839027531445026,
+        "wall_s": 0.2757673319429159,
+        "subprocess_s": 0.27570496313273907,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 61440,
@@ -693,8 +693,8 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.2806297903880477,
-        "subprocess_s": 0.2805524719879031,
+        "wall_s": 0.27369283232837915,
+        "subprocess_s": 0.2736060740426183,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 61440,
@@ -710,8 +710,8 @@
       "workload_name": "L1-gemm-large",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.28140968456864357,
-        "subprocess_s": 0.28131948690861464,
+        "wall_s": 0.28177792206406593,
+        "subprocess_s": 0.28169845324009657,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 61440,
@@ -727,8 +727,8 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.31233453936874866,
-        "subprocess_s": 0.31226343009620905,
+        "wall_s": 0.314034809358418,
+        "subprocess_s": 0.3139599608257413,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 696320,
@@ -744,8 +744,8 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.30357956420630217,
-        "subprocess_s": 0.303524955175817,
+        "wall_s": 0.305643486790359,
+        "subprocess_s": 0.30556755792349577,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 696320,
@@ -761,8 +761,8 @@
       "workload_name": "L1-short-kernels",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.30358738359063864,
-        "subprocess_s": 0.303519613109529,
+        "wall_s": 0.3187083574011922,
+        "subprocess_s": 0.318633328191936,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 696320,
@@ -778,12 +778,12 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 0,
       "metrics": {
-        "wall_s": 0.373341403901577,
-        "subprocess_s": 0.3732476755976677,
+        "wall_s": 0.36636638827621937,
+        "subprocess_s": 0.3663103086873889,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 40960,
-        "peak_rss_MB": 1018.96484375,
+        "peak_rss_MB": 1020.79296875,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -795,12 +795,12 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 1,
       "metrics": {
-        "wall_s": 0.36897184047847986,
-        "subprocess_s": 0.3689210107550025,
+        "wall_s": 0.38958155550062656,
+        "subprocess_s": 0.389519726857543,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 40960,
-        "peak_rss_MB": 1018.97265625,
+        "peak_rss_MB": 1020.79296875,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -812,12 +812,12 @@
       "workload_name": "L1-multi-stream",
       "round_idx": 2,
       "metrics": {
-        "wall_s": 0.35674397461116314,
-        "subprocess_s": 0.3566627558320761,
+        "wall_s": 0.3595634726807475,
+        "subprocess_s": 0.3594798445701599,
         "adapter_init_s": null,
         "adapter_shutdown_s": null,
         "trace_bytes": 40960,
-        "peak_rss_MB": 1018.97265625,
+        "peak_rss_MB": 1020.79296875,
         "run_succeeded": true,
         "dropped_reason": null
       },
@@ -828,106 +828,106 @@
   "summary": {
     "none": {
       "L1-gemm-small": {
-        "wall_s": 0.24558608792722225,
-        "subprocess_s": 0.24558156915009022,
+        "wall_s": 0.23649704176932573,
+        "subprocess_s": 0.23649239167571068,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.796875
+        "peak_rss_MB": 425.890625
       },
       "L1-gemm-large": {
-        "wall_s": 0.25174425542354584,
-        "subprocess_s": 0.25173864513635635,
+        "wall_s": 0.24329499807208776,
+        "subprocess_s": 0.24329037871211767,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.94140625
+        "peak_rss_MB": 425.890625
       },
       "L1-short-kernels": {
-        "wall_s": 0.28608096204698086,
-        "subprocess_s": 0.2860741224139929,
+        "wall_s": 0.27317319344729185,
+        "subprocess_s": 0.2731679929420352,
         "trace_bytes": 0,
-        "peak_rss_MB": 425.94140625
+        "peak_rss_MB": 425.890625
       },
       "L1-multi-stream": {
-        "wall_s": 0.3286933433264494,
-        "subprocess_s": 0.3286886243149638,
+        "wall_s": 0.3268981548026204,
+        "subprocess_s": 0.3268935037776828,
         "trace_bytes": 0,
-        "peak_rss_MB": 1011.796875
+        "peak_rss_MB": 1011.79296875
       }
     },
     "rtl": {
       "L1-gemm-small": {
-        "wall_s": 0.27680330723524094,
-        "subprocess_s": 0.2767390478402376,
+        "wall_s": 0.27747072745114565,
+        "subprocess_s": 0.27704800572246313,
         "trace_bytes": 81920,
         "peak_rss_MB": 1011.796875
       },
       "L1-gemm-large": {
-        "wall_s": 0.2709097731858492,
-        "subprocess_s": 0.2708453945815563,
+        "wall_s": 0.2675312850624323,
+        "subprocess_s": 0.2674685660749674,
         "trace_bytes": 61440,
         "peak_rss_MB": 1011.796875
       },
       "L1-short-kernels": {
-        "wall_s": 0.3131815120577812,
-        "subprocess_s": 0.3131221029907465,
+        "wall_s": 0.30625041387975216,
+        "subprocess_s": 0.3061849158257246,
         "trace_bytes": 696320,
         "peak_rss_MB": 1011.796875
       },
       "L1-multi-stream": {
-        "wall_s": 0.3528716713190079,
-        "subprocess_s": 0.3528068531304598,
+        "wall_s": 0.35628516878932714,
+        "subprocess_s": 0.35622479021549225,
         "trace_bytes": 40960,
         "peak_rss_MB": 1018.96484375
       }
     },
     "rtl_standard": {
       "L1-gemm-small": {
-        "wall_s": 0.27147755213081837,
-        "subprocess_s": 0.27141436375677586,
+        "wall_s": 0.29174926318228245,
+        "subprocess_s": 0.29168544337153435,
         "trace_bytes": 81920,
         "peak_rss_MB": 1018.96484375
       },
       "L1-gemm-large": {
-        "wall_s": 0.2651202091947198,
-        "subprocess_s": 0.26505704037845135,
+        "wall_s": 0.27620622236281633,
+        "subprocess_s": 0.27615328412503004,
         "trace_bytes": 61440,
         "peak_rss_MB": 1018.96484375
       },
       "L1-short-kernels": {
-        "wall_s": 0.3075656844303012,
-        "subprocess_s": 0.30749798472970724,
+        "wall_s": 0.30417617596685886,
+        "subprocess_s": 0.30412759631872177,
         "trace_bytes": 696320,
         "peak_rss_MB": 1018.96484375
       },
       "L1-multi-stream": {
-        "wall_s": 0.3503061030060053,
-        "subprocess_s": 0.35023998375982046,
+        "wall_s": 0.35400922410190105,
+        "subprocess_s": 0.35394219495356083,
         "trace_bytes": 40960,
         "peak_rss_MB": 1018.96484375
       }
     },
     "rtl_hip": {
       "L1-gemm-small": {
-        "wall_s": 0.27583280578255653,
-        "subprocess_s": 0.2757545877248049,
+        "wall_s": 0.26739819813519716,
+        "subprocess_s": 0.26732168067246675,
         "trace_bytes": 81920,
         "peak_rss_MB": 1018.96484375
       },
       "L1-gemm-large": {
-        "wall_s": 0.2806297903880477,
-        "subprocess_s": 0.2805524719879031,
+        "wall_s": 0.2757673319429159,
+        "subprocess_s": 0.27570496313273907,
         "trace_bytes": 61440,
         "peak_rss_MB": 1018.96484375
       },
       "L1-short-kernels": {
-        "wall_s": 0.30358738359063864,
-        "subprocess_s": 0.303524955175817,
+        "wall_s": 0.314034809358418,
+        "subprocess_s": 0.3139599608257413,
         "trace_bytes": 696320,
         "peak_rss_MB": 1018.96484375
       },
       "L1-multi-stream": {
-        "wall_s": 0.36897184047847986,
-        "subprocess_s": 0.3689210107550025,
+        "wall_s": 0.36636638827621937,
+        "subprocess_s": 0.3663103086873889,
         "trace_bytes": 40960,
-        "peak_rss_MB": 1018.97265625
+        "peak_rss_MB": 1020.79296875
       }
     }
   }
