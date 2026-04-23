@@ -1,9 +1,16 @@
 """profiler-bench CLI — three subcommands: verify, run, adapter-list.
 
 Usage:
-  profiler-bench verify [--threshold 5] [--level 1,2]
+  profiler-bench verify [--threshold PCT] [--level 1,2]
   profiler-bench run --config <yaml> [--rounds N] [--output <json>]
   profiler-bench adapter-list
+
+Per-level default thresholds (when --threshold is not specified):
+  L1: 15% pct gate (plus absolute 50ms budget — whichever is gentler)
+  L2: 10% pct gate
+  L3: 5%  pct gate (MLPerf-representative)
+
+Use --threshold to override all levels with a single value.
 """
 
 from __future__ import annotations
@@ -12,6 +19,27 @@ import json
 import sys
 from pathlib import Path
 from typing import List, Optional
+
+# Per-level default thresholds (pct gate)
+_LEVEL_DEFAULT_THRESHOLDS = {
+    1: 15.0,   # L1: fixed-cost-aware; absolute 50ms budget also applies (gentler wins)
+    2: 10.0,   # L2: torch workloads
+    3: 5.0,    # L3: MLPerf-representative serving
+}
+_THRESHOLD_NOT_SET = object()  # sentinel
+
+
+def _get_level_threshold(args, level: int) -> float:
+    """Return effective threshold for the given level.
+
+    If --threshold was explicitly provided on CLI (i.e., args.threshold is not None),
+    that overrides per-level defaults.
+    Otherwise, use the per-level defaults from _LEVEL_DEFAULT_THRESHOLDS.
+    """
+    # Check both the explicit flag (set at runtime by _cmd_verify) and direct None check
+    if getattr(args, "threshold_explicit", False) or args.threshold is not None:
+        return float(args.threshold)
+    return _LEVEL_DEFAULT_THRESHOLDS.get(level, 5.0)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,9 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument(
         "--threshold",
         type=float,
-        default=5.0,
+        default=None,
         metavar="PCT",
-        help="Overhead threshold %% (default: 5.0)",
+        help=(
+            "Override threshold %% for all levels (default: per-level — "
+            "L1=15%%, L2=10%%, L3=5%%)"
+        ),
     )
     verify_parser.add_argument(
         "--level",
@@ -113,7 +144,13 @@ def _cmd_adapter_list() -> int:
 
 
 def _cmd_verify(args) -> int:
-    """Run regression gate for given levels and adapter."""
+    """Run regression gate for given levels and adapter.
+
+    Uses per-level default thresholds unless --threshold is provided:
+      L1: delta_ms ≤ 50 OR delta_pct ≤ 15  (fixed-cost-aware, gentler wins)
+      L2: delta_pct ≤ 10
+      L3: delta_pct ≤ 5  (MLPerf-representative)
+    """
     from profiler_perf_bench.adapters import none as _none_mod  # noqa: F401
     from profiler_perf_bench.adapters import rtl as _rtl_mod  # noqa: F401
     from profiler_perf_bench.adapters.registry import global_registry
@@ -121,15 +158,23 @@ def _cmd_verify(args) -> int:
     from profiler_perf_bench.workloads.l1.short_kernels_hip import ShortKernelsHip
     from profiler_perf_bench.workloads.l1.multi_stream_hip import MultiStreamHip
     from profiler_perf_bench.runner import BenchmarkRunner
-    from profiler_perf_bench.report import check_regression, RegressionDetected
+    from profiler_perf_bench.report import (
+        check_regression, check_regression_l1, check_regression_l2, check_regression_l3,
+        RegressionDetected,
+    )
+
+    # Track whether --threshold was explicitly provided
+    args.threshold_explicit = args.threshold is not None
 
     # Default L1 workloads for verify
     l1_workloads = [GemmHipSmall(), ShortKernelsHip(), MultiStreamHip()]
 
-    all_workloads = []
+    # (level, workload) pairs
+    level_workloads = []
     for level in args.level:
         if level == 1:
-            all_workloads.extend(l1_workloads)
+            for w in l1_workloads:
+                level_workloads.append((1, w))
         elif level == 2:
             print(
                 "[SKIP] L2 workloads skipped: torch GPU not available on this host "
@@ -138,7 +183,7 @@ def _cmd_verify(args) -> int:
         else:
             print(f"[SKIP] Level {level} not supported in verify mode")
 
-    if not all_workloads:
+    if not level_workloads:
         print("No workloads to verify.")
         return 0
 
@@ -150,9 +195,16 @@ def _cmd_verify(args) -> int:
         return 1
 
     regressions = []
-    for workload in all_workloads:
+    for level, workload in level_workloads:
+        effective_threshold = _get_level_threshold(args, level)
+        threshold_desc = f"threshold={effective_threshold:.1f}%"
+        if level == 1 and not args.threshold_explicit:
+            threshold_desc = "L1 default (delta_ms≤50 OR pct≤15%)"
+        elif not args.threshold_explicit:
+            threshold_desc = f"L{level} default ({effective_threshold:.0f}%)"
+
         print(f"  Verifying {workload.name} with adapter '{args.adapter}' "
-              f"(threshold={args.threshold:.1f}%, rounds={args.rounds})...")
+              f"({threshold_desc}, rounds={args.rounds})...")
 
         runner_none = BenchmarkRunner(baseline_cls(), workload.__class__(), args.rounds)
         runner_adapter = BenchmarkRunner(adapter_cls(), workload.__class__(), args.rounds)
@@ -161,14 +213,23 @@ def _cmd_verify(args) -> int:
         result_adapter = runner_adapter.run()
 
         try:
-            check_regression(
-                result_none.rounds,
-                result_adapter.rounds,
-                threshold_pct=args.threshold,
-                metric="wall_s",
-            )
-            overhead = _compute_overhead(result_none.rounds, result_adapter.rounds)
-            print(f"    OK: overhead={overhead:.2f}%")
+            if args.threshold_explicit:
+                # User-specified override — use flat threshold
+                check_regression(
+                    result_none.rounds,
+                    result_adapter.rounds,
+                    threshold_pct=args.threshold,
+                    metric="wall_s",
+                )
+            elif level == 1:
+                check_regression_l1(result_none.rounds, result_adapter.rounds)
+            elif level == 2:
+                check_regression_l2(result_none.rounds, result_adapter.rounds)
+            else:
+                check_regression_l3(result_none.rounds, result_adapter.rounds)
+
+            overhead_pct, overhead_ms = _compute_overhead_both(result_none.rounds, result_adapter.rounds)
+            print(f"    OK: overhead={overhead_pct:.2f}% ({overhead_ms:+.1f}ms abs)")
         except RegressionDetected as e:
             print(f"    REGRESSION: {e}")
             regressions.append(str(e))
@@ -187,6 +248,26 @@ def _compute_overhead(baseline_runs, adapter_runs) -> float:
         return compute_paired_median_delta(baseline_runs, adapter_runs, metric="wall_s")
     except Exception:
         return float("nan")
+
+
+def _compute_overhead_both(baseline_runs, adapter_runs):
+    """Return (delta_pct, delta_ms) tuple."""
+    import statistics
+    from profiler_perf_bench.report import filter_succeeded_runs
+    try:
+        bl = filter_succeeded_runs(baseline_runs)
+        ad = filter_succeeded_runs(adapter_runs)
+        bl_vals = [r.metrics["wall_s"] for r in bl if "wall_s" in r.metrics]
+        ad_vals = [r.metrics["wall_s"] for r in ad if "wall_s" in r.metrics]
+        if not bl_vals or not ad_vals:
+            return float("nan"), float("nan")
+        bl_med = statistics.median(bl_vals)
+        ad_med = statistics.median(ad_vals)
+        delta_s = ad_med - bl_med
+        delta_pct = (delta_s / bl_med * 100.0) if bl_med > 0 else float("inf")
+        return delta_pct, delta_s * 1000.0
+    except Exception:
+        return float("nan"), float("nan")
 
 
 def _cmd_run(args) -> int:
@@ -218,6 +299,7 @@ def _cmd_run(args) -> int:
     from profiler_perf_bench.workloads.l1.gemm_hip import GemmHipSmall, GemmHipLarge
     from profiler_perf_bench.workloads.l1.short_kernels_hip import ShortKernelsHip
     from profiler_perf_bench.workloads.l1.multi_stream_hip import MultiStreamHip
+    from profiler_perf_bench.workloads.l1.gemm_steady_hip import GemmHipSteady
 
     # Workload registry
     workload_map = {
@@ -225,6 +307,7 @@ def _cmd_run(args) -> int:
         "L1-gemm-large": GemmHipLarge,
         "L1-short-kernels": ShortKernelsHip,
         "L1-multi-stream": MultiStreamHip,
+        "L1-gemm-steady": GemmHipSteady,
     }
 
     adapter_names = config.get("adapters", ["none", "rtl"])

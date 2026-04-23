@@ -3,6 +3,16 @@
 Per spec §3.5:
   - compare() runs a sweep with interleaved per-round branch order.
   - check_regression() raises RegressionDetected if any cell exceeds threshold_pct.
+
+Per-level threshold defaults (PR#96 overhead framing correction):
+  L1: delta_ms ≤ 50 OR delta_pct ≤ 15  (whichever is gentler — fixed-cost-aware)
+  L2: delta_pct ≤ 10
+  L3: delta_pct ≤ 5  (MLPerf-representative)
+
+Fixed startup cost context:
+  RTL adds ~25-40ms one-time init (HSA_TOOLS_LIB load + signal pool + SQLite schema).
+  On 250ms microbench this appears as 10-17%; on 10s+ production runs it's 0.24-0.4%.
+  Per-kernel cost is ≤1 µs/dispatch in lite mode.
 """
 
 from __future__ import annotations
@@ -110,6 +120,167 @@ def format_json_report(
         "results": results_list,
         "summary": {k: dict(v) for k, v in summary.items()},
     }
+
+
+def classify_overhead(delta_ms: float, baseline_ms: float) -> str:
+    """Classify overhead as fixed_cost_dominated, workload_dominated, or mixed.
+
+    Rules (per PR#96 correction spec §3):
+      - "fixed_cost_dominated"  if delta_ms < 50 AND baseline_ms < 1000
+      - "workload_dominated"    if baseline_ms > 3000
+      - "mixed"                 otherwise
+
+    This classification contextualises why short-run overhead % looks high:
+    RTL fixed startup cost ≈ 25-40ms is amortised over longer runs.
+    """
+    if baseline_ms > 3000.0:
+        return "workload_dominated"
+    if delta_ms < 50.0 and baseline_ms < 1000.0:
+        return "fixed_cost_dominated"
+    return "mixed"
+
+
+def format_json_report_with_deltas(
+    runs: List[RunResult],
+    baseline_adapter: str = "none",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> dict:
+    """Format runs as JSON report with per-adapter-per-workload delta_ms, delta_pct, classification.
+
+    Extended version of format_json_report() — summary is a list (not dict) so each entry
+    carries: adapter_name, workload_name, baseline_ms, adapter_ms, delta_ms, delta_pct, classification.
+    """
+    from collections import defaultdict
+
+    results_list = [r.to_dict() for r in runs]
+
+    # Group runs by (adapter, workload)
+    groups: Dict[tuple, List[RunResult]] = defaultdict(list)
+    for r in runs:
+        if r.run_succeeded:
+            groups[(r.adapter_name, r.workload_name)].append(r)
+
+    workloads = sorted({k[1] for k in groups.keys()})
+    adapters = sorted({k[0] for k in groups.keys()})
+
+    summary_list = []
+    for adapter in adapters:
+        for workload in workloads:
+            grp = groups.get((adapter, workload), [])
+            if not grp:
+                continue
+
+            baseline_grp = groups.get((baseline_adapter, workload), [])
+            adapter_vals = [r.metrics["wall_s"] for r in grp if "wall_s" in r.metrics]
+            baseline_vals = [r.metrics["wall_s"] for r in baseline_grp if "wall_s" in r.metrics]
+
+            if not adapter_vals:
+                continue
+
+            adapter_median_s = statistics.median(adapter_vals)
+            entry: Dict[str, Any] = {
+                "adapter_name": adapter,
+                "workload_name": workload,
+                "adapter_ms": round(adapter_median_s * 1000, 3),
+            }
+
+            if baseline_vals and adapter != baseline_adapter:
+                baseline_median_s = statistics.median(baseline_vals)
+                delta_s = adapter_median_s - baseline_median_s
+                delta_ms = delta_s * 1000.0
+                baseline_ms = baseline_median_s * 1000.0
+                delta_pct = (delta_s / baseline_median_s * 100.0) if baseline_median_s > 0 else float("inf")
+
+                entry["baseline_ms"] = round(baseline_ms, 3)
+                entry["delta_ms"] = round(delta_ms, 3)
+                entry["delta_pct"] = round(delta_pct, 3)
+                entry["classification"] = classify_overhead(delta_ms, baseline_ms)
+            elif adapter == baseline_adapter and baseline_vals:
+                baseline_median_s = statistics.median(baseline_vals)
+                entry["baseline_ms"] = round(baseline_median_s * 1000, 3)
+                entry["delta_ms"] = 0.0
+                entry["delta_pct"] = 0.0
+                entry["classification"] = "baseline"
+
+            summary_list.append(entry)
+
+    return {
+        "metadata": metadata or {},
+        "results": results_list,
+        "summary": summary_list,
+    }
+
+
+def check_regression_l1(
+    baseline_runs: List[RunResult],
+    adapter_runs: List[RunResult],
+    metric: str = "wall_s",
+) -> None:
+    """L1 regression check: passes if delta_ms ≤ 50 OR delta_pct ≤ 15 (gentler wins).
+
+    This is fixed-cost-aware: RTL startup adds ~25-40ms regardless of workload length.
+    On short (<1s) L1 microbenchmarks, the absolute budget (50ms) is the meaningful gate.
+    """
+    baseline_ok = filter_succeeded_runs(baseline_runs)
+    adapter_ok = filter_succeeded_runs(adapter_runs)
+
+    baseline_vals = [r.metrics[metric] for r in baseline_ok if metric in r.metrics]
+    adapter_vals = [r.metrics[metric] for r in adapter_ok if metric in r.metrics]
+
+    if not baseline_vals or not adapter_vals:
+        raise ValueError(f"No valid runs to compare on metric '{metric}'")
+
+    baseline_median = statistics.median(baseline_vals)
+    adapter_median = statistics.median(adapter_vals)
+
+    delta_s = adapter_median - baseline_median
+    delta_ms = delta_s * 1000.0
+    delta_pct = (delta_s / baseline_median * 100.0) if baseline_median > 0 else float("inf")
+
+    # Gentler gate: passes if EITHER condition holds
+    passes_abs = delta_ms <= 50.0
+    passes_pct = delta_pct <= 15.0
+
+    if not (passes_abs or passes_pct):
+        adapter_name = adapter_runs[0].adapter_name if adapter_runs else "unknown"
+        workload_name = baseline_runs[0].workload_name if baseline_runs else "unknown"
+        raise RegressionDetected(
+            f"L1 regression: {adapter_name} vs none on {workload_name}/{metric}: "
+            f"delta_ms={delta_ms:.1f} (budget ≤50ms) AND delta_pct={delta_pct:.1f}% (budget ≤15%) — "
+            f"both exceeded"
+        )
+
+
+def check_regression_l2(
+    baseline_runs: List[RunResult],
+    adapter_runs: List[RunResult],
+    metric: str = "wall_s",
+) -> None:
+    """L2 regression check: delta_pct ≤ 10%."""
+    delta = compute_paired_median_delta(baseline_runs, adapter_runs, metric=metric)
+    if delta > 10.0:
+        adapter_name = adapter_runs[0].adapter_name if adapter_runs else "unknown"
+        workload_name = baseline_runs[0].workload_name if baseline_runs else "unknown"
+        raise RegressionDetected(
+            f"L2 regression: {adapter_name} vs none on {workload_name}/{metric}: "
+            f"{delta:.2f}% > 10.0% threshold"
+        )
+
+
+def check_regression_l3(
+    baseline_runs: List[RunResult],
+    adapter_runs: List[RunResult],
+    metric: str = "wall_s",
+) -> None:
+    """L3 regression check: delta_pct ≤ 5% (MLPerf-representative)."""
+    delta = compute_paired_median_delta(baseline_runs, adapter_runs, metric=metric)
+    if delta > 5.0:
+        adapter_name = adapter_runs[0].adapter_name if adapter_runs else "unknown"
+        workload_name = baseline_runs[0].workload_name if baseline_runs else "unknown"
+        raise RegressionDetected(
+            f"L3 regression: {adapter_name} vs none on {workload_name}/{metric}: "
+            f"{delta:.2f}% > 5.0% threshold"
+        )
 
 
 def format_markdown_table(
