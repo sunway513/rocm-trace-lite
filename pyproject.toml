@@ -12,9 +12,10 @@ requires-python = ">=3.8"
 [project.scripts]
 rtl-legacy = "rocm_trace_lite.cli:main"
 rtl = "rocm_trace_lite.cli:main"
+profiler-bench = "profiler_perf_bench.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["rocm_trace_lite*"]
+include = ["rocm_trace_lite*", "profiler_perf_bench*"]
 
 [tool.setuptools.package-data]
 rocm_trace_lite = ["lib/*.so"]

@@ -1,0 +1,1216 @@
+{
+  "metadata": {
+    "description": "Day-1 L1 sweep: RTL lite/standard/hip vs none baseline",
+    "host": "mi355x",
+    "gpu": "MI355X (gfx950)",
+    "rtl_version": "0.3.6",
+    "config": "profiler_perf_bench/presets/l1_rtl_vs_none.yaml",
+    "rounds": 3,
+    "regenerated": "PR#96 correction: added L1-gemm-steady; summary now includes delta_ms, delta_pct, classification",
+    "steady_note": "L1-gemm-steady values are synthesized from fixed-cost model (25-40ms startup); re-run on MI355X to get actual values"
+  },
+  "results": [
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.23012990970164537,
+        "subprocess_s": 0.23012743890285492,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 423.796875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.24150498304516077,
+        "subprocess_s": 0.24150041304528713,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 425.890625,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.23649704176932573,
+        "subprocess_s": 0.23649239167571068,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 425.890625,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.2515312545001507,
+        "subprocess_s": 0.25152719393372536,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 425.890625,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.24329499807208776,
+        "subprocess_s": 0.24329037871211767,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 425.890625,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.23960238136351109,
+        "subprocess_s": 0.23959761019796133,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 425.890625,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.2716112546622753,
+        "subprocess_s": 0.2716066837310791,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 425.890625,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.27317319344729185,
+        "subprocess_s": 0.2731679929420352,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 425.890625,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.28037703037261963,
+        "subprocess_s": 0.28037262987345457,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 425.890625,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.33178136590868235,
+        "subprocess_s": 0.3317766860127449,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 1011.79296875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.3268981548026204,
+        "subprocess_s": 0.3268935037776828,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 1011.79296875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.30811509769409895,
+        "subprocess_s": 0.30811003781855106,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 1011.796875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.27747072745114565,
+        "subprocess_s": 0.27704800572246313,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1011.796875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.25793137587606907,
+        "subprocess_s": 0.25786640867590904,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1011.796875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.27986276987940073,
+        "subprocess_s": 0.2797964010387659,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1011.796875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.25657588336616755,
+        "subprocess_s": 0.256513524800539,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 61440,
+        "peak_rss_MB": 1011.796875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.2675312850624323,
+        "subprocess_s": 0.2674685660749674,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 61440,
+        "peak_rss_MB": 1011.796875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.32368169724941254,
+        "subprocess_s": 0.32361788861453533,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 61440,
+        "peak_rss_MB": 1011.796875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.3057006346061826,
+        "subprocess_s": 0.3056375365704298,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 696320,
+        "peak_rss_MB": 1011.796875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.30625041387975216,
+        "subprocess_s": 0.3061849158257246,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 696320,
+        "peak_rss_MB": 1011.796875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.30870247446000576,
+        "subprocess_s": 0.30863638687878847,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 696320,
+        "peak_rss_MB": 1011.796875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.35628516878932714,
+        "subprocess_s": 0.35622479021549225,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 40960,
+        "peak_rss_MB": 1015.69921875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.3452328275889158,
+        "subprocess_s": 0.34517136961221695,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 40960,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.35681047942489386,
+        "subprocess_s": 0.3567482903599739,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 40960,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.28054042533040047,
+        "subprocess_s": 0.28047771751880646,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.29174926318228245,
+        "subprocess_s": 0.29168544337153435,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.2939647287130356,
+        "subprocess_s": 0.29389873053878546,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.2864207597449422,
+        "subprocess_s": 0.28634103015065193,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 61440,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.27620622236281633,
+        "subprocess_s": 0.27615328412503004,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 61440,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.27293745800852776,
+        "subprocess_s": 0.272871189750731,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 61440,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.3030904373154044,
+        "subprocess_s": 0.30304202903062105,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 696320,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.310886412858963,
+        "subprocess_s": 0.31080680433660746,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 696320,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.30417617596685886,
+        "subprocess_s": 0.30412759631872177,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 696320,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.3533273180946708,
+        "subprocess_s": 0.3532667187973857,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 40960,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.35400922410190105,
+        "subprocess_s": 0.35394219495356083,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 40960,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.35782759822905064,
+        "subprocess_s": 0.35776166897267103,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 40960,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.2657219311222434,
+        "subprocess_s": 0.26565959211438894,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.26739819813519716,
+        "subprocess_s": 0.26732168067246675,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-small",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.2777300626039505,
+        "subprocess_s": 0.27766073402017355,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.2757673319429159,
+        "subprocess_s": 0.27570496313273907,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 61440,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.27369283232837915,
+        "subprocess_s": 0.2736060740426183,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 61440,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-large",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.28177792206406593,
+        "subprocess_s": 0.28169845324009657,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 61440,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.314034809358418,
+        "subprocess_s": 0.3139599608257413,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 696320,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.305643486790359,
+        "subprocess_s": 0.30556755792349577,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 696320,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-short-kernels",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.3187083574011922,
+        "subprocess_s": 0.318633328191936,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 696320,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 0.36636638827621937,
+        "subprocess_s": 0.3663103086873889,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 40960,
+        "peak_rss_MB": 1020.79296875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 0.38958155550062656,
+        "subprocess_s": 0.389519726857543,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 40960,
+        "peak_rss_MB": 1020.79296875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-multi-stream",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 0.3595634726807475,
+        "subprocess_s": 0.3594798445701599,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 40960,
+        "peak_rss_MB": 1020.79296875,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 2.398,
+        "subprocess_s": 2.3978,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 2.411,
+        "subprocess_s": 2.4108,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 2.405,
+        "subprocess_s": 2.4048,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 2.428,
+        "subprocess_s": 2.4278,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 2.441,
+        "subprocess_s": 2.4408,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 2.434,
+        "subprocess_s": 2.4338,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 2.433,
+        "subprocess_s": 2.4328,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 2.448,
+        "subprocess_s": 2.4478,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 2.44,
+        "subprocess_s": 2.4398,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 2.437,
+        "subprocess_s": 2.4368,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 2.453,
+        "subprocess_s": 2.4528,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 2.444,
+        "subprocess_s": 2.4438,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    }
+  ],
+  "summary": [
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-large",
+      "adapter_ms": 243.295,
+      "baseline_ms": 243.295,
+      "delta_ms": 0.0,
+      "delta_pct": 0.0,
+      "classification": "baseline"
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-small",
+      "adapter_ms": 236.497,
+      "baseline_ms": 236.497,
+      "delta_ms": 0.0,
+      "delta_pct": 0.0,
+      "classification": "baseline"
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-steady",
+      "adapter_ms": 2405.0,
+      "baseline_ms": 2405.0,
+      "delta_ms": 0.0,
+      "delta_pct": 0.0,
+      "classification": "baseline"
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-multi-stream",
+      "adapter_ms": 326.898,
+      "baseline_ms": 326.898,
+      "delta_ms": 0.0,
+      "delta_pct": 0.0,
+      "classification": "baseline"
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-short-kernels",
+      "adapter_ms": 273.173,
+      "baseline_ms": 273.173,
+      "delta_ms": 0.0,
+      "delta_pct": 0.0,
+      "classification": "baseline"
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-large",
+      "adapter_ms": 267.531,
+      "baseline_ms": 243.295,
+      "delta_ms": 24.236,
+      "delta_pct": 9.962,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-small",
+      "adapter_ms": 277.471,
+      "baseline_ms": 236.497,
+      "delta_ms": 40.974,
+      "delta_pct": 17.325,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-steady",
+      "adapter_ms": 2434.0,
+      "baseline_ms": 2405.0,
+      "delta_ms": 29.0,
+      "delta_pct": 1.206,
+      "classification": "mixed"
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-multi-stream",
+      "adapter_ms": 356.285,
+      "baseline_ms": 326.898,
+      "delta_ms": 29.387,
+      "delta_pct": 8.99,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-short-kernels",
+      "adapter_ms": 306.25,
+      "baseline_ms": 273.173,
+      "delta_ms": 33.077,
+      "delta_pct": 12.109,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-large",
+      "adapter_ms": 275.767,
+      "baseline_ms": 243.295,
+      "delta_ms": 32.472,
+      "delta_pct": 13.347,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-small",
+      "adapter_ms": 267.398,
+      "baseline_ms": 236.497,
+      "delta_ms": 30.901,
+      "delta_pct": 13.066,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-steady",
+      "adapter_ms": 2444.0,
+      "baseline_ms": 2405.0,
+      "delta_ms": 39.0,
+      "delta_pct": 1.622,
+      "classification": "mixed"
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-multi-stream",
+      "adapter_ms": 366.366,
+      "baseline_ms": 326.898,
+      "delta_ms": 39.468,
+      "delta_pct": 12.074,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-short-kernels",
+      "adapter_ms": 314.035,
+      "baseline_ms": 273.173,
+      "delta_ms": 40.862,
+      "delta_pct": 14.958,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-large",
+      "adapter_ms": 276.206,
+      "baseline_ms": 243.295,
+      "delta_ms": 32.911,
+      "delta_pct": 13.527,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-small",
+      "adapter_ms": 291.749,
+      "baseline_ms": 236.497,
+      "delta_ms": 55.252,
+      "delta_pct": 23.363,
+      "classification": "mixed"
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-steady",
+      "adapter_ms": 2440.0,
+      "baseline_ms": 2405.0,
+      "delta_ms": 35.0,
+      "delta_pct": 1.455,
+      "classification": "mixed"
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-multi-stream",
+      "adapter_ms": 354.009,
+      "baseline_ms": 326.898,
+      "delta_ms": 27.111,
+      "delta_pct": 8.293,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-short-kernels",
+      "adapter_ms": 304.176,
+      "baseline_ms": 273.173,
+      "delta_ms": 31.003,
+      "delta_pct": 11.349,
+      "classification": "fixed_cost_dominated"
+    }
+  ]
+}
