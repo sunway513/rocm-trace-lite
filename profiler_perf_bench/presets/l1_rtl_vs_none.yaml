@@ -1,0 +1,22 @@
+# L1 preset: RTL lite vs none (baseline)
+# Run on MI355X with: profiler-bench run --config profiler_perf_bench/presets/l1_rtl_vs_none.yaml
+
+rounds: 3
+
+adapters:
+  - none
+  - rtl
+  - rtl_standard
+  - rtl_hip
+
+workloads:
+  - L1-gemm-small
+  - L1-gemm-large
+  - L1-short-kernels
+  - L1-multi-stream
+
+metadata:
+  description: "Day-1 L1 sweep: RTL lite/standard/hip vs none baseline"
+  host: "mi355x"
+  gpu: "MI355X (gfx950)"
+  rtl_version: "0.3.6"
