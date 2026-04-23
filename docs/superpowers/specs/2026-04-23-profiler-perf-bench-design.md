@@ -289,3 +289,28 @@ Phase-gated to let each layer compile+pass tests before the next is written:
 3. End-to-end sweep invocation documented in `profiler_perf_bench/README.md` with one copy-pasteable command.
 4. Produced JSON result for at least RTL-lite vs RTL-standard vs RTL-hip vs none on L1 suite, persisted to a committed artifact under `profiler_perf_bench/sample_results/`.
 5. No changes outside `profiler_perf_bench/` directory except: (a) new `profiler-bench` console-script entry in `pyproject.toml`, (b) this design doc.
+
+### 10.2 Per-level regression thresholds (PR#96 correction addendum)
+
+The verify command uses per-level default thresholds when `--threshold` is not specified:
+
+| Level | Default threshold | Gate logic | Rationale |
+|-------|-----------------|-----------|-----------|
+| L1 | 15% pct **OR** 50ms abs | Gentler of the two gates passes | Fixed-cost-aware: RTL startup ≈ 25-40ms inflates % on <1s microbench runs |
+| L2 | 10% pct | Single pct gate | torch workloads run 1-3 min, startup cost <1% |
+| L3 | 5% pct | Single pct gate (MLPerf-representative) | Serving workloads, matches PR#94 E2E validation |
+
+**Fixed startup cost context**: RTL adds ~25-40ms one-time initialization (HSA_TOOLS_LIB load,
+signal pool init, completion worker thread, SQLite schema) per process launch. This is independent
+of workload length. Dividing by a 250ms run gives 10-17%; dividing by a 10s+ run gives 0.24-0.4%
+— consistent with the "0.2-0.67%" Peng quoted in the Laryn 1×1 transcript.
+
+RTL's **per-kernel cost is ≤1 µs/dispatch in lite mode**. The ms-level delta on short L1 runs
+reflects initialization overhead, not per-kernel overhead.
+
+JSON `summary[]` entries carry `delta_ms`, `delta_pct`, and `classification`:
+- `"fixed_cost_dominated"`: delta_ms < 50 AND baseline_ms < 1000
+- `"workload_dominated"`: baseline_ms > 3000 (production representative)
+- `"mixed"`: in between
+
+The `--threshold PCT` flag overrides all per-level defaults with a single value.

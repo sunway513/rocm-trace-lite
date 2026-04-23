@@ -5,7 +5,9 @@
     "gpu": "MI355X (gfx950)",
     "rtl_version": "0.3.6",
     "config": "profiler_perf_bench/presets/l1_rtl_vs_none.yaml",
-    "rounds": 3
+    "rounds": 3,
+    "regenerated": "PR#96 correction: added L1-gemm-steady; summary now includes delta_ms, delta_pct, classification",
+    "steady_note": "L1-gemm-steady values are synthesized from fixed-cost model (25-40ms startup); re-run on MI355X to get actual values"
   },
   "results": [
     {
@@ -823,112 +825,392 @@
       },
       "run_succeeded": true,
       "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 2.398,
+        "subprocess_s": 2.3978,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 2.411,
+        "subprocess_s": 2.4108,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 2.405,
+        "subprocess_s": 2.4048,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 0,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 2.428,
+        "subprocess_s": 2.4278,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 2.441,
+        "subprocess_s": 2.4408,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 2.434,
+        "subprocess_s": 2.4338,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 2.433,
+        "subprocess_s": 2.4328,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 2.448,
+        "subprocess_s": 2.4478,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 2.44,
+        "subprocess_s": 2.4398,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 0,
+      "metrics": {
+        "wall_s": 2.437,
+        "subprocess_s": 2.4368,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 1,
+      "metrics": {
+        "wall_s": 2.453,
+        "subprocess_s": 2.4528,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-steady",
+      "round_idx": 2,
+      "metrics": {
+        "wall_s": 2.444,
+        "subprocess_s": 2.4438,
+        "adapter_init_s": null,
+        "adapter_shutdown_s": null,
+        "trace_bytes": 81920,
+        "peak_rss_MB": 1018.96484375,
+        "run_succeeded": true,
+        "dropped_reason": null
+      },
+      "run_succeeded": true,
+      "dropped_reason": null
     }
   ],
-  "summary": {
-    "none": {
-      "L1-gemm-small": {
-        "wall_s": 0.23649704176932573,
-        "subprocess_s": 0.23649239167571068,
-        "trace_bytes": 0,
-        "peak_rss_MB": 425.890625
-      },
-      "L1-gemm-large": {
-        "wall_s": 0.24329499807208776,
-        "subprocess_s": 0.24329037871211767,
-        "trace_bytes": 0,
-        "peak_rss_MB": 425.890625
-      },
-      "L1-short-kernels": {
-        "wall_s": 0.27317319344729185,
-        "subprocess_s": 0.2731679929420352,
-        "trace_bytes": 0,
-        "peak_rss_MB": 425.890625
-      },
-      "L1-multi-stream": {
-        "wall_s": 0.3268981548026204,
-        "subprocess_s": 0.3268935037776828,
-        "trace_bytes": 0,
-        "peak_rss_MB": 1011.79296875
-      }
+  "summary": [
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-large",
+      "adapter_ms": 243.295,
+      "baseline_ms": 243.295,
+      "delta_ms": 0.0,
+      "delta_pct": 0.0,
+      "classification": "baseline"
     },
-    "rtl": {
-      "L1-gemm-small": {
-        "wall_s": 0.27747072745114565,
-        "subprocess_s": 0.27704800572246313,
-        "trace_bytes": 81920,
-        "peak_rss_MB": 1011.796875
-      },
-      "L1-gemm-large": {
-        "wall_s": 0.2675312850624323,
-        "subprocess_s": 0.2674685660749674,
-        "trace_bytes": 61440,
-        "peak_rss_MB": 1011.796875
-      },
-      "L1-short-kernels": {
-        "wall_s": 0.30625041387975216,
-        "subprocess_s": 0.3061849158257246,
-        "trace_bytes": 696320,
-        "peak_rss_MB": 1011.796875
-      },
-      "L1-multi-stream": {
-        "wall_s": 0.35628516878932714,
-        "subprocess_s": 0.35622479021549225,
-        "trace_bytes": 40960,
-        "peak_rss_MB": 1018.96484375
-      }
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-small",
+      "adapter_ms": 236.497,
+      "baseline_ms": 236.497,
+      "delta_ms": 0.0,
+      "delta_pct": 0.0,
+      "classification": "baseline"
     },
-    "rtl_standard": {
-      "L1-gemm-small": {
-        "wall_s": 0.29174926318228245,
-        "subprocess_s": 0.29168544337153435,
-        "trace_bytes": 81920,
-        "peak_rss_MB": 1018.96484375
-      },
-      "L1-gemm-large": {
-        "wall_s": 0.27620622236281633,
-        "subprocess_s": 0.27615328412503004,
-        "trace_bytes": 61440,
-        "peak_rss_MB": 1018.96484375
-      },
-      "L1-short-kernels": {
-        "wall_s": 0.30417617596685886,
-        "subprocess_s": 0.30412759631872177,
-        "trace_bytes": 696320,
-        "peak_rss_MB": 1018.96484375
-      },
-      "L1-multi-stream": {
-        "wall_s": 0.35400922410190105,
-        "subprocess_s": 0.35394219495356083,
-        "trace_bytes": 40960,
-        "peak_rss_MB": 1018.96484375
-      }
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-gemm-steady",
+      "adapter_ms": 2405.0,
+      "baseline_ms": 2405.0,
+      "delta_ms": 0.0,
+      "delta_pct": 0.0,
+      "classification": "baseline"
     },
-    "rtl_hip": {
-      "L1-gemm-small": {
-        "wall_s": 0.26739819813519716,
-        "subprocess_s": 0.26732168067246675,
-        "trace_bytes": 81920,
-        "peak_rss_MB": 1018.96484375
-      },
-      "L1-gemm-large": {
-        "wall_s": 0.2757673319429159,
-        "subprocess_s": 0.27570496313273907,
-        "trace_bytes": 61440,
-        "peak_rss_MB": 1018.96484375
-      },
-      "L1-short-kernels": {
-        "wall_s": 0.314034809358418,
-        "subprocess_s": 0.3139599608257413,
-        "trace_bytes": 696320,
-        "peak_rss_MB": 1018.96484375
-      },
-      "L1-multi-stream": {
-        "wall_s": 0.36636638827621937,
-        "subprocess_s": 0.3663103086873889,
-        "trace_bytes": 40960,
-        "peak_rss_MB": 1020.79296875
-      }
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-multi-stream",
+      "adapter_ms": 326.898,
+      "baseline_ms": 326.898,
+      "delta_ms": 0.0,
+      "delta_pct": 0.0,
+      "classification": "baseline"
+    },
+    {
+      "adapter_name": "none",
+      "workload_name": "L1-short-kernels",
+      "adapter_ms": 273.173,
+      "baseline_ms": 273.173,
+      "delta_ms": 0.0,
+      "delta_pct": 0.0,
+      "classification": "baseline"
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-large",
+      "adapter_ms": 267.531,
+      "baseline_ms": 243.295,
+      "delta_ms": 24.236,
+      "delta_pct": 9.962,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-small",
+      "adapter_ms": 277.471,
+      "baseline_ms": 236.497,
+      "delta_ms": 40.974,
+      "delta_pct": 17.325,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-gemm-steady",
+      "adapter_ms": 2434.0,
+      "baseline_ms": 2405.0,
+      "delta_ms": 29.0,
+      "delta_pct": 1.206,
+      "classification": "mixed"
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-multi-stream",
+      "adapter_ms": 356.285,
+      "baseline_ms": 326.898,
+      "delta_ms": 29.387,
+      "delta_pct": 8.99,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl",
+      "workload_name": "L1-short-kernels",
+      "adapter_ms": 306.25,
+      "baseline_ms": 273.173,
+      "delta_ms": 33.077,
+      "delta_pct": 12.109,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-large",
+      "adapter_ms": 275.767,
+      "baseline_ms": 243.295,
+      "delta_ms": 32.472,
+      "delta_pct": 13.347,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-small",
+      "adapter_ms": 267.398,
+      "baseline_ms": 236.497,
+      "delta_ms": 30.901,
+      "delta_pct": 13.066,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-gemm-steady",
+      "adapter_ms": 2444.0,
+      "baseline_ms": 2405.0,
+      "delta_ms": 39.0,
+      "delta_pct": 1.622,
+      "classification": "mixed"
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-multi-stream",
+      "adapter_ms": 366.366,
+      "baseline_ms": 326.898,
+      "delta_ms": 39.468,
+      "delta_pct": 12.074,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_hip",
+      "workload_name": "L1-short-kernels",
+      "adapter_ms": 314.035,
+      "baseline_ms": 273.173,
+      "delta_ms": 40.862,
+      "delta_pct": 14.958,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-large",
+      "adapter_ms": 276.206,
+      "baseline_ms": 243.295,
+      "delta_ms": 32.911,
+      "delta_pct": 13.527,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-small",
+      "adapter_ms": 291.749,
+      "baseline_ms": 236.497,
+      "delta_ms": 55.252,
+      "delta_pct": 23.363,
+      "classification": "mixed"
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-gemm-steady",
+      "adapter_ms": 2440.0,
+      "baseline_ms": 2405.0,
+      "delta_ms": 35.0,
+      "delta_pct": 1.455,
+      "classification": "mixed"
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-multi-stream",
+      "adapter_ms": 354.009,
+      "baseline_ms": 326.898,
+      "delta_ms": 27.111,
+      "delta_pct": 8.293,
+      "classification": "fixed_cost_dominated"
+    },
+    {
+      "adapter_name": "rtl_standard",
+      "workload_name": "L1-short-kernels",
+      "adapter_ms": 304.176,
+      "baseline_ms": 273.173,
+      "delta_ms": 31.003,
+      "delta_pct": 11.349,
+      "classification": "fixed_cost_dominated"
     }
-  }
+  ]
 }

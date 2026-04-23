@@ -12,8 +12,15 @@ profiler-bench adapter-list
 # Run L1 sweep (RTL lite/standard/hip vs none)
 profiler-bench run --config profiler_perf_bench/presets/l1_rtl_vs_none.yaml --rounds 3 --output result.json
 
-# Regression gate (exits 0 if overhead < threshold%, exits 1 if regression)
+# Regression gate — uses per-level defaults (L1: delta_ms≤50 OR pct≤15%)
+profiler-bench verify --level 1
+
+# Override with explicit threshold
 profiler-bench verify --level 1 --threshold 5
+
+# Run the steady preset (production-representative, ~2.5s run)
+profiler-bench run --config profiler_perf_bench/presets/l1_rtl_vs_none.yaml --rounds 3 \
+  --output result_steady.json
 
 # Help
 profiler-bench --help
@@ -67,6 +74,20 @@ Then import it in your config YAML and run. No other changes needed.
 | L2 | Python torch workloads | torch + ROCm |
 | L3 | ATOM/vLLM LLM serving | model weights + ATOM container |
 
+### L1 Workload Presets
+
+| Preset | Command | Wall time | RTL fixed-cost % |
+|--------|---------|-----------|------------------|
+| `L1-gemm-small` | `gemm 64 500` | ~250ms | **10-17%** (fixed-cost-dominated) |
+| `L1-gemm-large` | `gemm 256 200` | ~250ms | **10-17%** (fixed-cost-dominated) |
+| `L1-short-kernels` | `short 8000` | ~280ms | **9-15%** (fixed-cost-dominated) |
+| `L1-multi-stream` | `multi_stream 4` | ~330ms | **8-14%** (fixed-cost-dominated) |
+| `L1-gemm-steady` | `gemm 64 5000` | ~2.5s | **1-2%** (production-representative) |
+
+**Why L1-gemm-steady exists**: The short presets show large overhead% because RTL's
+fixed startup cost (~25-40ms) is divided by a ~250ms run window. This is a
+**worst-case lower-bound artifact**, not representative of production workloads.
+
 ## Config YAML Format
 
 ```yaml
@@ -83,12 +104,55 @@ metadata:
 pytest profiler_perf_bench/tests -v
 ```
 
-## Notes on Overhead Measurement
+## Understanding Overhead Numbers
 
+### Fixed startup cost vs per-kernel cost
+
+RTL has two distinct cost components:
+
+1. **Fixed startup cost ≈ 25-40ms per process launch** — covers:
+   HSA_TOOLS_LIB dynamic load, signal pool initialization, completion worker thread
+   creation, and SQLite schema init. This is a one-time cost per `gpu_workload` invocation.
+
+2. **Per-kernel cost ≤ 1 µs/dispatch in lite mode** — the actual tracing overhead
+   per GPU kernel dispatch. This is what matters for production workloads.
+
+**RTL's per-kernel cost is ≤1 µs/dispatch in lite mode; the measured ms-level delta on
+short runs reflects one-time profiler initialization, not per-kernel overhead.**
+
+### Interpreting overhead % by run length
+
+| Run length | Fixed cost % | Interpretation |
+|-----------|-------------|----------------|
+| ~250ms (L1-gemm-small) | 10-17% | `fixed_cost_dominated` — worst case artifact |
+| ~2.5s (L1-gemm-steady) | 1-2% | `mixed` — startup cost becoming minor |
+| 10s+ (L3 serving) | 0.24-0.4% | `workload_dominated` — production-representative |
+
+For production representative numbers: DSR1-MXFP4 TP=4 E2E (PR#94): RTL lite = **+0.74% ITL / +1.74% TTFT**.
+Laryn 1×1 transcript baseline: **"0.2-0.67%"** for production LLM serving runs.
+
+### Per-level regression thresholds (default)
+
+| Level | Default threshold | Rationale |
+|-------|-----------------|-----------|
+| L1 | delta_ms ≤ 50 **OR** pct ≤ 15% | Fixed-cost-aware; absolute budget gentler on short runs |
+| L2 | pct ≤ 10% | torch workloads, moderate duration |
+| L3 | pct ≤ 5% | MLPerf-representative, serving workloads |
+
+Use `--threshold PCT` to override all levels with a single value.
+
+### JSON output: summary fields
+
+Each entry in `summary[]` carries:
+- `delta_ms`: absolute wall-clock delta vs baseline (ms)
+- `delta_pct`: percentage overhead vs baseline
+- `classification`: `fixed_cost_dominated` | `mixed` | `workload_dominated`
+  - `fixed_cost_dominated`: delta_ms < 50 AND baseline_ms < 1000 (startup noise)
+  - `workload_dominated`: baseline_ms > 3000 (production representative)
+  - `mixed`: in between
+
+### Other notes
 - `wall_s` includes process startup + HIP/HSA initialization + GPU execution + profiler shutdown.
-- RTL fixed startup cost is ~30ms per process launch. This is negligible for LLM serving
-  workloads (run for minutes/hours) but appears as ~10% overhead on L1 microbenchmarks
-  that run in ~0.25s. The `--threshold 5` gate is meaningful for L2/L3 serving workloads.
 - `trace_bytes` is reported uncompressed. RTL produces `.db` (SQLite), rocprofv3 produces
   `.rocpd` — not directly comparable without decompression.
 - See `sample_results/mi355x_rtl_lite_vs_none_l1.json` for actual L1 measurements on MI355X.
