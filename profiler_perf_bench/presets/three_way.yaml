@@ -1,0 +1,49 @@
+# Three-way profiler overhead benchmark preset
+#
+# PURPOSE: Blind reproducer for cross-team profiler evaluation.
+#          Measures wall-clock overhead of RTL lite/standard, rocprofv3, and
+#          legacy roctracer (rocprof) against a no-profiler baseline.
+#
+# CONTEXT: See GitHub Issue "Three-way profiler overhead benchmark" in
+#          sunway513/rocm-trace-lite for reference numbers, tolerance bands,
+#          and troubleshooting guidance.
+#
+# REFERENCE NUMBERS (MI355X gfx950, ROCm 6.16.13, 2026-04-23):
+#   Adapter        | L1-gemm-steady overhead | L1-short-kernels overhead
+#   rtl (lite)     |    +8.0% (+23.5 ms)     |    +9.4% (+26.6 ms)
+#   rtl_standard   |    +7.1% (+20.7 ms)     |   +12.2% (+34.6 ms)
+#   rocprofv3      |  +198.1% (+581 ms)      |  +283.5% (+806 ms)
+#   rocprof        |  +466.3% (+1368 ms)     |  +541.2% (+1538 ms)
+#
+# KNOWN GOTCHAS:
+#   1. rocprofv3 and rocprof write trace files; runs take much longer.
+#      Budget ~6 minutes total for this preset (5 workloads × 5 adapters × 3 rounds).
+#   2. rocprof requires /dev/kfd accessible and HSA_TOOLS_LIB env not pre-loaded.
+#   3. librtl.so md5 must match source build — stale installs show wrong overhead.
+#      Expected md5: 6c09b15e12fc25c2a64ad9bcb154573a  (ROCm 6.16.13 build)
+#   4. Run on an otherwise-idle GPU (rocm-smi --showpids should be clean).
+
+rounds: 3
+
+adapters:
+  - none
+  - rtl
+  - rtl_standard
+  - rocprofv3
+  - rocprof
+
+workloads:
+  - L1-gemm-steady
+  - L1-gemm-small
+  - L1-gemm-large
+  - L1-short-kernels
+  - L1-multi-stream
+
+metadata:
+  description: "Three-way overhead benchmark: RTL lite/standard vs rocprofv3 vs rocprof (legacy roctracer)"
+  reference_host: "mi355-gpu-15"
+  reference_gpu: "MI355X (gfx950)"
+  reference_rocm: "6.16.13"
+  reference_librtl_md5: "6c09b15e12fc25c2a64ad9bcb154573a"
+  issue_url: "https://github.com/sunway513/rocm-trace-lite/issues"
+  created: "2026-04-23"
