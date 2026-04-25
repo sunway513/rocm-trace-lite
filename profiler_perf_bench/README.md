@@ -3,6 +3,9 @@
 Perf-only profiler overhead benchmark suite. Compares GPU tracer/profiler overhead
 across a reproducible workload set. One benchmark run = (adapter) × (workload) × (N rounds) → JSON.
 
+> **Three-way reproducer** (RTL vs rocprofv3 vs rocprof): see `profiler_perf_bench/scripts/reproduce_three_way.sh`
+> and GitHub Issue "[Call for repro] Three-way profiler overhead benchmark" for reference numbers and one-click instructions.
+
 ## Quick Start
 
 ```bash
