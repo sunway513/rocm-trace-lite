@@ -1,0 +1,103 @@
+# Dockerfile.hip-profiler — Build environment for RTL hip profiler mode
+#
+# Builds libamdhip64.so with German's hipProfiler*Ext API (PR #5215) from
+# the ROCm/rocm-systems branch amd/dev/gandryey/ROCM-1667-12, then installs
+# RTL on top.
+#
+# Base image: ROCm 7.13 nightly with PyTorch (has matching HSA headers)
+# Pre-built image: rocm/pytorch-private:rtl-hip-profiler-v013_20260427
+#
+# Usage:
+#   docker build -f docker/Dockerfile.hip-profiler -t rtl-hip-profiler .
+#   docker run --device=/dev/kfd --device=/dev/dri --group-add video \
+#     --security-opt seccomp=unconfined --cap-add SYS_PTRACE --privileged \
+#     --network host --ipc host -e HIP_VISIBLE_DEVICES=0 \
+#     rtl-hip-profiler \
+#     bash -c "GPU_CLR_PROFILE_OUTPUT=/dev/null rtl trace --mode hip -o /tmp/trace.db -- python3 your_script.py"
+
+FROM rocm/ufb-private:pytorch-2.10.0-rocm7.13.0a20260424-rocm7.13.0a20260424-nightly-ubuntu24.04-gfx950-dcgpu
+
+# ROCm SDK path in this nightly image
+ENV ROCM_PATH=/opt/venv/lib/python3.12/site-packages/_rocm_sdk_devel
+ENV HIP_PATH=${ROCM_PATH}
+
+# Build dependencies
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends cmake libsqlite3-dev libgl-dev && \
+    pip install --break-system-packages CppHeaderParser && \
+    rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# Stage 1: Build libamdhip64.so with hipProfiler*Ext from CLR source
+# ---------------------------------------------------------------------------
+ARG CLR_BRANCH=amd/dev/gandryey/ROCM-1667-12
+ARG CLR_REPO=https://github.com/ROCm/rocm-systems.git
+
+# Sparse checkout — only need the CLR subtree
+RUN git clone --depth 1 --branch ${CLR_BRANCH} --filter=blob:none --sparse \
+      ${CLR_REPO} /tmp/rocm-systems && \
+    cd /tmp/rocm-systems && \
+    git sparse-checkout set projects/clr && \
+    cp -r projects/clr /tmp/clr-src && \
+    rm -rf /tmp/rocm-systems
+
+# Create VERSION file required by CLR cmake
+RUN echo -e "7\n13\n0" > ${ROCM_PATH}/include/VERSION
+
+# Create hip-lang-config.cmake.in (cmake packaging shim)
+RUN cp ${ROCM_PATH}/lib/cmake/hip-lang/hip-lang-config.cmake \
+       ${ROCM_PATH}/include/hip-lang-config.cmake.in
+
+# Create include/include symlink (CLR PCH generation path quirk)
+RUN mkdir -p ${ROCM_PATH}/include/include && \
+    ln -sf ${ROCM_PATH}/include/hip ${ROCM_PATH}/include/include/hip
+
+# Patch: export hipProfiler*Ext symbols (not in upstream version map yet)
+RUN sed -i '/hipProfilerStop;/a\    hipProfilerEnableExt;\n    hipProfilerDisableExt;\n    hipProfilerGetRecordsExt;' \
+      /tmp/clr-src/hipamd/src/hip_hcc.map.in
+
+# Patch: fix nodiscard warnings treated as errors in dispatch wrappers
+RUN sed -i 's/g_next\.hipGraphGetNodes_fn(graph,/(void)g_next.hipGraphGetNodes_fn(graph,/g' \
+      /tmp/clr-src/hipamd/src/profiler/hip_clr_dispatch_wrappers.cpp
+
+# Configure and build
+RUN mkdir -p /tmp/clr-build && cd /tmp/clr-build && \
+    cmake /tmp/clr-src \
+      -DCLR_BUILD_HIP=ON -DCLR_BUILD_OCL=OFF \
+      -DHIP_COMMON_DIR=${ROCM_PATH}/include \
+      -DHIPCC_BIN_DIR=${ROCM_PATH}/bin \
+      -DROCM_PATH=${ROCM_PATH} \
+      -DCMAKE_PREFIX_PATH=${ROCM_PATH} \
+      -DCMAKE_BUILD_TYPE=Release \
+      -D__HIP_ENABLE_PCH=OFF \
+      -DHIP_CLANG_PATH=${ROCM_PATH}/lib/llvm/bin \
+      -DCMAKE_CXX_FLAGS="-Wno-error" && \
+    make -j$(nproc) amdhip64
+
+# Install the built library over the stock one
+RUN cp /tmp/clr-build/hipamd/lib/libamdhip64.so.7.13.0 ${ROCM_PATH}/lib/libamdhip64.so.7.13.0 && \
+    cd ${ROCM_PATH}/lib && \
+    ln -sf libamdhip64.so.7.13.0 libamdhip64.so.7 && \
+    ln -sf libamdhip64.so.7 libamdhip64.so
+
+# Clean up CLR build artifacts (~2GB)
+RUN rm -rf /tmp/clr-src /tmp/clr-build
+
+# ---------------------------------------------------------------------------
+# Stage 2: Build and install RTL
+# ---------------------------------------------------------------------------
+COPY . /workspace/rtl
+WORKDIR /workspace/rtl
+
+# Adjust Makefile to use ROCM_PATH
+RUN sed -i "s|/opt/rocm|${ROCM_PATH}|g" Makefile && \
+    make clean && make -j$(nproc) && \
+    pip install --break-system-packages -e .
+
+# Verify
+RUN nm -D ${ROCM_PATH}/lib/libamdhip64.so | grep hipProfilerEnableExt && \
+    rtl --version && \
+    echo "RTL hip profiler v0.1.0 environment ready"
+
+# Default: show usage
+CMD ["bash", "-c", "echo 'Usage: GPU_CLR_PROFILE_OUTPUT=/dev/null rtl trace --mode hip -o /tmp/trace.db -- <command>'; bash"]
