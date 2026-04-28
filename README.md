@@ -16,8 +16,9 @@ A streamlined, lightweight GPU kernel profiler. Captures dispatch timestamps usi
 | **HSA API tracing** | — | — | Yes | Yes | — |
 | **roctx markers** | Built-in shim | Via roctracer | Native | Yes (libroctx64) | Indirect |
 | **HW counters** | — | — | Yes (AQLprofile) | — | NVIDIA only |
-| **Output format** | SQLite (.db) | SQLite (.rpd) | CSV / JSON / Perfetto / OTF2 | Raw callbacks | JSON / Chrome Trace |
+| **Output format** | SQLite (.db) + rocprofv3 JSON | SQLite (.rpd) | CSV / JSON / Perfetto / OTF2 | Raw callbacks | JSON / Chrome Trace |
 | **Perfetto visualization** | `rtl convert` | rpd2tracing.py | Native PFTrace | — | Built-in |
+| **TraceLens compatible** | Yes (`--format rocprofv3`) | No | Yes (native) | No | No |
 | **Zero profiler dependency** | Yes | No | No | No | No |
 | **Status** | Active | Active | Active (recommended) | Legacy (EoS 2026 Q2) | Active |
 
