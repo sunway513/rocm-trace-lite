@@ -25,9 +25,12 @@ def main():
     trace_p.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to trace")
 
     # convert
-    conv_p = sub.add_parser("convert", help="Convert RPD trace to Perfetto JSON")
+    conv_p = sub.add_parser("convert", help="Convert RPD trace to Perfetto JSON or rocprofv3 JSON")
     conv_p.add_argument("input", help="Input .db file")
-    conv_p.add_argument("-o", "--output", default=None, help="Output .json file (default: input with .json extension)")
+    conv_p.add_argument("-o", "--output", default=None, help="Output file path")
+    conv_p.add_argument("-f", "--format", choices=["perfetto", "rocprofv3"], default="perfetto",
+                        help="Output format: perfetto (Chrome Trace JSON, default) or "
+                             "rocprofv3 (rocprofiler-sdk-tool JSON for TraceLens)")
 
     # summary
     sum_p = sub.add_parser("summary", help="Show top kernels from trace")
@@ -48,8 +51,12 @@ def main():
         from rocm_trace_lite.cmd_trace import run_trace
         run_trace(args)
     elif args.command == "convert":
-        from rocm_trace_lite.cmd_convert import run_convert
-        run_convert(args)
+        if getattr(args, 'format', 'perfetto') == 'rocprofv3':
+            from rocm_trace_lite.cmd_convert_rocprofv3 import run_convert_rocprofv3
+            run_convert_rocprofv3(args)
+        else:
+            from rocm_trace_lite.cmd_convert import run_convert
+            run_convert(args)
     elif args.command == "summary":
         from rocm_trace_lite.cmd_summary import run_summary
         run_summary(args)
