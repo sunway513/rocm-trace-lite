@@ -2,9 +2,6 @@
 import json
 import os
 import sqlite3
-import tempfile
-
-import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(REPO_ROOT, "src")
@@ -237,14 +234,7 @@ class TestRocprofv3Convert:
         result = convert_to_rocprofv3(db_path, str(tmp_path / "out.json"))
         assert result is False
 
-    def test_cli_format_flag(self, tmp_path):
+    def test_cli_format_flag(self):
         """Test CLI routing via --format rocprofv3."""
-        import argparse
-        args = argparse.Namespace(
-            input=str(tmp_path / "nonexistent.db"),
-            output=None,
-            format="rocprofv3"
-        )
-        # Just verify the import works
         from rocm_trace_lite.cmd_convert_rocprofv3 import run_convert_rocprofv3
         assert callable(run_convert_rocprofv3)

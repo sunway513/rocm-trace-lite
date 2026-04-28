@@ -12,7 +12,6 @@ import gzip
 import os
 import sqlite3
 import sys
-from collections import OrderedDict
 
 
 def convert_to_rocprofv3(input_db, output_json):
@@ -247,7 +246,7 @@ def convert_to_rocprofv3(input_db, output_json):
     print(f"  Unique kernels:    {len(kernel_symbols)}")
     print(f"  Memory copies:     {len(memory_copies)}")
     print(f"  HIP API calls:     {len(hip_api_events)}")
-    print(f"  Format: rocprofiler-sdk-tool (TraceLens compatible)")
+    print("  Format: rocprofiler-sdk-tool (TraceLens compatible)")
     return True
 
 
