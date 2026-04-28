@@ -59,23 +59,29 @@ rtl summary -n 10 trace.db
 
 ## rtl convert
 
-Convert an RPD trace to Perfetto/Chrome Trace JSON.
+Convert an RPD trace to Perfetto JSON or rocprofv3 JSON.
 
 ```bash
-rtl convert [-o OUTPUT] INPUT
+rtl convert [-o OUTPUT] [-f FORMAT] INPUT
 ```
 
 **Options:**
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-o, --output` | `<input>.json` | Output JSON file path |
+| `-o, --output` | `<input>.json.gz` | Output file path |
+| `-f, --format` | `perfetto` | Output format: `perfetto` (Chrome Trace JSON) or `rocprofv3` (rocprofiler-sdk-tool JSON for TraceLens) |
 
-**Example:**
+**Examples:**
 
 ```bash
+# Perfetto visualization (default)
 rtl convert trace.db -o trace.json
 # Open trace.json in https://ui.perfetto.dev
+
+# rocprofv3 format for TraceLens analysis
+rtl convert trace.db --format rocprofv3 -o trace_results.json
+TraceLens_generate_perf_report_rocprof --profile_json_path trace_results.json
 ```
 
 ## rtl info
