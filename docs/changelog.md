@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.7
+
+### New features
+- **TraceLens integration (#99)**: `rtl convert --format rocprofv3` emits rocprofiler-sdk-tool JSON that TraceLens can consume directly. Enables the pipeline: RTL (collect) → TraceLens (analyze) → Hyperloom (decide). Validated E2E on GPT-OSS 120B TP=8.
+- **HIP API interception (#94, RFC-003)**: `RTL_MODE=hip` with `LD_PRELOAD` captures CPU-side HIP API call timings (21 functions) alongside GPU kernel execution. Zero upstream dependency — uses `dlsym(RTLD_NEXT)` interposition. Re-entrancy safe, disabled by default, <1% overhead on serving workloads.
+
+### Documentation
+- Three-way profiler overhead reproducer pack (#98)
+- Profiler-perf-bench design spec (#96)
+
 ## v0.3.6
 
 ### Bug fixes
