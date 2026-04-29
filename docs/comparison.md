@@ -6,12 +6,13 @@
 |---------|----------------|-----------------|-----------------|
 | **Dependencies** | libhsa-runtime64 + libsqlite3 | ROCm 6.0+ full stack | roctracer + RPD |
 | **GPU kernel timing** | HSA signal injection | HW counters + callbacks | roctracer callbacks |
-| **HIP API tracing** | No | Yes | Yes |
+| **HIP API tracing** | Yes (`RTL_MODE=hip`) | Yes | Yes |
 | **HW performance counters** | No | Yes | No |
 | **PC sampling** | No | Yes | No |
 | **roctx markers** | Built-in shim | libroctx64 | libroctx64 |
 | **Multi-GPU** | Automatic per-process merge | Manual | Manual |
-| **Output format** | SQLite .db + Perfetto JSON | Various | RPD SQLite |
+| **Output format** | SQLite .db + Perfetto JSON + rocprofv3 JSON | Various | RPD SQLite |
+| **TraceLens compatible** | Yes (`--format rocprofv3`) | Yes (native) | No |
 | **Overhead** | Low (signal pool, single worker) | Medium-High | Medium |
 | **New HW bring-up** | Works immediately (HSA only) | Requires rocprofiler support | Requires roctracer support |
 
@@ -26,7 +27,6 @@
 
 - You need **HW performance counters** (cache hit rates, occupancy, etc.)
 - You need **PC sampling** for hotspot analysis
-- You need **HIP API tracing** (API call timestamps, arguments)
 - You need the full ROCm profiling ecosystem
 
 ## Relationship to RPD

@@ -39,7 +39,7 @@ Trace-level metadata.
 
 ### rocpd_api
 
-HIP API calls (reserved for RPD compatibility; populated in future HIP profiling mode).
+HIP API calls. Populated when using `RTL_MODE=hip` (HIP API interception via LD_PRELOAD).
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -135,6 +135,25 @@ SELECT * FROM busy;
 | `Ops` | Total kernel dispatches |
 | `BusyNs` | Total GPU busy time (ns) |
 | `WallNs` | Total wall time (ns) |
+
+## Export formats
+
+### Perfetto JSON (default)
+
+```bash
+rtl convert trace.db -o trace.json
+```
+
+Chrome Trace Event format viewable in [ui.perfetto.dev](https://ui.perfetto.dev). See [perfetto.md](perfetto.md) for details.
+
+### rocprofv3 JSON (for TraceLens)
+
+```bash
+rtl convert trace.db --format rocprofv3 -o trace_results.json
+TraceLens_generate_perf_report_rocprof --profile_json_path trace_results.json
+```
+
+Emits `rocprofiler-sdk-tool` JSON compatible with [TraceLens](https://github.com/AMD-AGI/TraceLens). Maps `rocpd_op` → `kernel_dispatch` / `memory_copy`, `rocpd_api` → `hip_api`, unique kernel names → `kernel_symbols`.
 
 ## Example queries
 

@@ -113,6 +113,6 @@ Trace: trace.db
 | Variable | Values | Description |
 |----------|--------|-------------|
 | `RTL_OUTPUT` | file path | Output trace file (supports `%p` for PID). Alternative to `-o` flag. |
-| `RTL_MODE` | `lite`, `standard`, `full` | Profiling mode. `lite` (default): skip has-signal packets (~0% overhead). `standard`: signal injection for all count==1 dispatches, skip graph replay. `full`: profile everything including graph replay (requires ROCm 7.13+). |
+| `RTL_MODE` | `lite`, `standard`, `full`, `hip` | Profiling mode. `lite` (default): skip has-signal packets (~0% overhead). `standard`: signal injection for all count==1 dispatches, skip graph replay. `full`: profile everything including graph replay (requires ROCm 7.13+). `hip`: HIP API interception via LD_PRELOAD — captures CPU-side HIP call timings alongside GPU kernel execution. |
 | `RTL_DEBUG` | `1` | Log per-call summary: intercept call count, device ID, batch skip decisions |
 | `RTL_DEBUG` | `2` | Log per-packet details: AQL type, signal handle, kernel object address |

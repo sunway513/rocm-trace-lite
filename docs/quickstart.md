@@ -120,16 +120,28 @@ Lite mode provides near-zero overhead and is the safest option for CUDAGraph wor
 | Variable | Values | Description |
 |----------|--------|-------------|
 | `RTL_OUTPUT` | path | Output trace file (supports `%p` for PID). Alternative to `-o` flag. `RPD_LITE_OUTPUT` also accepted for backward compatibility. |
-| `RTL_MODE` | `default`, `lite`, `full` | Profiling mode (see below) |
+| `RTL_MODE` | `lite`, `standard`, `full`, `hip` | Profiling mode (see below) |
 | `RTL_DEBUG` | `1`, `2` | Packet-level diagnostic logging (1=summary, 2=per-packet) |
 
 ### Profiling modes
 
-| Mode | GPU timing | Graph replay | Overhead | Use case |
-|------|-----------|-------------|----------|----------|
-| **default** | Yes | Skipped | ~2-4% | General profiling |
-| **lite** | Yes (partial) | Skipped | ~0% | Production / always-on |
-| **full** | Yes (all) | Profiled | ~2-5% | Deep analysis (ROCm 7.13+ only) |
+| Mode | GPU timing | HIP API | Graph replay | Overhead | Use case |
+|------|-----------|---------|-------------|----------|----------|
+| **lite** | Yes (partial) | No | Skipped | ~0% | Production / always-on |
+| **standard** | Yes | No | Skipped | ~2-4% | General profiling |
+| **full** | Yes (all) | No | Profiled | ~2-5% | Deep analysis (ROCm 7.13+ only) |
+| **hip** | Yes | Yes | Skipped | <1% | CPU+GPU correlation |
+
+## TraceLens analysis
+
+Convert RTL traces to rocprofv3 format for TraceLens performance reports:
+
+```bash
+rtl convert trace.db --format rocprofv3 -o trace_results.json
+TraceLens_generate_perf_report_rocprof --profile_json_path trace_results.json
+```
+
+This produces an Excel workbook with GPU timeline breakdown, kernel summary by category, and per-dispatch details. See [TraceLens](https://github.com/AMD-AGI/TraceLens) for installation.
 
 ## Environment variable mode
 

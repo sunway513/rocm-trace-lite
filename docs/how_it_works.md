@@ -117,13 +117,18 @@ Graph-replayed kernels are not profiled, but the application runs correctly.
 
 RTL supports three profiling modes to balance data completeness vs overhead:
 
-| Mode | Behavior | Overhead |
-|------|----------|----------|
-| **default** | Signal injection for all `count==1` kernel dispatches. Skip graph replay batches (`count > 1`). | ~2-4% |
-| **lite** | Like default, but also skip packets with existing `completion_signal` (NCCL, barriers). Matches v0.1.1 behavior. | ~0% |
-| **full** | Profile everything including graph replay batches. Requires ROCm 7.13+ with [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1). | ~2-5% |
+| Mode | Mechanism | Behavior | Overhead |
+|------|-----------|----------|----------|
+| **lite** | HSA signal injection | Skip packets with existing `completion_signal` (NCCL, barriers). | ~0% |
+| **standard** | HSA signal injection | Signal injection for all `count==1` kernel dispatches. Skip graph replay batches. | ~2-4% |
+| **full** | HSA signal injection | Profile everything including graph replay batches. Requires ROCm 7.13+ with [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1). | ~2-5% |
+| **hip** | LD_PRELOAD + dlsym | HIP API interception via `dlsym(RTLD_NEXT)`. Captures CPU-side HIP call timings (21 APIs) alongside GPU kernel execution. No HSA queue interception. | <1% |
 
 Set via `RTL_MODE=lite` env var or `rtl trace --mode lite` CLI flag.
+
+### HIP API interception (RTL_MODE=hip)
+
+When `RTL_MODE=hip`, RTL uses a fundamentally different mechanism: `LD_PRELOAD` function interposition via `dlsym(RTLD_NEXT)` to wrap 21 HIP runtime functions (hipModuleLaunchKernel, hipMemcpy, hipMalloc, hipFree, hipStreamSynchronize, etc.). Each wrapper records CPU-side start/end timestamps and a correlation ID, then forwards to the real HIP function. A thread-local re-entrancy guard prevents recursive recording during HIP runtime initialization. This mode populates the `rocpd_api` table with HIP API call timings.
 
 ### Known limitation
 

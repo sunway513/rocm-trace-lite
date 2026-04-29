@@ -12,7 +12,7 @@ A streamlined, lightweight GPU kernel profiler. Captures dispatch timestamps usi
 |---------|----------------|-----|-----------------|-----------|---------------|
 | **Dependencies** | libhsa-runtime64 + libsqlite3 | + libroctracer64 | Full ROCm 6.0+ stack | libroctracer64 | libroctracer64 (AMD) |
 | **GPU kernel timing** | HSA signal injection | roctracer activity | Buffered/callback tracing | Activity records | roctracer / CUPTI |
-| **HIP API tracing** | — | Yes | Yes | Yes | — |
+| **HIP API tracing** | Yes (`RTL_MODE=hip`) | Yes | Yes | Yes | — |
 | **HSA API tracing** | — | — | Yes | Yes | — |
 | **roctx markers** | Built-in shim | Via roctracer | Native | Yes (libroctx64) | Indirect |
 | **HW counters** | — | — | Yes (AQLprofile) | — | NVIDIA only |
