@@ -63,16 +63,17 @@ Requirements:
 ```bash
 rtl trace python3 my_model.py                        # lite mode (default)
 rtl trace --mode standard python3 my_model.py        # standard mode (~2-4% overhead)
-rtl trace --mode full python3 my_model.py             # full mode (requires ROCm 7.13+)
+rtl trace --mode hip python3 my_model.py             # hip mode (HIP API + GPU timing)
 ```
 
 ### Profiling modes
 
-| Mode | GPU timing | Graph replay | Overhead | Use case |
-|------|-----------|-------------|----------|----------|
-| **lite** | Yes (partial) | Skipped | ~0% | Production / always-on **(default)** |
-| **standard** | Yes | Skipped | ~2-4% | General profiling |
-| **full** | Yes (all) | Profiled | ~2-5% | Deep analysis (requires ROCm 7.13+ with [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1)) |
+| Mode | GPU timing | HIP API | Graph replay | Overhead | Use case |
+|------|-----------|---------|-------------|----------|----------|
+| **lite** | Yes (partial) | No | Skipped | ~0% | Production / always-on **(default)** |
+| **standard** | Yes | No | Skipped | ~2-4% | General profiling |
+| **hip** | Yes | Yes | Skipped | <1% | CPU+GPU correlation |
+| **full** | Yes (all) | No | Profiled | ~2-5% | Deep analysis (requires ROCm 7.13+) |
 
 Set via CLI (`--mode`) or env var (`RTL_MODE=lite`).
 
@@ -104,6 +105,24 @@ Output files:
   trace_summary.txt
   trace.json.gz (1.2 MB → open in https://ui.perfetto.dev)
 ```
+
+## TraceLens integration
+
+RTL traces can be analyzed with [TraceLens](https://github.com/AMD-AGI/TraceLens) for automated performance reports — kernel breakdown, GPU timeline, roofline metrics, and more.
+
+```bash
+# 1. Collect trace
+rtl trace -o trace.db python3 my_model.py
+
+# 2. Convert to rocprofv3 format
+rtl convert trace.db --format rocprofv3 -o trace_results.json
+
+# 3. Generate TraceLens report
+pip install git+https://github.com/AMD-AGI/TraceLens.git
+TraceLens_generate_perf_report_rocprof --profile_json_path trace_results.json --kernel_details
+```
+
+This produces an Excel workbook with GPU timeline breakdown, kernel summary by category (GEMM, Elementwise, Reduction, etc.), and per-dispatch details with grid/block dimensions. Validated on GPT-OSS 120B TP=8 (162K dispatches, 92 unique kernels). See [issue #100](https://github.com/sunway513/rocm-trace-lite/issues/100) for sample output.
 
 ## How it works
 
