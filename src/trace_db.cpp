@@ -386,4 +386,26 @@ void TraceDB::record_roctx(const char* message, uint64_t start_ns, uint64_t dura
     }
 }
 
+// ---- Callback hook storage ----
+
+static ApiEventCallback g_api_event_cb = nullptr;
+static void* g_api_event_cb_data = nullptr;
+static KernelEventCallback g_kernel_event_cb = nullptr;
+static void* g_kernel_event_cb_data = nullptr;
+
+void set_api_event_callback(ApiEventCallback cb, void* user_data) {
+    g_api_event_cb = cb;
+    g_api_event_cb_data = user_data;
+}
+
+void set_kernel_event_callback(KernelEventCallback cb, void* user_data) {
+    g_kernel_event_cb = cb;
+    g_kernel_event_cb_data = user_data;
+}
+
+ApiEventCallback get_api_event_callback() { return g_api_event_cb; }
+KernelEventCallback get_kernel_event_callback() { return g_kernel_event_cb; }
+void* get_api_event_callback_data() { return g_api_event_cb_data; }
+void* get_kernel_event_callback_data() { return g_kernel_event_cb_data; }
+
 } // namespace trace_db
