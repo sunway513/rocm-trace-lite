@@ -86,8 +86,12 @@ uint64_t next_correlation_id();
 // they need to retain.
 //
 // Thread safety: callbacks must be registered before OnLoad fires
-// (i.e., before any HIP/HSA call). After that, the pointers are
-// read-only from hot paths via atomic loads.
+// (i.e., before any HIP/HSA call). The store happens-before any
+// reader thread exists, so plain pointers are safe.
+//
+// Callback requirements: callbacks execute on hot paths (completion
+// worker thread for kernel events, application thread for API events).
+// They must be noexcept and non-blocking.
 
 struct ApiEventRecord {
     const char* name;       // valid only during callback
@@ -122,8 +126,9 @@ void* get_api_event_callback_data();
 void* get_kernel_event_callback_data();
 
 // Trigger shutdown of the HSA intercept (joins worker, drains queue).
-// Safe to call multiple times. Exposed so embedders can drain pending
-// events before finalizing their own storage.
+// Idempotent: guarded by atomic flag, second and subsequent calls are
+// no-ops. Exposed so embedders can drain pending events before
+// finalizing their own storage.
 void rtl_trigger_shutdown();
 
 } // namespace trace_db
