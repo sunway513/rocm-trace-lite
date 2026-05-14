@@ -695,7 +695,7 @@ static void shutdown() {
     }
 
     // Flush and close trace DB (skip if callback hooks are set — consumer owns flushing)
-    if (!trace_db::get_kernel_event_callback()) {
+    if (!trace_db::get_kernel_event_callback() && !trace_db::get_api_event_callback()) {
         trace_db::get_trace_db().flush();
         trace_db::get_trace_db().close();
     }
@@ -742,7 +742,7 @@ extern "C" bool OnLoad(void* pTable,
     using namespace hsa_intercept;
 
     // Ensure trace database is open (skip if callback hooks are set)
-    if (!trace_db::get_kernel_event_callback()) {
+    if (!trace_db::get_kernel_event_callback() && !trace_db::get_api_event_callback()) {
         (void)trace_db::get_trace_db();
     }
 

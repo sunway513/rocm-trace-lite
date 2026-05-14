@@ -79,10 +79,19 @@ uint64_t next_correlation_id();
 // When set, interception code calls these instead of writing to TraceDB.
 // This allows embedding (e.g., RPD tracer) to redirect events without
 // modifying the interception logic.
+//
+// String lifetime: all const char* fields in event records point to
+// thread-local or stack storage. Pointers are valid only for the
+// duration of the callback invocation. Embedders must copy any strings
+// they need to retain.
+//
+// Thread safety: callbacks must be registered before OnLoad fires
+// (i.e., before any HIP/HSA call). After that, the pointers are
+// read-only from hot paths via atomic loads.
 
 struct ApiEventRecord {
-    const char* name;
-    const char* args;
+    const char* name;       // valid only during callback
+    const char* args;       // valid only during callback
     uint64_t start_ns;
     uint64_t end_ns;
     uint64_t correlation_id;
@@ -91,7 +100,7 @@ struct ApiEventRecord {
 };
 
 struct KernelEventRecord {
-    const char* name;
+    const char* name;       // valid only during callback
     int device_id;
     uint64_t queue_id;
     uint64_t start_ns;

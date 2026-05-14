@@ -387,6 +387,9 @@ void TraceDB::record_roctx(const char* message, uint64_t start_ns, uint64_t dura
 }
 
 // ---- Callback hook storage ----
+// Set once before OnLoad, read from hot paths afterward. The store
+// happens-before any reader thread exists (OnLoad hasn't fired yet),
+// so plain pointers are safe — no concurrent write/read is possible.
 
 static ApiEventCallback g_api_event_cb = nullptr;
 static void* g_api_event_cb_data = nullptr;
