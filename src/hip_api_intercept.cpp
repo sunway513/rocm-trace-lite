@@ -90,6 +90,30 @@ static int get_tid() {
     return (int)syscall(SYS_gettid);
 }
 
+static bool is_recording_ready() {
+    return is_trace_ready() || trace_db::get_api_event_callback() != nullptr;
+}
+
+static void deliver_hip_api(const char* name, const char* args,
+                             uint64_t start_ns, uint64_t duration_ns,
+                             uint64_t correlation_id) {
+    auto cb = trace_db::get_api_event_callback();
+    if (cb) {
+        trace_db::ApiEventRecord rec;
+        rec.name = name;
+        rec.args = args;
+        rec.start_ns = start_ns;
+        rec.end_ns = start_ns + duration_ns;
+        rec.correlation_id = correlation_id;
+        rec.pid = getpid();
+        rec.tid = get_tid();
+        cb(rec, trace_db::get_api_event_callback_data());
+    } else {
+        get_trace_db().record_hip_api(name, args, start_ns, duration_ns,
+                                       correlation_id, getpid(), get_tid());
+    }
+}
+
 // HIP type definitions (avoid including hip_runtime_api.h to keep zero-dep)
 typedef int hipError_t;
 typedef void* hipStream_t;
@@ -210,7 +234,7 @@ hipError_t hipModuleLaunchKernel(
     resolve_hipModuleLaunchKernel();
     if (!real_hipModuleLaunchKernel) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipModuleLaunchKernel(f, gridDimX, gridDimY, gridDimZ,
             blockDimX, blockDimY, blockDimZ, sharedMemBytes, stream,
             kernelParams, extra);
@@ -231,8 +255,8 @@ hipError_t hipModuleLaunchKernel(
     snprintf(args, sizeof(args), "grid=%u,%u,%u block=%u,%u,%u shared=%u",
              gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ,
              sharedMemBytes);
-    get_trace_db().record_hip_api("hipModuleLaunchKernel", args,
-                                  t0, t1 - t0, corr, getpid(), get_tid());
+    deliver_hip_api("hipModuleLaunchKernel", args,
+                                  t0, t1 - t0, corr);
     return ret;
 }
 
@@ -247,7 +271,7 @@ hipError_t hipExtModuleLaunchKernel(
     resolve_hipExtModuleLaunchKernel();
     if (!real_hipExtModuleLaunchKernel) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipExtModuleLaunchKernel(f, globalWorkSizeX, globalWorkSizeY,
             globalWorkSizeZ, localWorkSizeX, localWorkSizeY, localWorkSizeZ,
             sharedMemBytes, stream, kernelParams, extra,
@@ -270,8 +294,8 @@ hipError_t hipExtModuleLaunchKernel(
     snprintf(args, sizeof(args), "grid=%u,%u,%u block=%u,%u,%u shared=%u",
              globalWorkSizeX, globalWorkSizeY, globalWorkSizeZ,
              localWorkSizeX, localWorkSizeY, localWorkSizeZ, sharedMemBytes);
-    get_trace_db().record_hip_api("hipExtModuleLaunchKernel", args,
-                                  t0, t1 - t0, corr, getpid(), get_tid());
+    deliver_hip_api("hipExtModuleLaunchKernel", args,
+                                  t0, t1 - t0, corr);
     return ret;
 }
 
@@ -280,7 +304,7 @@ hipError_t hipMemcpy(void* dst, const void* src, size_t sizeBytes,
     resolve_hipMemcpy();
     if (!real_hipMemcpy) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipMemcpy(dst, src, sizeBytes, kind);
     }
     ScopedReentrancyGuard _guard;
@@ -290,8 +314,8 @@ hipError_t hipMemcpy(void* dst, const void* src, size_t sizeBytes,
     uint64_t t1 = tick();
     char args[64];
     snprintf(args, sizeof(args), "size=%zu kind=%d", sizeBytes, (int)kind);
-    get_trace_db().record_hip_api("hipMemcpy", args, t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipMemcpy", args, t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -300,7 +324,7 @@ hipError_t hipMemcpyAsync(void* dst, const void* src, size_t sizeBytes,
     resolve_hipMemcpyAsync();
     if (!real_hipMemcpyAsync) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipMemcpyAsync(dst, src, sizeBytes, kind, stream);
     }
     ScopedReentrancyGuard _guard;
@@ -310,8 +334,8 @@ hipError_t hipMemcpyAsync(void* dst, const void* src, size_t sizeBytes,
     uint64_t t1 = tick();
     char args[64];
     snprintf(args, sizeof(args), "size=%zu kind=%d", sizeBytes, (int)kind);
-    get_trace_db().record_hip_api("hipMemcpyAsync", args, t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipMemcpyAsync", args, t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -319,7 +343,7 @@ hipError_t hipMalloc(void** ptr, size_t size) {
     resolve_hipMalloc();
     if (!real_hipMalloc) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipMalloc(ptr, size);
     }
     ScopedReentrancyGuard _guard;
@@ -329,8 +353,8 @@ hipError_t hipMalloc(void** ptr, size_t size) {
     uint64_t t1 = tick();
     char args[64];
     snprintf(args, sizeof(args), "size=%zu", size);
-    get_trace_db().record_hip_api("hipMalloc", args, t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipMalloc", args, t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -338,7 +362,7 @@ hipError_t hipFree(void* ptr) {
     resolve_hipFree();
     if (!real_hipFree) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipFree(ptr);
     }
     ScopedReentrancyGuard _guard;
@@ -346,8 +370,8 @@ hipError_t hipFree(void* ptr) {
     uint64_t t0 = tick();
     hipError_t ret = real_hipFree(ptr);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipFree", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipFree", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -355,7 +379,7 @@ hipError_t hipStreamSynchronize(hipStream_t stream) {
     resolve_hipStreamSynchronize();
     if (!real_hipStreamSynchronize) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipStreamSynchronize(stream);
     }
     ScopedReentrancyGuard _guard;
@@ -363,8 +387,8 @@ hipError_t hipStreamSynchronize(hipStream_t stream) {
     uint64_t t0 = tick();
     hipError_t ret = real_hipStreamSynchronize(stream);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipStreamSynchronize", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipStreamSynchronize", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -372,7 +396,7 @@ hipError_t hipDeviceSynchronize() {
     resolve_hipDeviceSynchronize();
     if (!real_hipDeviceSynchronize) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipDeviceSynchronize();
     }
     ScopedReentrancyGuard _guard;
@@ -380,8 +404,8 @@ hipError_t hipDeviceSynchronize() {
     uint64_t t0 = tick();
     hipError_t ret = real_hipDeviceSynchronize();
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipDeviceSynchronize", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipDeviceSynchronize", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -389,7 +413,7 @@ hipError_t hipGraphLaunch(hipGraphExec_t graphExec, hipStream_t stream) {
     resolve_hipGraphLaunch();
     if (!real_hipGraphLaunch) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipGraphLaunch(graphExec, stream);
     }
     ScopedReentrancyGuard _guard;
@@ -401,8 +425,8 @@ hipError_t hipGraphLaunch(hipGraphExec_t graphExec, hipStream_t stream) {
 
     hipError_t ret = real_hipGraphLaunch(graphExec, stream);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipGraphLaunch", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipGraphLaunch", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -412,7 +436,7 @@ hipError_t hipSetDevice(int deviceId) {
     resolve_hipSetDevice();
     if (!real_hipSetDevice) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipSetDevice(deviceId);
     }
     ScopedReentrancyGuard _guard;
@@ -422,8 +446,8 @@ hipError_t hipSetDevice(int deviceId) {
     uint64_t t1 = tick();
     char args[32];
     snprintf(args, sizeof(args), "device=%d", deviceId);
-    get_trace_db().record_hip_api("hipSetDevice", args, t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipSetDevice", args, t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -431,7 +455,7 @@ hipError_t hipStreamCreate(hipStream_t* stream) {
     resolve_hipStreamCreate();
     if (!real_hipStreamCreate) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipStreamCreate(stream);
     }
     ScopedReentrancyGuard _guard;
@@ -439,8 +463,8 @@ hipError_t hipStreamCreate(hipStream_t* stream) {
     uint64_t t0 = tick();
     hipError_t ret = real_hipStreamCreate(stream);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipStreamCreate", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipStreamCreate", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -448,7 +472,7 @@ hipError_t hipStreamDestroy(hipStream_t stream) {
     resolve_hipStreamDestroy();
     if (!real_hipStreamDestroy) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipStreamDestroy(stream);
     }
     ScopedReentrancyGuard _guard;
@@ -456,8 +480,8 @@ hipError_t hipStreamDestroy(hipStream_t stream) {
     uint64_t t0 = tick();
     hipError_t ret = real_hipStreamDestroy(stream);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipStreamDestroy", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipStreamDestroy", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -465,7 +489,7 @@ hipError_t hipEventCreate(hipEvent_t* event) {
     resolve_hipEventCreate();
     if (!real_hipEventCreate) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipEventCreate(event);
     }
     ScopedReentrancyGuard _guard;
@@ -473,8 +497,8 @@ hipError_t hipEventCreate(hipEvent_t* event) {
     uint64_t t0 = tick();
     hipError_t ret = real_hipEventCreate(event);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipEventCreate", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipEventCreate", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -482,7 +506,7 @@ hipError_t hipEventDestroy(hipEvent_t event) {
     resolve_hipEventDestroy();
     if (!real_hipEventDestroy) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipEventDestroy(event);
     }
     ScopedReentrancyGuard _guard;
@@ -490,8 +514,8 @@ hipError_t hipEventDestroy(hipEvent_t event) {
     uint64_t t0 = tick();
     hipError_t ret = real_hipEventDestroy(event);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipEventDestroy", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipEventDestroy", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -499,7 +523,7 @@ hipError_t hipEventRecord(hipEvent_t event, hipStream_t stream) {
     resolve_hipEventRecord();
     if (!real_hipEventRecord) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipEventRecord(event, stream);
     }
     ScopedReentrancyGuard _guard;
@@ -507,8 +531,8 @@ hipError_t hipEventRecord(hipEvent_t event, hipStream_t stream) {
     uint64_t t0 = tick();
     hipError_t ret = real_hipEventRecord(event, stream);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipEventRecord", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipEventRecord", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -516,7 +540,7 @@ hipError_t hipEventSynchronize(hipEvent_t event) {
     resolve_hipEventSynchronize();
     if (!real_hipEventSynchronize) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipEventSynchronize(event);
     }
     ScopedReentrancyGuard _guard;
@@ -524,8 +548,8 @@ hipError_t hipEventSynchronize(hipEvent_t event) {
     uint64_t t0 = tick();
     hipError_t ret = real_hipEventSynchronize(event);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipEventSynchronize", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipEventSynchronize", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -533,7 +557,7 @@ hipError_t hipGraphCreate(hipGraph_t* graph, unsigned int flags) {
     resolve_hipGraphCreate();
     if (!real_hipGraphCreate) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipGraphCreate(graph, flags);
     }
     ScopedReentrancyGuard _guard;
@@ -541,8 +565,8 @@ hipError_t hipGraphCreate(hipGraph_t* graph, unsigned int flags) {
     uint64_t t0 = tick();
     hipError_t ret = real_hipGraphCreate(graph, flags);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipGraphCreate", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipGraphCreate", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -551,7 +575,7 @@ hipError_t hipGraphInstantiate(hipGraphExec_t* exec, hipGraph_t graph,
     resolve_hipGraphInstantiate();
     if (!real_hipGraphInstantiate) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipGraphInstantiate(exec, graph, errNode, errLog, bufSize);
     }
     ScopedReentrancyGuard _guard;
@@ -559,8 +583,8 @@ hipError_t hipGraphInstantiate(hipGraphExec_t* exec, hipGraph_t graph,
     uint64_t t0 = tick();
     hipError_t ret = real_hipGraphInstantiate(exec, graph, errNode, errLog, bufSize);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipGraphInstantiate", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipGraphInstantiate", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -568,7 +592,7 @@ hipError_t hipGraphExecDestroy(hipGraphExec_t exec) {
     resolve_hipGraphExecDestroy();
     if (!real_hipGraphExecDestroy) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipGraphExecDestroy(exec);
     }
     ScopedReentrancyGuard _guard;
@@ -576,8 +600,8 @@ hipError_t hipGraphExecDestroy(hipGraphExec_t exec) {
     uint64_t t0 = tick();
     hipError_t ret = real_hipGraphExecDestroy(exec);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipGraphExecDestroy", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipGraphExecDestroy", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -585,7 +609,7 @@ hipError_t hipHostMalloc(void** ptr, size_t size, unsigned int flags) {
     resolve_hipHostMalloc();
     if (!real_hipHostMalloc) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipHostMalloc(ptr, size, flags);
     }
     ScopedReentrancyGuard _guard;
@@ -595,8 +619,8 @@ hipError_t hipHostMalloc(void** ptr, size_t size, unsigned int flags) {
     uint64_t t1 = tick();
     char args[64];
     snprintf(args, sizeof(args), "size=%zu flags=%u", size, flags);
-    get_trace_db().record_hip_api("hipHostMalloc", args, t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipHostMalloc", args, t0, t1 - t0,
+                                  corr);
     return ret;
 }
 
@@ -604,7 +628,7 @@ hipError_t hipHostFree(void* ptr) {
     resolve_hipHostFree();
     if (!real_hipHostFree) return kHipErrorUnresolved;
     if (tls_in_hip_api || !hip_api::g_enabled.load(std::memory_order_relaxed)
-        || !is_trace_ready()) {
+        || !is_recording_ready()) {
         return real_hipHostFree(ptr);
     }
     ScopedReentrancyGuard _guard;
@@ -612,8 +636,8 @@ hipError_t hipHostFree(void* ptr) {
     uint64_t t0 = tick();
     hipError_t ret = real_hipHostFree(ptr);
     uint64_t t1 = tick();
-    get_trace_db().record_hip_api("hipHostFree", "", t0, t1 - t0,
-                                  corr, getpid(), get_tid());
+    deliver_hip_api("hipHostFree", "", t0, t1 - t0,
+                                  corr);
     return ret;
 }
 

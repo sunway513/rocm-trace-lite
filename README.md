@@ -164,6 +164,111 @@ python3 -m pytest tests/ -v --timeout=180
 # CI: CPU on every push, GPU on MI355X runners
 ```
 
+## Embedding
+
+rocm-trace-lite can be embedded into another profiler or tracer by redirecting events through callback hooks instead of writing to the built-in SQLite database. This is how [rocmProfileData (RPD)](https://github.com/ROCm/rocmProfileData) integrates rocm-trace-lite as its `RtlDataSource`.
+
+### Callback API
+
+Register callbacks **before** HSA `OnLoad` fires. In practice this means setting them during your library's initialization, before the application makes its first HIP/HSA call:
+
+```cpp
+#include "trace_db.h"
+
+// Kernel dispatch completion (GPU-side, called from the completion worker thread)
+void my_kernel_handler(const trace_db::KernelEventRecord& event, void* user_data) {
+    // event.name         — demangled kernel name
+    // event.device_id    — GPU index
+    // event.queue_id     — HSA queue handle
+    // event.start_ns     — GPU start timestamp (ns)
+    // event.end_ns       — GPU end timestamp (ns)
+    // event.correlation_id
+    // event.wg_x/y/z     — workgroup dimensions
+    // event.grid_x/y/z   — grid dimensions
+}
+
+// HIP API call (CPU-side, called from the app thread, requires RTL_MODE=hip)
+void my_api_handler(const trace_db::ApiEventRecord& event, void* user_data) {
+    // event.name         — e.g. "hipModuleLaunchKernel"
+    // event.args         — formatted argument string
+    // event.start_ns     — host start timestamp (ns, CLOCK_MONOTONIC)
+    // event.end_ns       — host end timestamp (ns)
+    // event.correlation_id
+    // event.pid, event.tid
+}
+
+// 1. Register callbacks
+trace_db::set_kernel_event_callback(my_kernel_handler, nullptr);
+trace_db::set_api_event_callback(my_api_handler, nullptr);
+
+// 2. ... application runs, callbacks fire ...
+
+// 3. At shutdown, drain pending events before finalizing your storage
+trace_db::rtl_trigger_shutdown();   // joins completion worker, delivers remaining events
+// Now safe to close your database / flush tables
+```
+
+### What happens when callbacks are set
+
+- **No SQLite file is created** — `get_trace_db()` lazy init is skipped
+- **Kernel completions** route through the callback instead of `TraceDB::record_kernel()`
+- **HIP API wrappers** route through the callback instead of `TraceDB::record_hip_api()`
+- **`is_trace_ready()`** returns true for HIP wrappers even without a TraceDB, so API recording works immediately
+- **Shutdown** skips `TraceDB::flush()`/`close()` — the consumer owns flushing
+- **Fallback**: if no callback is set, everything works as before (standalone mode)
+
+### Shutdown ordering
+
+Call `rtl_trigger_shutdown()` before finalizing your own storage. This function:
+
+1. Joins the HSA completion worker thread (waits for in-flight kernel signals)
+2. Drains remaining dispatch data, delivering final events through your callback
+3. Cleans up the signal pool and queue map
+
+After it returns, no more callbacks will fire. Safe to call multiple times (idempotent).
+
+### Build integration
+
+Add rocm-trace-lite as a git submodule and compile its source files directly into your project:
+
+```makefile
+RTL_SRC = rocm-trace-lite/src
+
+# Submodule sources — compiled with your project
+RTL_OBJS = hsa_intercept.o hip_api_intercept.o trace_db.o
+
+# Your source that registers callbacks
+MY_OBJS += my_bridge.o
+
+CXXFLAGS += -I$(RTL_SRC) -DAMD_INTERNAL_BUILD -std=c++17 -fPIC
+LDFLAGS  += -lhsa-runtime64 -lsqlite3 -ldl -lpthread
+
+hsa_intercept.o: $(RTL_SRC)/hsa_intercept.cpp
+	$(CXX) -o $@ -c $< $(CXXFLAGS)
+
+hip_api_intercept.o: $(RTL_SRC)/hip_api_intercept.cpp
+	$(CXX) -o $@ -c $< $(CXXFLAGS)
+
+trace_db.o: $(RTL_SRC)/trace_db.cpp
+	$(CXX) -o $@ -c $< $(CXXFLAGS)
+```
+
+Notes:
+- `-DAMD_INTERNAL_BUILD` is required so `hsa_api_trace.h` resolves its includes correctly
+- `trace_db.cpp` is still needed — it provides `tick()`, `next_correlation_id()`, and the callback storage
+- SQLite is linked but unused when callbacks are active (no file I/O occurs)
+- The submodule's `OnLoad`/`OnUnload` symbols are exported from your shared library; set `HSA_TOOLS_LIB` to point to it (or auto-set it via `dladdr` during init — see RPD example below)
+
+### Example: RPD integration
+
+RPD adds rocm-trace-lite as a submodule and compiles the source files directly into `librpd_tracer.so`. The entire integration is a single file:
+
+**RtlDataSource.cpp** (~160 lines):
+1. `init()` — registers callbacks with `set_kernel_event_callback()` / `set_api_event_callback()`, auto-sets `HSA_TOOLS_LIB` via `dladdr` so `runTracer.sh` works unmodified
+2. `on_kernel_event()` — writes `KernelEventRecord` to RPD `OpTable` + `StringTable`
+3. `on_api_event()` — writes `ApiEventRecord` to RPD `ApiTable` / `KernelApiTable` / `CopyApiTable`
+4. `end()` — calls `rtl_trigger_shutdown()`, ensuring all events are delivered before Logger finalizes tables
+
 ## Acknowledgments
 
 This project was inspired by and builds upon the work of:

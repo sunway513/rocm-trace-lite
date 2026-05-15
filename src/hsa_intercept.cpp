@@ -255,15 +255,33 @@ static void completion_worker() {
             g_drop_ts_invalid.fetch_add(1, std::memory_order_relaxed);
         } else {
             std::string name = lookup_kernel_name(dd->kernel_object);
-            char dispatch_info[128];
-            snprintf(dispatch_info, sizeof(dispatch_info),
-                     "hwq=0x%" PRIx64 " wg=%u,%u,%u grid=%u,%u,%u",
-                     dd->hw_queue_addr,
-                     (unsigned)dd->wg_x, (unsigned)dd->wg_y, (unsigned)dd->wg_z,
-                     dd->grid_x, dd->grid_y, dd->grid_z);
-            get_trace_db().record_kernel(name.c_str(), dd->device_id, dd->queue_id,
-                                          time.start, time.end, dd->correlation_id,
-                                          dispatch_info);
+            auto kernel_cb = trace_db::get_kernel_event_callback();
+            if (kernel_cb) {
+                trace_db::KernelEventRecord rec;
+                rec.name = name.c_str();
+                rec.device_id = dd->device_id;
+                rec.queue_id = dd->queue_id;
+                rec.start_ns = time.start;
+                rec.end_ns = time.end;
+                rec.correlation_id = dd->correlation_id;
+                rec.wg_x = dd->wg_x;
+                rec.wg_y = dd->wg_y;
+                rec.wg_z = dd->wg_z;
+                rec.grid_x = dd->grid_x;
+                rec.grid_y = dd->grid_y;
+                rec.grid_z = dd->grid_z;
+                kernel_cb(rec, trace_db::get_kernel_event_callback_data());
+            } else {
+                char dispatch_info[128];
+                snprintf(dispatch_info, sizeof(dispatch_info),
+                         "hwq=0x%" PRIx64 " wg=%u,%u,%u grid=%u,%u,%u",
+                         dd->hw_queue_addr,
+                         (unsigned)dd->wg_x, (unsigned)dd->wg_y, (unsigned)dd->wg_z,
+                         dd->grid_x, dd->grid_y, dd->grid_z);
+                get_trace_db().record_kernel(name.c_str(), dd->device_id, dd->queue_id,
+                                              time.start, time.end, dd->correlation_id,
+                                              dispatch_info);
+            }
             g_recorded_ok.fetch_add(1, std::memory_order_relaxed);
         }
 
@@ -676,9 +694,11 @@ static void shutdown() {
         }
     }
 
-    // Flush and close trace DB
-    trace_db::get_trace_db().flush();
-    trace_db::get_trace_db().close();
+    // Flush and close trace DB (skip if callback hooks are set — consumer owns flushing)
+    if (!trace_db::get_kernel_event_callback() && !trace_db::get_api_event_callback()) {
+        trace_db::get_trace_db().flush();
+        trace_db::get_trace_db().close();
+    }
 
     // Destroy signal pool.
     // At this point the system is quiesced: g_shutdown is true, the worker
@@ -705,6 +725,12 @@ static void shutdown() {
 
 } // namespace hsa_intercept
 
+namespace trace_db {
+void rtl_trigger_shutdown() {
+    hsa_intercept::shutdown();
+}
+} // namespace trace_db
+
 // ---- Entry points for HSA_TOOLS_LIB ----
 
 extern "C" bool OnLoad(void* pTable,
@@ -715,8 +741,10 @@ extern "C" bool OnLoad(void* pTable,
 
     using namespace hsa_intercept;
 
-    // Ensure trace database is open
-    (void)trace_db::get_trace_db();
+    // Ensure trace database is open (skip if callback hooks are set)
+    if (!trace_db::get_kernel_event_callback() && !trace_db::get_api_event_callback()) {
+        (void)trace_db::get_trace_db();
+    }
 
     // Save original API tables
     HsaApiTable* table = reinterpret_cast<HsaApiTable*>(pTable);
