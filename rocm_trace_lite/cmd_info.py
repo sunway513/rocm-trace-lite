@@ -20,9 +20,12 @@ def run_info(args):
         print(f"  Size: {os.path.getsize(args.input) / 1024 / 1024:.1f} MB")
 
         # Tables
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        ).fetchall()]
+        tables = [
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            ).fetchall()
+        ]
         print(f"  Tables: {', '.join(tables)}")
 
         # Record counts (guard on table existence)
@@ -57,3 +60,22 @@ def run_info(args):
                 "SELECT count(DISTINCT description_id) FROM rocpd_op"
             ).fetchone()[0]
             print(f"  Unique kernels: {kernels}")
+
+        # Trace completeness warning
+        if "rocpd_metadata" in tables:
+            try:
+                row = conn.execute(
+                    "SELECT value FROM rocpd_metadata WHERE tag='drop_batch_skip'"
+                ).fetchone()
+                if row and int(row[0]) > 0:
+                    mode_row = conn.execute(
+                        "SELECT value FROM rocpd_metadata WHERE tag='rtl_mode'"
+                    ).fetchone()
+                    mode = mode_row[0] if mode_row else "unknown"
+                    print(
+                        f"\n  WARNING: INCOMPLETE TRACE — {row[0]} kernel(s) from "
+                        f"graph replay were not profiled (mode={mode})."
+                    )
+                    print("  Use '--mode full' for complete HIP graph replay coverage.")
+            except (sqlite3.OperationalError, ValueError):
+                pass

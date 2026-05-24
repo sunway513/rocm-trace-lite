@@ -48,6 +48,9 @@ public:
     void record_roctx(const char* message, uint64_t start_ns, uint64_t duration_ns,
                       uint64_t correlation_id);
 
+    // Record a metadata tag/value pair into rocpd_metadata
+    void record_metadata(const char* tag, const char* value);
+
     // Flush buffered records
     void flush();
 

@@ -279,6 +279,20 @@ void TraceDB::flush() {
     }
 }
 
+void TraceDB::record_metadata(const char* tag, const char* value) {
+    std::lock_guard<std::mutex> lock(g_db_mutex);
+    if (!db_) return;
+    sqlite3_stmt* s = nullptr;
+    if (sqlite3_prepare_v2(db_, "INSERT INTO rocpd_metadata(tag,value) VALUES(?1,?2)",
+                           -1, &s, nullptr) != SQLITE_OK) {
+        return;
+    }
+    sqlite3_bind_text(s, 1, tag, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(s, 2, value, -1, SQLITE_TRANSIENT);
+    sqlite3_step(s);
+    sqlite3_finalize(s);
+}
+
 void TraceDB::record_hip_api(const char* name, const char* args,
                               uint64_t start_ns, uint64_t duration_ns,
                               uint64_t correlation_id, int pid, int tid) {

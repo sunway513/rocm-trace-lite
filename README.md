@@ -79,6 +79,8 @@ Set via CLI (`--mode`) or env var (`RTL_MODE=lite`).
 
 **lite** skips packets that already have a completion signal (e.g., NCCL kernels, barriers), resulting in near-zero overhead and safety on ROCm <= 7.2. This is the default when `--mode` is not specified. **standard** mode profiles all count==1 dispatches including those with signals. **full** profiles everything including CUDAGraph replay batches, but requires ROCm 7.13+ to avoid a [known ROCR heap overflow](https://github.com/sunway513/rocm-trace-lite/issues/67).
 
+> **Graph replay note:** `lite`, `standard`, and `hip` modes do **not** profile kernels dispatched via HIP graph replay (`hipGraphLaunch`). If your workload uses CUDAGraph / HIP graph (e.g., ATOM/vLLM with `--enforce-eager` disabled), these modes will produce an incomplete trace — the tool will emit a `WARNING: INCOMPLETE TRACE` message at shutdown and record the gap in trace metadata. Use `--mode full` to capture all graph replay kernels.
+
 Sample output:
 
 ```text
