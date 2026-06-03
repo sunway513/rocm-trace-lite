@@ -165,7 +165,10 @@ def run_trace(args):
         except OSError:
             pass
 
-    result = subprocess.run(cmd, env=env)
+    try:
+        result = subprocess.run(cmd, env=env)
+    except KeyboardInterrupt:
+        print("\nInterrupted! Performing cleanup...")
 
     # Collect per-process trace files
     # Collect per-process files (strict PID pattern: trace_DIGITS.db)
