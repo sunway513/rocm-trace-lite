@@ -186,7 +186,7 @@ def run_trace(args):
         print("rtl: Try: export HSA_TOOLS_LIB=$(python3 -c 'from rocm_trace_lite import get_lib_path; print(get_lib_path())')", file=sys.stderr)
         print("rtl:      export RTL_OUTPUT=trace_%p.db", file=sys.stderr)
         print("rtl:      <your command>", file=sys.stderr)
-        sys.exit(result.returncode)
+        sys.exit(result.returncode if result is not None else 0)
 
     import shutil
     if len(per_process_files) == 1:
