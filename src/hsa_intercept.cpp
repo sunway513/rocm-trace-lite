@@ -31,6 +31,7 @@
 
 #include <hsa/hsa.h>
 #include <hsa/hsa_api_trace.h>
+#include <hsa/hsa_ext_amd.h>
 #include <hsa/hsa_ven_amd_loader.h>
 #include <hsa/amd_hsa_signal.h>
 
@@ -76,6 +77,26 @@ static bool g_intercept_available = false;
 //                with ROCR fix (rocm-systems commit 559d48b1). Will crash on ROCm <= 7.2.
 enum class RtlMode { STANDARD = 0, LITE = 1, FULL = 2 };
 static RtlMode g_rtl_mode = RtlMode::LITE;
+
+// RTL_DEBUG: packet-logging verbosity in the intercept callback only.
+//   1 = per-call summary, 2 = every packet (0 = off).
+static int g_debug_level = 0;
+
+// Independent debug features. Each is its own on/off env var, orthogonal to
+// RTL_DEBUG and to each other, so e.g. submit timing can be enabled without the
+// per-packet log spam:
+//   RTL_TS_DUMP=1       per-dispatch raw/system/host timestamp dump (worker)
+//   RTL_SUBMIT_TIMING=1 host-side submit-timing aggregate (intercept callback)
+static bool g_ts_dump = false;
+static bool g_submit_timing = false;
+
+// RTL_SIGNAL_GPU_ONLY (default 1): create profiling signals with
+// HSA_AMD_SIGNAL_AMD_GPU_ONLY. The CP then skips interrupt/mailbox work when it
+// stamps completion (lower, less jittery timestamp overhead) and the signal's
+// event_id is 0. GPU-only signals have no interrupt event, so the completion
+// worker must poll (HSA_WAIT_STATE_ACTIVE) instead of blocking. Toggle off to
+// A/B the interrupt overhead.
+static bool g_gpu_only_signals = true;
 
 // ---- Lock-free signal pool (Vyukov MPMC bounded ring buffer) ----
 // Replaces mutex + vector to eliminate contention on the per-dispatch hot path.
@@ -136,6 +157,17 @@ static bool central_try_push(hsa_signal_t sig) {
     }
 }
 
+// Create a profiling signal, honoring RTL_SIGNAL_GPU_ONLY. GPU-only signals
+// avoid CP interrupt/mailbox work on completion and are created with
+// event_id == 0; waiters must poll rather than block.
+static hsa_status_t create_prof_signal(hsa_signal_t& sig) {
+    if (g_gpu_only_signals && g_orig_ext.hsa_amd_signal_create_fn != nullptr) {
+        return g_orig_ext.hsa_amd_signal_create_fn(
+            1, 0, nullptr, HSA_AMD_SIGNAL_AMD_GPU_ONLY, &sig);
+    }
+    return g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig);
+}
+
 static hsa_signal_t acquire_signal() {
     hsa_signal_t sig;
     if (central_try_pop(sig)) {
@@ -143,7 +175,7 @@ static hsa_signal_t acquire_signal() {
         return sig;
     }
     // Slow path: create new signal (no lock held)
-    hsa_status_t st = g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig);
+    hsa_status_t st = create_prof_signal(sig);
     if (st != HSA_STATUS_SUCCESS) {
         sig.handle = 0;
     }
@@ -170,6 +202,20 @@ static std::atomic<uint64_t> g_injected{0};           // signals injected
 static std::atomic<uint64_t> g_injected_fallback{0};  // via kernel_object fallback
 
 static std::atomic<uint64_t> g_recorded_ok{0};
+
+// ---- Host-side submit timing (RTL_SUBMIT_TIMING=1), nanoseconds ----
+static std::atomic<uint64_t> g_t_calls{0};
+static std::atomic<uint64_t> g_t_copy_ns{0};    // memcpy of incoming AQL packets
+static std::atomic<uint64_t> g_t_copy_max{0};
+static std::atomic<uint64_t> g_t_inject_ns{0};  // per-packet signal injection loop
+static std::atomic<uint64_t> g_t_writer_ns{0};  // writer() into the real HW ring
+static std::atomic<uint64_t> g_t_writer_max{0};
+static std::atomic<uint64_t> g_t_total_ns{0};
+
+static inline void atomic_max(std::atomic<uint64_t>& m, uint64_t v) {
+    uint64_t cur = m.load(std::memory_order_relaxed);
+    while (v > cur && !m.compare_exchange_weak(cur, v, std::memory_order_relaxed)) {}
+}
 
 // ---- Completion worker ----
 static std::string lookup_kernel_name(uint64_t kernel_object);
@@ -211,12 +257,16 @@ static void completion_worker() {
 
         // Wait for kernel completion with bounded timeout.
         static constexpr uint64_t WAIT_TIMEOUT_NS = 100000000ULL;  // 100ms
+        // GPU-only profiling signals carry no interrupt event, so a blocked wait
+        // would never be woken by the GPU (only by the timeout). Poll actively.
+        const hsa_wait_state_t wait_state =
+            g_gpu_only_signals ? HSA_WAIT_STATE_ACTIVE : HSA_WAIT_STATE_BLOCKED;
         hsa_signal_value_t wait_val;
         bool abandoned = false;
         while (true) {
             wait_val = g_orig_core.hsa_signal_wait_scacquire_fn(
                 dd->profiling_signal, HSA_SIGNAL_CONDITION_LT, 1,
-                WAIT_TIMEOUT_NS, HSA_WAIT_STATE_BLOCKED);
+                WAIT_TIMEOUT_NS, wait_state);
             if (wait_val < 1) break;  // signal completed
             if (g_shutdown.load(std::memory_order_acquire)) {
                 abandoned = true;
@@ -248,6 +298,27 @@ static void completion_worker() {
         }
         hsa_status_t status = g_orig_ext.hsa_amd_profiling_get_dispatch_time_fn(
             g_gpu_agents[dd->device_id], dd->profiling_signal, &time);
+
+        if (g_ts_dump) {
+            // Raw GPU-clock timestamps live in the amd_signal_t the CP stamps.
+            // Emit: raw ticks, the runtime's system-domain ns (time.*), the
+            // raw->system conversion (should match sys_start), the host
+            // wall-clock now, and event_id (0 confirms a GPU-only signal). The
+            // three clock domains let us spot GPU-finish vs host-process skew.
+            auto* as = reinterpret_cast<amd_signal_t*>(dd->profiling_signal.handle);
+            uint64_t conv_start = 0;
+            if (g_orig_ext.hsa_amd_profiling_convert_tick_to_system_domain_fn) {
+                g_orig_ext.hsa_amd_profiling_convert_tick_to_system_domain_fn(
+                    g_gpu_agents[dd->device_id], as->start_ts, &conv_start);
+            }
+            fprintf(stderr,
+                "rtl-ts: did=%" PRIu64 " raw_start=%" PRIu64 " raw_end=%" PRIu64
+                " sys_start=%" PRIu64 " sys_end=%" PRIu64 " conv_start=%" PRIu64
+                " host_now=%" PRIu64 " event_id=%u\n",
+                dd->dispatch_id, (uint64_t)as->start_ts, (uint64_t)as->end_ts,
+                (uint64_t)time.start, (uint64_t)time.end, conv_start,
+                trace_db::tick(), as->event_id);
+        }
 
         if (status != HSA_STATUS_SUCCESS) {
             g_drop_ts_fail.fetch_add(1, std::memory_order_relaxed);
@@ -386,6 +457,12 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
         return;
     }
 
+    // Host-side submit timing (RTL_SUBMIT_TIMING=1): bracket the incoming-packet
+    // read, the inject loop, and the writer() into the real HW ring to see
+    // whether the interceptor (e.g. reads of a device-memory ring) bottlenecks
+    // submission.
+    const bool timing = g_submit_timing;
+
     // Make a mutable copy of the packet buffer to inject profiling signals.
     // Stack buffer for common case (count <= 64), heap fallback for large batches.
     // HSA spec 1.2 section 2.8: all AQL packets are 64 bytes (fixed-width slots
@@ -401,7 +478,9 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
         heap_buf.resize(buf_bytes);
         mod_buf = heap_buf.data();
     }
+    uint64_t t_copy0 = timing ? trace_db::tick() : 0;
     memcpy(mod_buf, in_packets, buf_bytes);
+    uint64_t t_copy1 = timing ? trace_db::tick() : 0;
 
     // Collect dispatch data to enqueue after writer().
     // Stack array for common case, vector fallback for large batches.
@@ -416,16 +495,12 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
     }
     uint64_t dd_count = 0;
 
-    // Debug logging: RTL_DEBUG=1 logs summary, RTL_DEBUG=2 logs every packet
-    static const int debug_level = []() {
-        const char* v = getenv("RTL_DEBUG");
-        return v ? atoi(v) : 0;
-    }();
+    // Debug logging uses the global RTL_DEBUG level (set in OnLoad).
     static std::atomic<uint64_t> debug_count{0};
     static std::atomic<uint64_t> total_pkts{0};
     uint64_t this_call = debug_count.fetch_add(1, std::memory_order_relaxed);
 
-    if (debug_level >= 1 && (this_call < 20 || count > 1 || (this_call % 1000 == 0))) {
+    if (g_debug_level >= 1 && (this_call < 20 || count > 1 || (this_call % 1000 == 0))) {
         fprintf(stderr, "rtl-dbg: call#%" PRIu64 " count=%" PRIu64 " dev=%d pid=%d\n",
                 this_call, count, qi->device_id, getpid());
     }
@@ -442,7 +517,7 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
 
     if (batch_mode && g_rtl_mode != RtlMode::FULL) {
         g_drop_batch_skip.fetch_add(count, std::memory_order_relaxed);
-        if (debug_level >= 1) {
+        if (g_debug_level >= 1) {
             fprintf(stderr, "rtl-dbg: call#%" PRIu64 " count=%" PRIu64 " dev=%d pid=%d SKIP(batch)\n",
                     this_call, count, qi->device_id, getpid());
         }
@@ -471,8 +546,8 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
 
         uint64_t pkt_num = total_pkts.fetch_add(1, std::memory_order_relaxed);
 
-        if (debug_level >= 2 ||
-            (debug_level >= 1 && (!is_kernel || pkt->completion_signal.handle != 0))) {
+        if (g_debug_level >= 2 ||
+            (g_debug_level >= 1 && (!is_kernel || pkt->completion_signal.handle != 0))) {
             fprintf(stderr, "rtl-dbg: [%" PRIu64 "] pkt#%" PRIu64 " type=%u "
                     "sig=0x%" PRIx64 " ko=0x%" PRIx64 " batch=%d pid=%d\n",
                     this_call, pkt_num, type,
@@ -526,7 +601,21 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
     }
 
     // Submit (potentially modified) packets to hardware
+    uint64_t t_wr0 = timing ? trace_db::tick() : 0;
     writer(mod_buf, count);
+    uint64_t t_wr1 = timing ? trace_db::tick() : 0;
+    if (timing) {
+        uint64_t copy_ns = t_copy1 - t_copy0;
+        uint64_t inject_ns = t_wr0 - t_copy1;
+        uint64_t writer_ns = t_wr1 - t_wr0;
+        g_t_calls.fetch_add(1, std::memory_order_relaxed);
+        g_t_copy_ns.fetch_add(copy_ns, std::memory_order_relaxed);
+        g_t_inject_ns.fetch_add(inject_ns, std::memory_order_relaxed);
+        g_t_writer_ns.fetch_add(writer_ns, std::memory_order_relaxed);
+        g_t_total_ns.fetch_add(t_wr1 - t_copy0, std::memory_order_relaxed);
+        atomic_max(g_t_copy_max, copy_ns);
+        atomic_max(g_t_writer_max, writer_ns);
+    }
 
     // Enqueue all dispatch data for completion worker
     if (dd_count > 0) {
@@ -539,6 +628,31 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
 }
 
 // ---- HSA API table replacement ----
+
+// One-time log of where the HW queue's AQL ring physically lives. For an
+// intercept queue base_address may be the shadow ring the writer feeds, but it
+// still reflects the placement HSA_ALLOCATE_QUEUE_DEV_MEM steers, which is what
+// we want to confirm took effect for the top-down test.
+static void log_queue_ring_placement(uint64_t base_addr) {
+    static std::atomic<bool> logged{false};
+    if (base_addr == 0 || logged.exchange(true)) return;
+    hsa_amd_pointer_info_t info{};
+    info.size = sizeof(info);
+    const char* placement = "unknown";
+    if (g_orig_ext.hsa_amd_pointer_info_fn &&
+        g_orig_ext.hsa_amd_pointer_info_fn(reinterpret_cast<void*>(base_addr),
+            &info, nullptr, nullptr, nullptr) == HSA_STATUS_SUCCESS &&
+        info.type != HSA_EXT_POINTER_TYPE_UNKNOWN) {
+        hsa_device_type_t dtype;
+        if (hsa_agent_get_info(info.agentOwner, HSA_AGENT_INFO_DEVICE, &dtype)
+                == HSA_STATUS_SUCCESS) {
+            placement = (dtype == HSA_DEVICE_TYPE_GPU) ? "DEVICE/VRAM" : "HOST";
+        }
+    }
+    fprintf(stderr, "rtl: HW queue ring @0x%" PRIx64 " placement=%s "
+            "(set HSA_ALLOCATE_QUEUE_DEV_MEM=1 to force DEVICE)\n",
+            base_addr, placement);
+}
 
 static hsa_status_t my_hsa_queue_create(
     hsa_agent_t agent, uint32_t size, hsa_queue_type32_t type,
@@ -589,6 +703,7 @@ static hsa_status_t my_hsa_queue_create(
     qi->device_id = 0;
     qi->queue_handle = (uint64_t)(*queue);
     qi->hw_queue_addr = (*queue) ? (uint64_t)(*queue)->base_address : 0;
+    log_queue_ring_placement(qi->hw_queue_addr);
 
     {
         std::lock_guard<std::mutex> lock(g_agent_mutex);
@@ -651,6 +766,16 @@ static void shutdown() {
     fprintf(stderr, "  drop (ts fail):      %" PRIu64 "\n", g_drop_ts_fail.load());
     fprintf(stderr, "  drop (ts invalid):   %" PRIu64 "\n", g_drop_ts_invalid.load());
     fprintf(stderr, "  recorded OK:         %" PRIu64 "\n", g_recorded_ok.load());
+    if (g_submit_timing && g_t_calls.load() > 0) {
+        uint64_t n = g_t_calls.load();
+        fprintf(stderr, "  -- submit timing (ns/call avg over %" PRIu64 ") --\n", n);
+        fprintf(stderr, "    read incoming (memcpy): avg=%" PRIu64 " max=%" PRIu64 "\n",
+                g_t_copy_ns.load() / n, g_t_copy_max.load());
+        fprintf(stderr, "    inject signals:         avg=%" PRIu64 "\n", g_t_inject_ns.load() / n);
+        fprintf(stderr, "    writer -> HW ring:      avg=%" PRIu64 " max=%" PRIu64 "\n",
+                g_t_writer_ns.load() / n, g_t_writer_max.load());
+        fprintf(stderr, "    total submit:           avg=%" PRIu64 "\n", g_t_total_ns.load() / n);
+    }
     fprintf(stderr, "====================================\n\n");
 
     // Signal worker to stop
@@ -753,6 +878,19 @@ extern "C" bool OnLoad(void* pTable,
     fprintf(stderr, "rtl: mode=%s%s\n", mode_names[(int)g_rtl_mode],
             hip_api::g_enabled.load() ? "+hip" : "");
 
+    // Debug feature flags (each independent) and GPU-only signal toggle.
+    if (const char* dbg = getenv("RTL_DEBUG")) g_debug_level = atoi(dbg);
+    if (const char* v = getenv("RTL_TS_DUMP")) g_ts_dump = (atoi(v) != 0);
+    if (const char* v = getenv("RTL_SUBMIT_TIMING")) g_submit_timing = (atoi(v) != 0);
+    if (const char* go = getenv("RTL_SIGNAL_GPU_ONLY")) g_gpu_only_signals = (atoi(go) != 0);
+    if (g_gpu_only_signals && g_orig_ext.hsa_amd_signal_create_fn == nullptr) {
+        fprintf(stderr, "rtl: hsa_amd_signal_create unavailable; using default signals\n");
+        g_gpu_only_signals = false;
+    }
+    fprintf(stderr, "rtl: profiling signals=%s, worker wait=%s\n",
+            g_gpu_only_signals ? "gpu-only (no interrupt, event_id=0)" : "default",
+            g_gpu_only_signals ? "active-poll" : "blocked");
+
     // Probe: check if hsa_amd_queue_intercept_create is functional.
     if (!g_gpu_agents.empty()) {
         hsa_queue_t* probe_q = nullptr;
@@ -781,7 +919,7 @@ extern "C" bool OnLoad(void* pTable,
     size_t filled = 0;
     for (size_t i = 0; i < 64; i++) {
         hsa_signal_t sig;
-        if (g_orig_core.hsa_signal_create_fn(1, 0, nullptr, &sig) == HSA_STATUS_SUCCESS) {
+        if (create_prof_signal(sig) == HSA_STATUS_SUCCESS) {
             if (central_try_push(sig)) {
                 filled++;
             } else {
