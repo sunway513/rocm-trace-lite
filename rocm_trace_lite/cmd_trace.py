@@ -227,7 +227,7 @@ def run_trace(args):
         size_mb = os.path.getsize(json_file) / 1024 / 1024
         print(f"  {json_file} ({size_mb:.1f} MB → open in https://ui.perfetto.dev)")
 
-    sys.exit(result.returncode)
+    sys.exit(result.returncode if result is not None else 0)
 
 
 def _checkpoint_wal(db_path):
