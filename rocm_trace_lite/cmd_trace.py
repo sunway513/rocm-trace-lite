@@ -165,7 +165,10 @@ def run_trace(args):
         except OSError:
             pass
 
-    result = subprocess.run(cmd, env=env)
+    try:
+        result = subprocess.run(cmd, env=env)
+    except KeyboardInterrupt:
+        print("\nInterrupted! Performing cleanup...")
 
     # Collect per-process trace files
     # Collect per-process files (strict PID pattern: trace_DIGITS.db)
@@ -183,7 +186,7 @@ def run_trace(args):
         print("rtl: Try: export HSA_TOOLS_LIB=$(python3 -c 'from rocm_trace_lite import get_lib_path; print(get_lib_path())')", file=sys.stderr)
         print("rtl:      export RTL_OUTPUT=trace_%p.db", file=sys.stderr)
         print("rtl:      <your command>", file=sys.stderr)
-        sys.exit(result.returncode)
+        sys.exit(result.returncode if result is not None else 0)
 
     import shutil
     if len(per_process_files) == 1:
@@ -224,7 +227,7 @@ def run_trace(args):
         size_mb = os.path.getsize(json_file) / 1024 / 1024
         print(f"  {json_file} ({size_mb:.1f} MB → open in https://ui.perfetto.dev)")
 
-    sys.exit(result.returncode)
+    sys.exit(result.returncode if result is not None else 0)
 
 
 def _checkpoint_wal(db_path):
