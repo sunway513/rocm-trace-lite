@@ -270,7 +270,11 @@ static void completion_worker() {
                 rec.grid_x = dd->grid_x;
                 rec.grid_y = dd->grid_y;
                 rec.grid_z = dd->grid_z;
-                kernel_cb(rec, trace_db::get_kernel_event_callback_data());
+                try {
+                    kernel_cb(rec, trace_db::get_kernel_event_callback_data());
+                } catch (...) {
+                    fprintf(stderr, "rtl: exception escaped kernel event callback\n");
+                }
             } else {
                 char dispatch_info[128];
                 snprintf(dispatch_info, sizeof(dispatch_info),
@@ -694,8 +698,8 @@ static void shutdown() {
         }
     }
 
-    // Flush and close trace DB (skip if callback hooks are set — consumer owns flushing)
-    if (!trace_db::get_kernel_event_callback() && !trace_db::get_api_event_callback()) {
+    // Flush and close trace DB (skip if never initialized — callback-only mode)
+    if (trace_db::is_trace_ready()) {
         trace_db::get_trace_db().flush();
         trace_db::get_trace_db().close();
     }

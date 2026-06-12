@@ -86,8 +86,8 @@ uint64_t next_correlation_id();
 // they need to retain.
 //
 // Thread safety: callbacks must be registered before OnLoad fires
-// (i.e., before any HIP/HSA call). The store happens-before any
-// reader thread exists, so plain pointers are safe.
+// (i.e., before any HIP/HSA call). Storage uses std::atomic with
+// relaxed ordering for C++ memory model correctness.
 //
 // Callback requirements: callbacks execute on hot paths (completion
 // worker thread for kernel events, application thread for API events).

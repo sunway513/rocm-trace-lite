@@ -107,7 +107,11 @@ static void deliver_hip_api(const char* name, const char* args,
         rec.correlation_id = correlation_id;
         rec.pid = getpid();
         rec.tid = get_tid();
-        cb(rec, trace_db::get_api_event_callback_data());
+        try {
+            cb(rec, trace_db::get_api_event_callback_data());
+        } catch (...) {
+            fprintf(stderr, "rtl: exception escaped API event callback\n");
+        }
     } else {
         get_trace_db().record_hip_api(name, args, start_ns, duration_ns,
                                        correlation_id, getpid(), get_tid());

@@ -8,10 +8,6 @@ GPU tests (marked gpu) validate end-to-end event delivery.
 """
 import os
 import re
-import subprocess
-import tempfile
-
-import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(REPO_ROOT, "src")
@@ -124,19 +120,18 @@ class TestSQLiteGating:
         # The gating around get_trace_db() in OnLoad should check both
         assert "get_api_event_callback()" in content
 
-    def test_shutdown_checks_both_callbacks(self):
-        """flush/close gating must check both kernel and API callbacks."""
+    def test_shutdown_guards_on_db_ready(self):
+        """flush/close gating must check is_trace_ready(), not callback state."""
         with open(HSA_INTERCEPT) as f:
             content = f.read()
-        # Find the shutdown function and verify it checks both
         match = re.search(
             r'static void shutdown\(\)\s*\{(.*?)\n\}',
             content, re.DOTALL
         )
         assert match, "Could not find shutdown()"
         body = match.group(1)
-        assert "get_api_event_callback" in body, (
-            "shutdown must check API callback before flushing SQLite"
+        assert "is_trace_ready()" in body, (
+            "shutdown must check is_trace_ready() before flushing SQLite"
         )
 
 
