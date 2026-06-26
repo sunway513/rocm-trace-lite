@@ -29,9 +29,11 @@ def _populate_roctx_trace(path):
     op(-1, "layer_1", "UserMarker", 2000, 3000, 200)
     t = 1000
     for _ in range(4):
-        op(0, "incr", "KernelExecution", t, t + 50, 100); t += 100   # tagged with layer_0's id
+        op(0, "incr", "KernelExecution", t, t + 50, 100)
+        t += 100   # tagged with layer_0's id
     for _ in range(2):
-        op(0, "dbl", "KernelExecution", t, t + 50, 200); t += 100    # tagged with layer_1's id
+        op(0, "dbl", "KernelExecution", t, t + 50, 200)
+        t += 100    # tagged with layer_1's id
     conn.commit()
     conn.close()
 
