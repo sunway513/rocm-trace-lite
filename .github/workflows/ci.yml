@@ -119,11 +119,25 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Check OpenAI credentials
+        id: creds
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$OPENAI_API_KEY" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "::notice title=GPT-5.4 review skipped::OPENAI_API_KEY is not available (secrets are not exposed to fork PRs). Skipping AI review; this is not a failure."
+          fi
+
       - name: Install openai
+        if: steps.creds.outputs.available == 'true'
         run: pip install openai
 
       - name: Get PR diff
         id: diff
+        if: steps.creds.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -131,7 +145,7 @@ jobs:
           echo "diff_size=$(wc -c < /tmp/pr.diff)" >> $GITHUB_OUTPUT
 
       - name: Review with GPT-5.4
-        if: steps.diff.outputs.diff_size != '0'
+        if: steps.creds.outputs.available == 'true' && steps.diff.outputs.diff_size != '0'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
@@ -180,7 +194,7 @@ jobs:
           python3 /tmp/review.py
 
       - name: Post review comment
-        if: steps.diff.outputs.diff_size != '0'
+        if: steps.creds.outputs.available == 'true' && steps.diff.outputs.diff_size != '0'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
