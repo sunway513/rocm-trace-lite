@@ -37,7 +37,8 @@ public:
     void record_kernel(const char* name, int device_id, uint64_t queue_id,
                        uint64_t start_ns, uint64_t end_ns,
                        uint64_t correlation_id,
-                       const char* dispatch_info = nullptr);
+                       const char* dispatch_info = nullptr,
+                       uint64_t roctx_id = 0);
 
     // Record a GPU memory copy (device-side)
     void record_copy(int src_device, int dst_device, size_t bytes,
@@ -74,5 +75,8 @@ bool is_trace_ready();
 
 // Global correlation ID counter
 uint64_t next_correlation_id();
+
+// Innermost roctx range active on the calling thread (0 if none)
+uint64_t current_roctx_id();
 
 } // namespace trace_db

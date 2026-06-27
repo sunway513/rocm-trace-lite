@@ -80,3 +80,10 @@ int roctxRangePush(const char* message) { return roctxRangePushA(message); }
 uint64_t roctxRangeStart(const char* message) { return roctxRangeStartA(message); }
 
 } // extern "C"
+
+namespace trace_db {
+// current_roctx_id — innermost active push/pop range on this thread (0 if none)
+uint64_t current_roctx_id() {
+    return tls_roctx_stack.empty() ? 0 : tls_roctx_stack.back().correlation_id;
+}
+} // namespace trace_db
