@@ -105,7 +105,10 @@ jobs:
 
   ai-review:
     name: GPT-5.4 Code Review
-    if: github.event_name == 'pull_request'
+    # Disabled until the OpenAI account quota/billing is restored (429 insufficient_quota).
+    # Re-enable by setting repository variable ENABLE_AI_REVIEW=true
+    # (gh variable set ENABLE_AI_REVIEW --body true --repo sunway513/rocm-trace-lite).
+    if: github.event_name == 'pull_request' && vars.ENABLE_AI_REVIEW == 'true'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
