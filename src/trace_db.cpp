@@ -386,4 +386,27 @@ void TraceDB::record_roctx(const char* message, uint64_t start_ns, uint64_t dura
     }
 }
 
+// ---- Callback hook storage ----
+// Set once before OnLoad, read from hot paths afterward via atomic loads.
+
+static std::atomic<ApiEventCallback> g_api_event_cb{nullptr};
+static std::atomic<void*> g_api_event_cb_data{nullptr};
+static std::atomic<KernelEventCallback> g_kernel_event_cb{nullptr};
+static std::atomic<void*> g_kernel_event_cb_data{nullptr};
+
+void set_api_event_callback(ApiEventCallback cb, void* user_data) {
+    g_api_event_cb.store(cb, std::memory_order_relaxed);
+    g_api_event_cb_data.store(user_data, std::memory_order_relaxed);
+}
+
+void set_kernel_event_callback(KernelEventCallback cb, void* user_data) {
+    g_kernel_event_cb.store(cb, std::memory_order_relaxed);
+    g_kernel_event_cb_data.store(user_data, std::memory_order_relaxed);
+}
+
+ApiEventCallback get_api_event_callback() { return g_api_event_cb.load(std::memory_order_relaxed); }
+KernelEventCallback get_kernel_event_callback() { return g_kernel_event_cb.load(std::memory_order_relaxed); }
+void* get_api_event_callback_data() { return g_api_event_cb_data.load(std::memory_order_relaxed); }
+void* get_kernel_event_callback_data() { return g_kernel_event_cb_data.load(std::memory_order_relaxed); }
+
 } // namespace trace_db
