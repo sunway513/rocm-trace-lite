@@ -105,7 +105,10 @@ jobs:
 
   ai-review:
     name: GPT-5.4 Code Review
-    if: github.event_name == 'pull_request'
+    # Disabled until the OpenAI account quota/billing is restored (429 insufficient_quota).
+    # Re-enable by setting repository variable ENABLE_AI_REVIEW=true
+    # (gh variable set ENABLE_AI_REVIEW --body true --repo sunway513/rocm-trace-lite).
+    if: github.event_name == 'pull_request' && vars.ENABLE_AI_REVIEW == 'true'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -119,11 +122,25 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Check OpenAI credentials
+        id: creds
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$OPENAI_API_KEY" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "::notice title=GPT-5.4 review skipped::OPENAI_API_KEY is not available (secrets are not exposed to fork PRs). Skipping AI review; this is not a failure."
+          fi
+
       - name: Install openai
+        if: steps.creds.outputs.available == 'true'
         run: pip install openai
 
       - name: Get PR diff
         id: diff
+        if: steps.creds.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -131,7 +148,8 @@ jobs:
           echo "diff_size=$(wc -c < /tmp/pr.diff)" >> $GITHUB_OUTPUT
 
       - name: Review with GPT-5.4
-        if: steps.diff.outputs.diff_size != '0'
+        id: review
+        if: steps.creds.outputs.available == 'true' && steps.diff.outputs.diff_size != '0'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
@@ -140,7 +158,6 @@ jobs:
           import os, sys
           from openai import OpenAI
 
-          client = OpenAI()
           model = os.environ.get("REVIEW_MODEL", "gpt-5.4")
 
           with open("/tmp/pr.diff") as f:
@@ -150,10 +167,12 @@ jobs:
           if len(diff) > 80000:
               diff = diff[:80000] + "\n\n... [diff truncated, too large for review] ..."
 
-          response = client.chat.completions.create(
-              model=model,
-              messages=[
-                  {"role": "system", "content": """You are a senior GPU systems engineer reviewing code for rocm-trace-lite,
+          try:
+              client = OpenAI()
+              response = client.chat.completions.create(
+                  model=model,
+                  messages=[
+                      {"role": "system", "content": """You are a senior GPU systems engineer reviewing code for rocm-trace-lite,
           a self-contained GPU kernel profiler for ROCm that must have ZERO dependency on roctracer or rocprofiler-sdk.
 
           Review the PR diff for:
@@ -165,11 +184,16 @@ jobs:
 
           Be concise. Flag only real issues, not style nitpicks. Use markdown.
           Start with a one-line verdict: LGTM, MINOR ISSUES, or NEEDS CHANGES."""},
-                  {"role": "user", "content": f"Review this PR diff:\n\n```diff\n{diff}\n```"}
-              ],
-              temperature=0.2,
-              max_completion_tokens=2000,
-          )
+                      {"role": "user", "content": f"Review this PR diff:\n\n```diff\n{diff}\n```"}
+                  ],
+                  temperature=0.2,
+                  max_completion_tokens=2000,
+              )
+          except Exception as e:
+              # The AI review is advisory. A provider-side error (quota, rate limit,
+              # model unavailable, network) must not hard-fail the check and block merges.
+              print(f"::warning title=GPT-5.4 review unavailable::OpenAI request failed, skipping review: {type(e).__name__}: {e}")
+              sys.exit(0)
 
           review = response.choices[0].message.content
           print(review)
@@ -178,9 +202,14 @@ jobs:
               f.write(f"## 🤖 GPT-5.4 Code Review\n\n{review}\n\n---\n*Model: {model}*\n")
           PYEOF
           python3 /tmp/review.py
+          if [ -f /tmp/review.md ]; then
+            echo "produced=true" >> $GITHUB_OUTPUT
+          else
+            echo "produced=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Post review comment
-        if: steps.diff.outputs.diff_size != '0'
+        if: steps.review.outputs.produced == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
