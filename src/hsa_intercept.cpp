@@ -651,7 +651,17 @@ static void shutdown() {
     fprintf(stderr, "  drop (ts fail):      %" PRIu64 "\n", g_drop_ts_fail.load());
     fprintf(stderr, "  drop (ts invalid):   %" PRIu64 "\n", g_drop_ts_invalid.load());
     fprintf(stderr, "  recorded OK:         %" PRIu64 "\n", g_recorded_ok.load());
-    fprintf(stderr, "====================================\n\n");
+    fprintf(stderr, "====================================\n");
+
+    uint64_t batch_skipped = g_drop_batch_skip.load();
+    if (batch_skipped > 0) {
+        fprintf(stderr,
+            "\n*** WARNING: INCOMPLETE TRACE — %" PRIu64 " GPU kernel(s) from graph replay "
+            "were not profiled. ***\n"
+            "*** Use '--mode full' (or RTL_MODE=full) for complete HIP graph replay coverage. ***\n",
+            batch_skipped);
+    }
+    fprintf(stderr, "\n");
 
     // Signal worker to stop
     g_shutdown.store(true, std::memory_order_release);
@@ -673,6 +683,27 @@ static void shutdown() {
             }
             release_signal(dd->profiling_signal);
             delete dd;
+        }
+    }
+
+    // Write profiling metadata to DB before closing
+    {
+        static const char* mode_names[] = {"standard", "lite", "full"};
+        std::string mode_str = mode_names[(int)g_rtl_mode];
+        if (hip_api::g_enabled.load()) mode_str += "+hip";
+        trace_db::get_trace_db().record_metadata("rtl_mode", mode_str.c_str());
+
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%" PRIu64, batch_skipped);
+        trace_db::get_trace_db().record_metadata("drop_batch_skip", buf);
+
+        snprintf(buf, sizeof(buf), "%" PRIu64, g_recorded_ok.load());
+        trace_db::get_trace_db().record_metadata("recorded_ok", buf);
+
+        if (batch_skipped > 0) {
+            trace_db::get_trace_db().record_metadata("trace_complete", "false");
+        } else {
+            trace_db::get_trace_db().record_metadata("trace_complete", "true");
         }
     }
 
@@ -737,8 +768,12 @@ extern "C" bool OnLoad(void* pTable,
     if (mode_env) {
         if (strcmp(mode_env, "lite") == 0) {
             g_rtl_mode = RtlMode::LITE;
-        } else if (strcmp(mode_env, "standard") == 0 || strcmp(mode_env, "default") == 0) {
+        } else if (strcmp(mode_env, "standard") == 0) {
             g_rtl_mode = RtlMode::STANDARD;
+        } else if (strcmp(mode_env, "default") == 0) {
+            g_rtl_mode = RtlMode::STANDARD;
+            fprintf(stderr, "rtl: WARNING: RTL_MODE='default' is deprecated and misleading "
+                    "(actual default is 'lite'). Use 'standard' instead.\n");
         } else if (strcmp(mode_env, "full") == 0) {
             g_rtl_mode = RtlMode::FULL;
         } else if (strcmp(mode_env, "hip") == 0) {
