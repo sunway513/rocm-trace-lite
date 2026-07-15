@@ -185,6 +185,7 @@ struct DispatchData {
     uint64_t hw_queue_addr;         // HW queue base_address
     uint16_t wg_x, wg_y, wg_z;     // workgroup size from AQL packet
     uint32_t grid_x, grid_y, grid_z; // grid size from AQL packet
+    uint64_t roctx_id;              // enclosing roctx range (host thread)
 };
 
 static std::mutex g_work_mutex;
@@ -284,7 +285,7 @@ static void completion_worker() {
                          dd->grid_x, dd->grid_y, dd->grid_z);
                 get_trace_db().record_kernel(name.c_str(), dd->device_id, dd->queue_id,
                                               time.start, time.end, dd->correlation_id,
-                                              dispatch_info);
+                                              dispatch_info, dd->roctx_id);
             }
             g_recorded_ok.fetch_add(1, std::memory_order_relaxed);
         }
@@ -530,6 +531,7 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
         auto* dd = new DispatchData;
         dd->dispatch_id = g_dispatch_id.fetch_add(1, std::memory_order_relaxed);
         dd->correlation_id = next_correlation_id();
+        dd->roctx_id = trace_db::current_roctx_id();
         dd->kernel_object = pkt->kernel_object;
         dd->device_id = qi->device_id;
         dd->queue_id = qi->queue_handle;

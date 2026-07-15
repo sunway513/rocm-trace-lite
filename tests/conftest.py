@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS rocpd_op (
     start INTEGER,
     end INTEGER,
     description_id INTEGER REFERENCES rocpd_string(id),
-    opType_id INTEGER REFERENCES rocpd_string(id)
+    opType_id INTEGER REFERENCES rocpd_string(id),
+    roctxId INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS rocpd_api (
     id INTEGER PRIMARY KEY,

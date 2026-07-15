@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS rocpd_op (
     start INTEGER,
     end INTEGER,
     description_id INTEGER REFERENCES rocpd_string(id),
-    opType_id INTEGER REFERENCES rocpd_string(id)
+    opType_id INTEGER REFERENCES rocpd_string(id),
+    roctxId INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS rocpd_api (
     id INTEGER PRIMARY KEY,
@@ -215,10 +216,10 @@ bool TraceDB::open(const std::string& filename) {
                  &stmt_kernel_, "api_insert"))
         return false;
 
-    if (!prepare("INSERT INTO rocpd_op(gpuId,queueId,sequenceId,completionSignal,start,end,description_id,opType_id) "
+    if (!prepare("INSERT INTO rocpd_op(gpuId,queueId,sequenceId,completionSignal,start,end,description_id,opType_id,roctxId) "
                  "VALUES(?1,?2,0,?7,?3,?4,"
                  "(SELECT id FROM rocpd_string WHERE string=?5),"
-                 "(SELECT id FROM rocpd_string WHERE string=?6))",
+                 "(SELECT id FROM rocpd_string WHERE string=?6),?8)",
                  &stmt_copy_, "op_insert"))
         return false;
 
@@ -308,7 +309,7 @@ void TraceDB::record_hip_api(const char* name, const char* args,
 void TraceDB::record_kernel(const char* name, int device_id, uint64_t queue_id,
                              uint64_t start_ns, uint64_t end_ns,
                              uint64_t correlation_id,
-                             const char* dispatch_info) {
+                             const char* dispatch_info, uint64_t roctx_id) {
     std::lock_guard<std::mutex> lock(g_db_mutex);
     if (!db_) return;
 
@@ -327,6 +328,7 @@ void TraceDB::record_kernel(const char* name, int device_id, uint64_t queue_id,
     } else {
         sqlite3_bind_null(stmt_copy_, 7);
     }
+    sqlite3_bind_int64(stmt_copy_, 8, (sqlite3_int64)roctx_id);
     if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
@@ -354,6 +356,7 @@ void TraceDB::record_copy(int src_device, int dst_device, size_t bytes,
     sqlite3_bind_text(stmt_copy_, 5, desc, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_copy_, 6, "CopyDeviceToDevice", -1, SQLITE_STATIC);
     sqlite3_bind_null(stmt_copy_, 7);
+    sqlite3_bind_int64(stmt_copy_, 8, 0);
     if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
@@ -378,6 +381,7 @@ void TraceDB::record_roctx(const char* message, uint64_t start_ns, uint64_t dura
     sqlite3_bind_text(stmt_copy_, 5, message, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_copy_, 6, "UserMarker", -1, SQLITE_STATIC);
     sqlite3_bind_null(stmt_copy_, 7);
+    sqlite3_bind_int64(stmt_copy_, 8, (sqlite3_int64)correlation_id);
     if (step_ok(stmt_copy_)) { ++records_written_; } else { ++records_dropped_; }
 
     if (++batch_count_ >= 1000) {
