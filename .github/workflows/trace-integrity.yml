@@ -1,0 +1,36 @@
+name: Trace integrity
+on: [pull_request, workflow_dispatch]
+jobs:
+  native-roctx:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y g++ libsqlite3-dev
+      - run: pip install pytest
+      - run: python -m pytest tests/test_merge_integrity.py tests/test_native_roctx.py -v
+  gpu-merge:
+    runs-on: linux-rocm-trace-lite-mi355-1
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate real per-process HIP traces
+        run: |
+          docker run --rm --device=/dev/kfd --device=/dev/dri \
+            --group-add render --group-add video \
+            -v "${{ github.workspace }}:/workspace" -w /workspace \
+            rocm/dev-ubuntu-24.04:latest bash -c '
+              set -euo pipefail
+              apt-get update -qq
+              apt-get install -y libsqlite3-dev python3-pip
+              pip install --break-system-packages pytest
+              make -j4 librtl.so tests/trace_regions
+              python3 -m pytest tests/test_gpu_merge_integrity.py -v --junitxml=trace-integrity.xml
+            '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trace-integrity
+          path: trace-integrity.xml
