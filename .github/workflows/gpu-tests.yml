@@ -27,7 +27,7 @@ jobs:
             -w /workspace \
             ${{ env.GPU_CONTAINER }} \
             bash -c '
-              set -e
+              set -euo pipefail
 
               # Build librtl.so + HIP test workload
               apt-get update -qq && apt-get install -y -qq libsqlite3-dev python3-pip > /dev/null 2>&1
@@ -43,15 +43,7 @@ jobs:
               echo "GPU verified via HIP"
 
               # Run GPU tests
-              python3 -m pytest tests/test_gpu_hip.py -v --tb=short --timeout=120 2>&1 | tee /workspace/gpu-test-results.txt
-
-              # Guard: fail if no GPU tests passed
-              gpu_passed=$(grep -c "PASSED" /workspace/gpu-test-results.txt || echo 0)
-              echo "GPU tests passed: $gpu_passed"
-              if [ "$gpu_passed" -lt 5 ]; then
-                echo "FATAL: fewer than 5 GPU tests passed"
-                exit 1
-              fi
+              bash tools/run_gpu_tests.sh /workspace/gpu-test-results.txt 5 tests/test_gpu_hip.py --tb=short --timeout=120
             '
 
       - name: Upload results
@@ -80,7 +72,7 @@ jobs:
             -w /workspace \
             ${{ env.GPU_CONTAINER }} \
             bash -c '
-              set -e
+              set -euo pipefail
 
               # Build librtl.so + HIP test workload
               apt-get update -qq && apt-get install -y -qq libsqlite3-dev python3-pip > /dev/null 2>&1
@@ -96,15 +88,8 @@ jobs:
               echo "GPU verified via HIP"
 
               # Run all tests (GPU HIP + CPU)
-              python3 -m pytest tests/test_gpu_hip.py tests/ -v --tb=short --timeout=180 2>&1 | tee /workspace/gpu-test-results.txt
-
-              # Guard
-              gpu_passed=$(grep -c "PASSED" /workspace/gpu-test-results.txt || echo 0)
-              echo "GPU tests passed: $gpu_passed"
-              if [ "$gpu_passed" -lt 10 ]; then
-                echo "FATAL: fewer than 10 tests passed"
-                exit 1
-              fi
+              bash tools/run_gpu_tests.sh /workspace/gpu-test-results.txt 10 tests/test_gpu_hip.py --tb=short --timeout=180
+              python3 -m pytest tests/ --ignore=tests/test_gpu_hip.py -v --tb=short --timeout=180
             '
 
       - name: Upload results
