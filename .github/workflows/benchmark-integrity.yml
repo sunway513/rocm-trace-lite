@@ -1,0 +1,33 @@
+name: Benchmark integrity
+on: [pull_request, workflow_dispatch]
+jobs:
+  benchmark-cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pytest pyyaml
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pytest profiler_perf_bench/tests --ignore=profiler_perf_bench/tests/integration -v
+  benchmark-gpu:
+    runs-on: linux-rocm-trace-lite-mi355-1
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify workload marker and GPU kernels in torch trace
+        run: |
+          docker run --rm --device=/dev/kfd --device=/dev/dri \
+            -v "${{ github.workspace }}:/workspace" -w /workspace \
+            rocm/atom@sha256:13d8564eeef3a267c1cc25410c78029097bd8f218b71ef37d32df971d73d25bb \
+            bash -c '
+              set -euo pipefail
+              python3 -c "import torch; assert torch.cuda.is_available()"
+              python3 -m pytest profiler_perf_bench/tests/test_measurement_integrity.py -v --junitxml=benchmark-integrity.xml
+            '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-integrity
+          path: benchmark-integrity.xml
