@@ -33,6 +33,12 @@ One command to profile, one file to analyze.
    </div>
 
 
+Try a trace without model weights
+----------------------------------
+
+Download the `small GPT-OSS TP8 trace example <example_trace.html>`_ and open it
+in Perfetto. It contains 1,382 GPU kernels and needs no GPU or ROCm installation to view.
+
 Quick Example
 -------------
 
@@ -117,6 +123,7 @@ Supported Hardware
    installation
    performance
    quickstart
+   example_trace
    cli_reference
 
 .. toctree::
