@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Require lossless standard/full-mode capture of the native graph stress workload.
 
-Requires the ROCm 10 runtime from benchmarks/e2e/Dockerfile. Each selected
+Requires ROCm 10, as pinned in native GPU CI or benchmarks/e2e/Dockerfile. Each selected
 physical GPU runs an isolated process; an empty trace is always a failure.
 """
 import argparse

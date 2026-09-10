@@ -17,6 +17,12 @@ installed as Python packages; use its `HIP_PATH` and `hipcc` on PATH, rather
 than assuming `/opt/rocm` exists. `torch.version.hip` reports 7.15.26333 in
 this image; the SDK distribution version is 10.0.0.
 
+Native GPU CI uses the smaller ROCm 10 development image pinned in
+`.github/workflows/gpu-tests.yml`. Its HIP workloads, SQLite checks, and Python
+test harness do not depend on PyTorch or vLLM. CI adds the SDK runtime library
+path explicitly because the development image does not register HIP with the
+system loader. The vLLM image above remains the serving and latency baseline.
+
 TheRock 10.0 contains ROCR fix
 [`559d48b1`](https://github.com/ROCm/rocm-systems/commit/559d48b1f013a2a8e9decd2557508de7ac6c6b10),
 which sizes the intercept staging buffer to the queue rather than 256 packets.

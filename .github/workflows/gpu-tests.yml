@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  GPU_CONTAINER: vllm/vllm-openai-rocm@sha256:72e90adf360ccffb231a098a15eadfb808719c029c6cd43f6386095064552b7e
+  GPU_CONTAINER: rocm/dev-ubuntu-24.04@sha256:a90cf047f615abe70fbef83c64def0a2d549ef37a39c8ea545430aba4981b374
 
 jobs:
   gpu-single:
@@ -33,6 +33,8 @@ jobs:
             ${{ env.GPU_CONTAINER }} \
             -c '
               set -euo pipefail
+              rtl_rocm_root="${ROCM_PATH:-${HIP_PATH:-/opt/rocm}}"
+              export LD_LIBRARY_PATH="$rtl_rocm_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
               # Build librtl.so + HIP test workload
               apt-get update -qq && apt-get install -y -qq libsqlite3-dev python3-pip > /dev/null 2>&1
@@ -96,6 +98,8 @@ jobs:
             ${{ env.GPU_CONTAINER }} \
             -c '
               set -euo pipefail
+              rtl_rocm_root="${ROCM_PATH:-${HIP_PATH:-/opt/rocm}}"
+              export LD_LIBRARY_PATH="$rtl_rocm_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
               # Build librtl.so + HIP test workload
               apt-get update -qq && apt-get install -y -qq libsqlite3-dev python3-pip > /dev/null 2>&1
