@@ -1,16 +1,33 @@
 # Quick Start
 
+Install the candidate as described in [installation](installation.md).
+
+## First trace without PyTorch
+
+From a source checkout in the ROCm development image, compile the small HIP workload, then run it with your installed wheel:
+
+```bash
+hipcc -O2 tests/gpu_workload.hip -o /tmp/rtl-example -lpthread
+cd /tmp
+rtl trace --mode standard -o first-trace.db -- ./rtl-example short 100
+rtl info first-trace.db
+rtl summary first-trace.db
+sqlite3 first-trace.db "PRAGMA integrity_check;"
+```
+
+The example submits 100 `vec_add` kernels. Check that all 100 appear before interpreting timing. Open the generated `first-trace.json.gz` in [Perfetto](https://ui.perfetto.dev). This small workload checks installation and capture; its timing is not a model performance estimate.
+
 ## Basic usage
 
 Profile any GPU workload with a single command:
 
 ```bash
-rtl trace -o trace.db python3 my_model.py
+rtl trace --mode standard -o trace.db python3 my_model.py
 ```
 
 This automatically:
 1. Injects the profiler library via `HSA_TOOLS_LIB`
-2. Captures all GPU kernel dispatches with timestamps
+2. Captures intercepted GPU kernel dispatches with timestamps in standard mode
 3. Merges per-process traces (for multi-GPU / distributed workloads)
 4. Generates a summary, Perfetto JSON, and SQLite database
 
@@ -69,7 +86,7 @@ sqlite3 trace.db "
 rocm-trace-lite automatically handles multi-process workloads (e.g., `torchrun`):
 
 ```bash
-rtl trace -o trace.db torchrun --nproc_per_node=8 my_model.py
+rtl trace --mode standard -o trace.db torchrun --nproc_per_node=8 my_model.py
 ```
 
 Each process writes to its own trace file (`trace_<PID>.db`), which are
@@ -81,7 +98,8 @@ Applications that use roctx markers are captured automatically:
 
 ```python
 import ctypes
-lib = ctypes.CDLL("librtl.so")
+from rocm_trace_lite import get_lib_path
+lib = ctypes.CDLL(get_lib_path())
 
 # Nested ranges (push/pop)
 lib.roctxRangePushA(b"forward_pass")
@@ -90,6 +108,7 @@ lib.roctxRangePop()
 
 # Non-nested ranges (start/stop)
 lib.roctxRangeStartA.restype = ctypes.c_uint64
+lib.roctxRangeStop.argtypes = [ctypes.c_uint64]
 rid = lib.roctxRangeStartA(b"data_loading")
 # ... work ...
 lib.roctxRangeStop(rid)
@@ -98,22 +117,13 @@ lib.roctxRangeStop(rid)
 lib.roctxMarkA(b"checkpoint")
 ```
 
-These appear as `UserMarker` events in the trace.
+These are stored as `UserMarker` records in SQLite. The current Perfetto converter does not export all ROCTX records; verify annotations in SQLite when completeness matters.
 
 ## CUDAGraph / HIP graph compatibility
 
-CUDAGraph replay submits batch AQL packets that are incompatible with signal injection.
-rocm-trace-lite automatically skips batch submissions (`count > 1`), so graph-replayed
-kernels are not profiled but the application runs correctly.
+On the validated ROCm 10 runtime, **standard** and **full** capture graph replay kernels. The runtime includes the staging-buffer fix needed for safe interception, so the former batch-skip workaround is removed.
 
-If you still see crashes (e.g., graph capture baking stale signal handles), use
-**lite** mode which skips packets that already have a completion signal:
-
-```bash
-rtl trace --mode lite -o trace.db python3 my_cudagraph_model.py
-```
-
-Lite mode provides near-zero overhead and is the safest option for CUDAGraph workloads.
+**lite**, the default, still omits individual packets with an existing completion signal and can produce an incomplete graph timeline. Choose standard for completeness checks. Unpatched older runtimes are unsupported in this candidate.
 
 ## Environment variables
 
@@ -125,12 +135,14 @@ Lite mode provides near-zero overhead and is the safest option for CUDAGraph wor
 
 ### Profiling modes
 
-| Mode | GPU timing | HIP API | Graph replay | Overhead | Use case |
-|------|-----------|---------|-------------|----------|----------|
-| **lite** | Yes (partial) | No | Skipped | ~0% | Production / always-on |
-| **standard** | Yes | No | Skipped | ~2-4% | General profiling |
-| **full** | Yes (all) | No | Profiled | ~2-5% | Deep analysis (ROCm 7.13+ only) |
-| **hip** | Yes | Yes | Skipped | <1% | CPU+GPU correlation |
+| Mode | GPU timing | HIP API | Graph replay | Intended scope |
+|------|-----------|---------|-------------|----------------|
+| **lite** (default) | Partial | No | Partial | Sampling dispatches without an existing completion signal |
+| **standard** | All intercepted kernels | No | Profiled | GPU timeline and kernel analysis |
+| **full** | Same as standard | No | Profiled | Compatibility name for standard GPU coverage |
+| **hip** | GPU timing plus wrapped APIs | Yes | Profiled | Selected HIP API correlation; separate validation required |
+
+Overhead depends on launch rate, capture coverage, mode and runtime. Use `--mode standard` when validating completeness. See [measured performance and limitations](performance.md); no fixed overhead percentage applies to every workload.
 
 ## TraceLens analysis
 
@@ -150,6 +162,6 @@ For advanced control, set environment variables directly:
 ```bash
 export HSA_TOOLS_LIB=/path/to/librtl.so
 export RTL_OUTPUT=my_trace.db
-export RTL_MODE=lite    # optional: lite for ~0% overhead
+export RTL_MODE=lite    # partial dispatch coverage
 python3 my_model.py
 ```

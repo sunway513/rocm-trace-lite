@@ -39,7 +39,7 @@ def find_source_dir():
     return None, None
 
 
-def compile_librtl(output_dir, rocm_path=None):
+def compile_librtl(output_dir, rocm_path=None, force=False):
     """Compile librtl.so into output_dir. Returns (success, message)."""
     if rocm_path is None:
         rocm_path = find_rocm_path()
@@ -60,12 +60,13 @@ def compile_librtl(output_dir, rocm_path=None):
     env["HIP_PATH"] = rocm_path
 
     try:
-        subprocess.check_call(
-            ["make", "-j%d" % (os.cpu_count() or 1), "librtl.so"],
+        subprocess.run(
+            ["make"] + (["-B"] if force else []) + ["-j%d" % (os.cpu_count() or 1), "librtl.so"],
             cwd=project_root,
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            check=True,
         )
         built = os.path.join(project_root, "librtl.so")
         if not os.path.isfile(built):
@@ -74,5 +75,5 @@ def compile_librtl(output_dir, rocm_path=None):
         shutil.copy2(built, dest)
         return True, dest
     except subprocess.CalledProcessError as e:
-        stderr = e.stderr.decode("utf-8", errors="replace")[:500] if e.stderr else ""
+        stderr = e.stderr.decode("utf-8", errors="replace")[-2000:] if e.stderr else ""
         return False, "Compilation failed (exit %d): %s" % (e.returncode, stderr)

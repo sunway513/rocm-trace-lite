@@ -3,88 +3,124 @@ name: Build and Release
 on:
   push:
     tags: ['v*']
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'setup.py'
+      - 'pyproject.toml'
+      - 'MANIFEST.in'
+      - 'Makefile'
+      - 'rocm_trace_lite/_build.py'
+      - 'tools/verify_release.py'
+      - 'tools/check_source_build_failure.py'
+      - 'tools/check_graph_capture.py'
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GPU_CONTAINER: rocm/dev-ubuntu-24.04@sha256:a90cf047f615abe70fbef83c64def0a2d549ef37a39c8ea545430aba4981b374
 
 jobs:
   build-wheel:
-    name: Build wheel (ROCm 7.2)
+    name: Build and verify sdist/wheel (ROCm 10)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     container:
-      image: rocm/dev-ubuntu-24.04:7.2
+      image: rocm/dev-ubuntu-24.04@sha256:a90cf047f615abe70fbef83c64def0a2d549ef37a39c8ea545430aba4981b374
+    env:
+      LD_LIBRARY_PATH: /opt/rocm/lib:/opt/rocm/core-10.0/lib
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install build deps
+      - name: Install build tools
         run: |
-          apt-get update && apt-get install -y python3-pip python3-venv python3-full sqlite3 libsqlite3-dev
+          set -eu
+          apt-get update -qq
+          apt-get install -y -qq python3-venv libsqlite3-dev
           python3 -m venv /tmp/build-venv
-          /tmp/build-venv/bin/pip install build wheel setuptools
-
-      - name: Build librtl.so
-        run: make -j$(nproc)
-
-      - name: Verify no forbidden deps
+          /tmp/build-venv/bin/pip install build wheel setuptools twine
+      - name: Build wheel from the sdist and verify a fresh installation
         run: |
-          ldd librtl.so
-          ldd librtl.so | grep -E "roctracer|rocprofiler-sdk|libroctx64" && exit 1 || echo "Clean"
-
-      - name: Stage .so into package
-        run: |
-          mkdir -p rocm_trace_lite/lib
-          cp librtl.so rocm_trace_lite/lib/
-
-      - name: Build wheel
-        run: /tmp/build-venv/bin/python -m build --wheel --no-isolation
-
-      - name: Verify wheel contents
-        run: |
-          /tmp/build-venv/bin/pip install dist/*.whl
-          /tmp/build-venv/bin/rtl --version
-          /tmp/build-venv/bin/python -c "from rocm_trace_lite import get_lib_path; print(get_lib_path())"
-
+          set -eu
+          /tmp/build-venv/bin/python -m build --no-isolation
+          /tmp/build-venv/bin/python -m twine check --strict dist/*
+          /tmp/build-venv/bin/python tools/verify_release.py dist
+          /tmp/build-venv/bin/python tools/check_source_build_failure.py dist/*.tar.gz
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel
-          path: dist/*.whl
+          name: release-candidate
+          path: dist/*
+          if-no-files-found: error
+
+  installed-gpu:
+    name: Installed wheel (8x MI355X)
+    needs: build-wheel
+    runs-on: linux-rocm-trace-lite-mi355-8
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: dist/
+      - name: Validate installed-wheel graph capture on eight GPUs
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$GPU_CONTAINER"
+          device_groups=()
+          while read -r gid; do device_groups+=(--group-add "$gid"); done < <(stat -c %g /dev/kfd /dev/dri/renderD* | sort -u)
+          docker run --rm "${device_groups[@]}" \
+            --device=/dev/kfd --device=/dev/dri \
+            --security-opt seccomp=unconfined \
+            -v "$GITHUB_WORKSPACE:/workspace" -w /tmp \
+            --entrypoint bash "$GPU_CONTAINER" -c '
+              set -euo pipefail
+              export LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/core-10.0/lib
+              apt-get update -qq
+              apt-get install -y -qq python3-venv libsqlite3-0
+              cd /workspace/dist
+              sha256sum --check SHA256SUMS
+              cd /tmp
+              python3 -m venv /tmp/installed
+              /tmp/installed/bin/pip install --no-index --no-deps /workspace/dist/*.whl
+              /tmp/installed/bin/python -I -c "from pathlib import Path; import sys; from rocm_trace_lite import get_lib_path; p=Path(get_lib_path()).resolve(); assert Path(sys.prefix) in p.parents; print(p)"
+              /tmp/installed/bin/python /workspace/tools/check_graph_capture.py \
+                --installed --devices 0,1,2,3,4,5,6,7 --output /workspace/wheel-gpu
+            '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-wheel-gpu-evidence
+          path: |
+            wheel-gpu/summary.json
+            wheel-gpu/*.log
 
   release:
     name: Create GitHub Release
-    needs: build-wheel
+    needs: [build-wheel, installed-gpu]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: wheel
+          name: release-candidate
           path: dist/
-
-      - name: Create Release
+      - name: Create release with verified artifacts
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          TAG=${GITHUB_REF#refs/tags/}
-          gh release create $TAG dist/*.whl \
-            --repo ${{ github.repository }} \
-            --title "rocm-trace-lite $TAG" \
-            --notes "$(cat <<'EOF'
-          ## Installation
-
-          ```bash
-          pip install rocm_trace_lite-*.whl
-          ```
-
-          ## Usage
-
-          ```bash
-          rtl trace python3 my_model.py
-          ```
-
-          This generates the trace database, prints a kernel summary, and produces a compressed Perfetto JSON — all in one command.
-
-          ## Requirements
-          - ROCm 6.2+ or 7.x
-          - Linux x86_64
-          EOF
-          )"
+          set -euo pipefail
+          tag=${GITHUB_REF#refs/tags/}
+          flags=()
+          if [[ "$tag" == *rc* || "$tag" == *a[0-9]* || "$tag" == *b[0-9]* || "$tag" == *dev* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$tag" dist/* --verify-tag "${flags[@]}" \
+            --repo "$GITHUB_REPOSITORY" --title "rocm-trace-lite $tag" \
+            --notes-file docs/release-notes.md
