@@ -11,23 +11,108 @@ jobs:
       - run: pip install pytest pyyaml
       - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
       - run: python -m pytest profiler_perf_bench/tests --ignore=profiler_perf_bench/tests/integration -v
+  prepare-torch-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_IMAGE: rocm/atom@sha256:13d8564eeef3a267c1cc25410c78029097bd8f218b71ef37d32df971d73d25bb
+      RUNTIME_IMAGE: ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reserve ephemeral hosted-runner space for the original image
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          df -h /
+      - name: Prepare original Torch runtime on the CPU runner
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-artifact
+          docker pull "$SOURCE_IMAGE"
+          docker run --rm --entrypoint bash \
+            -v "$PWD:/workspace" -w /workspace "$SOURCE_IMAGE" -c '
+              set -euo pipefail
+              test ! -e /dev/kfd
+              python3 tools/build_benchmark_runtime.py --source-image "'"$SOURCE_IMAGE"'" \
+                --output benchmark-artifact/benchmark-runtime.tar.gz
+            '
+      - name: Verify CPU import and profiler in an isolated small runtime
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint bash \
+            -v "$PWD:/workspace" -w /workspace "$RUNTIME_IMAGE" -c '
+              set -euo pipefail
+              test ! -e /dev/kfd
+              apt-get update -qq
+              apt-get install -y python3 libstdc++6 libsqlite3-0
+              cd benchmark-artifact
+              sha256sum -c benchmark-runtime.tar.gz.sha256
+              tar -xzf benchmark-runtime.tar.gz -C /tmp
+              cd /tmp/benchmark-runtime
+              sha256sum -c SHA256SUMS > /workspace/benchmark-artifact/internal-sha-check.log
+              export PYTHONPATH=/tmp/benchmark-runtime/python:/workspace
+              export LD_LIBRARY_PATH=/tmp/benchmark-runtime/lib:/tmp/benchmark-runtime/python/torch/lib
+              cd /workspace
+              python3 -m pytest profiler_perf_bench/tests/test_measurement_integrity.py -v \
+                --junitxml=benchmark-artifact/isolated-cpu.xml
+              python3 tools/check_benchmark_ci.py benchmark-artifact/isolated-cpu.xml
+            '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-runtime
+          path: benchmark-artifact/benchmark-runtime.tar.gz*
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-runtime-cpu-evidence
+          path: |
+            benchmark-artifact/isolated-cpu.xml
+            benchmark-artifact/internal-sha-check.log
   benchmark-gpu:
+    needs: prepare-torch-runtime
     runs-on: linux-rocm-trace-lite-mi355-1
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Verify workload marker and GPU kernels in torch trace
+      - uses: actions/download-artifact@v4
+        with:
+          name: benchmark-runtime
+          path: benchmark-artifact
+      - name: Verify workload marker and GPU kernels with the original bundled Torch
         run: |
-          docker run --rm --device=/dev/kfd --device=/dev/dri \
-            -v "${{ github.workspace }}:/workspace" -w /workspace \
-            rocm/atom@sha256:13d8564eeef3a267c1cc25410c78029097bd8f218b71ef37d32df971d73d25bb \
-            bash -c '
+          set -euo pipefail
+          cd benchmark-artifact
+          sha256sum -c benchmark-runtime.tar.gz.sha256
+          gzip -t benchmark-runtime.tar.gz
+          cd ..
+          DEVICE_GROUPS=()
+          for device in /dev/kfd /dev/dri/renderD*; do
+            [[ ! -e "$device" ]] || DEVICE_GROUPS+=(--group-add "$(stat -c %g "$device")")
+          done
+          docker run --rm --device=/dev/kfd --device=/dev/dri "${DEVICE_GROUPS[@]}" \
+            --entrypoint bash -v "$PWD:/workspace" -w /workspace \
+            ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254 -c '
               set -euo pipefail
-              python3 -c "import torch; assert torch.cuda.is_available()"
+              apt-get update -qq
+              apt-get install -y python3 libstdc++6 libsqlite3-0
+              tar -xzf benchmark-artifact/benchmark-runtime.tar.gz -C /tmp
+              cd /tmp/benchmark-runtime
+              sha256sum -c SHA256SUMS > /workspace/benchmark-runtime-sha.log
+              cp manifest.json /workspace/benchmark-runtime-manifest.json
+              export PYTHONPATH=/tmp/benchmark-runtime/python:/workspace
+              export LD_LIBRARY_PATH=/tmp/benchmark-runtime/lib:/tmp/benchmark-runtime/python/torch/lib
+              cd /workspace
+              python3 -c "import torch; print(torch.__version__, torch.__file__); assert torch.cuda.is_available()"
               python3 -m pytest profiler_perf_bench/tests/test_measurement_integrity.py -v --junitxml=benchmark-integrity.xml
-            '
+              python3 tools/check_benchmark_ci.py benchmark-integrity.xml
+            ' 2>&1 | tee benchmark-integrity.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: benchmark-integrity
-          path: benchmark-integrity.xml
+          path: |
+            benchmark-integrity.xml
+            benchmark-integrity.log
+            benchmark-runtime-sha.log
+            benchmark-runtime-manifest.json
