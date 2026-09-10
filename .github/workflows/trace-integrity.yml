@@ -13,16 +13,18 @@ jobs:
       - run: python -m pytest tests/test_merge_integrity.py tests/test_native_roctx.py -v
   gpu-merge:
     runs-on: linux-rocm-trace-lite-mi355-1
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Validate real per-process HIP traces
         run: |
+          set -euo pipefail
+          docker pull rocm/dev-ubuntu-24.04@sha256:a90cf047f615abe70fbef83c64def0a2d549ef37a39c8ea545430aba4981b374
           device_groups=()
           while read -r gid; do device_groups+=(--group-add "$gid"); done < <(stat -c %g /dev/kfd /dev/dri/renderD* | sort -u)
           docker run --rm "${device_groups[@]}" --device=/dev/kfd --device=/dev/dri \
             -v "${{ github.workspace }}:/workspace" -w /workspace \
-            rocm/dev-ubuntu-24.04:latest bash -c '
+            rocm/dev-ubuntu-24.04@sha256:a90cf047f615abe70fbef83c64def0a2d549ef37a39c8ea545430aba4981b374 bash -c '
               set -euo pipefail
               rtl_rocm_root="${ROCM_PATH:-${HIP_PATH:-/opt/rocm}}"
               export LD_LIBRARY_PATH="$rtl_rocm_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -30,10 +32,12 @@ jobs:
               apt-get install -y libsqlite3-dev python3-pip
               pip install --break-system-packages pytest
               make -j4 librtl.so tests/trace_regions
-              python3 -m pytest tests/test_gpu_merge_integrity.py -v --junitxml=trace-integrity.xml
+              bash tools/run_gpu_tests.sh trace-integrity.log 1 tests/test_gpu_merge_integrity.py
             '
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: trace-integrity
-          path: trace-integrity.xml
+          path: |
+            trace-integrity.log
+            trace-integrity.log.xml

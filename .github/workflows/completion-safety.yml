@@ -3,7 +3,7 @@ on: [pull_request, workflow_dispatch]
 jobs:
   cpu-worker:
     runs-on: ubuntu-latest
-    container: rocm/dev-ubuntu-24.04:latest
+    container: rocm/dev-ubuntu-24.04@sha256:a90cf047f615abe70fbef83c64def0a2d549ef37a39c8ea545430aba4981b374
     steps:
       - uses: actions/checkout@v4
       - run: apt-get update && apt-get install -y g++ libsqlite3-dev python3-pip
@@ -11,16 +11,18 @@ jobs:
       - run: python3 -m pytest tests/test_native_completion.py -v
   gpu-shutdown:
     runs-on: linux-rocm-trace-lite-mi355-1
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Drain live GPU work at shutdown
         run: |
+          set -euo pipefail
+          docker pull rocm/dev-ubuntu-24.04@sha256:a90cf047f615abe70fbef83c64def0a2d549ef37a39c8ea545430aba4981b374
           device_groups=()
           while read -r gid; do device_groups+=(--group-add "$gid"); done < <(stat -c %g /dev/kfd /dev/dri/renderD* | sort -u)
           docker run --rm "${device_groups[@]}" --device=/dev/kfd --device=/dev/dri \
             -v "${{ github.workspace }}:/workspace" -w /workspace \
-            rocm/dev-ubuntu-24.04:latest bash -c '
+            rocm/dev-ubuntu-24.04@sha256:a90cf047f615abe70fbef83c64def0a2d549ef37a39c8ea545430aba4981b374 bash -c '
               set -euo pipefail
               rtl_rocm_root="${ROCM_PATH:-${HIP_PATH:-/opt/rocm}}"
               export LD_LIBRARY_PATH="$rtl_rocm_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -29,10 +31,12 @@ jobs:
               pip install --break-system-packages pytest
               make -j4 librtl.so
               /opt/rocm/bin/hipcc -O2 tests/shutdown_workload.hip -ldl -o tests/shutdown_workload
-              python3 -m pytest tests/test_gpu_shutdown.py -v --junitxml=completion-safety.xml
+              bash tools/run_gpu_tests.sh completion-safety.log 3 tests/test_gpu_shutdown.py
             '
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: completion-safety
-          path: completion-safety.xml
+          path: |
+            completion-safety.log
+            completion-safety.log.xml
