@@ -188,11 +188,11 @@ class TestMergeTraces:
         with open(bad, "w") as f:
             f.write("this is not a sqlite file")
         out = str(tmp_path / "merged.db")
-        _merge_traces([db1, bad], out)
-        conn = sqlite3.connect(out)
-        count = conn.execute("SELECT count(*) FROM rocpd_op").fetchone()[0]
-        conn.close()
-        assert count == 5
+        import pytest
+        with pytest.raises(sqlite3.DatabaseError):
+            _merge_traces([db1, bad], out)
+        assert os.path.exists(db1) and os.path.exists(bad)
+        assert not os.path.exists(out)
 
     def test_string_dedup(self, tmp_path):
         db1 = str(tmp_path / "a.db")
