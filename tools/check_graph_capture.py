@@ -20,23 +20,34 @@ def main():
     parser.add_argument('--modes', nargs='+', choices=['standard', 'full'],
                         default=['standard', 'full'])
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--workload', type=Path,
+                        help='Use a precompiled graph_stress from the verified CI runtime artifact')
+    parser.add_argument('--installed', action='store_true',
+                        help='Use the installed package, with Python isolated from the checkout')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
-    executable = args.output / 'graph_stress'
-    subprocess.run(['hipcc', '-O2', '--offload-arch=gfx950', '-o', str(executable),
-                    str(repo / 'repro/repro_hipgraph_stress.hip')], check=True)
+    if args.workload:
+        executable = args.workload.resolve(strict=True)
+    else:
+        executable = args.output / 'graph_stress'
+        subprocess.run(['hipcc', '-O2', '--offload-arch=gfx950', '-o', str(executable),
+                        str(repo / 'repro/repro_hipgraph_stress.hip')], check=True)
 
     def run_one(device, mode):
         db = args.output / f'gpu-{device}-{mode}.db'
-        env = dict(os.environ, HIP_VISIBLE_DEVICES=str(device),
-                   PYTHONPATH=str(repo))
-        cmd = [sys.executable, '-m', 'rocm_trace_lite.cli', 'trace', '--mode', mode,
+        env = dict(os.environ, HIP_VISIBLE_DEVICES=str(device))
+        if args.installed:
+            env.pop('PYTHONPATH', None)
+        else:
+            env['PYTHONPATH'] = str(repo)
+        python = [sys.executable] + (['-I'] if args.installed else [])
+        cmd = python + ['-m', 'rocm_trace_lite.cli', 'trace', '--mode', mode,
                '-o', str(db), '--', str(executable)]
         log_path = args.output / f'gpu-{device}-{mode}.log'
         with log_path.open('w') as log:
-            result = subprocess.run(cmd, env=env, stdout=log, stderr=log, timeout=180)
+            result = subprocess.run(cmd, env=env, cwd=args.output, stdout=log, stderr=log, timeout=180)
         if result.returncode:
             raise RuntimeError(f'GPU {device}: workload failed, see {log_path}')
         with sqlite3.connect(f'file:{db}?mode=ro', uri=True) as conn:

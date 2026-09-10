@@ -24,57 +24,59 @@ A streamlined, lightweight GPU kernel profiler. Captures dispatch timestamps usi
 
 ## Installation
 
-### From wheel (recommended)
+This branch prepares the **0.4.0rc1 ROCm 10 candidate**. It has not been published.
+Use [GitHub Releases](https://github.com/sunway513/rocm-trace-lite/releases) for published artifacts and their version-specific requirements. The older v0.3.7 wheel is not this ROCm 10 candidate. A PyPI installation is not currently a verified distribution route.
 
-Download the latest `.whl` from [GitHub Releases](https://github.com/sunway513/rocm-trace-lite/releases):
+The CI wheel is built and validated on **Ubuntu 24.04 with glibc 2.39**.
+Its native library requires `GLIBC_2.38`; it cannot load on Ubuntu 22.04
+(glibc 2.35), including the pinned vLLM serving image. The `linux_x86_64`
+filename does not encode this requirement, so pip can accept an incompatible
+wheel. On Ubuntu 22.04, build the same-version sdist inside the target
+ROCm environment; that route still requires its own validation.
 
-```bash
-# Install the latest release
-pip install rocm-trace-lite --find-links https://github.com/sunway513/rocm-trace-lite/releases/latest
-
-# Or download and install manually
-wget https://github.com/sunway513/rocm-trace-lite/releases/latest/download/rocm_trace_lite-<version>-py3-none-linux_x86_64.whl
-pip install rocm_trace_lite-*.whl
-```
-
-After installation, the `rtl` CLI command is available. One command does everything — trace, summary, and Perfetto export:
+For a candidate wheel supplied by the release workflow, download its `SHA256SUMS` and all listed assets to the same directory, then:
 
 ```bash
-rtl trace python3 my_model.py
+sha256sum --check SHA256SUMS
+# Check inside the target environment/container, not on its host.
+python3 -c 'import platform; n,v=platform.libc_ver(); assert n=="glibc" and tuple(map(int,v.split("."))) >= (2,39), "Use the matching sdist: this CI wheel targets Ubuntu 24.04 / glibc 2.39"'
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install ./rocm_trace_lite-0.4.0rc1-py3-none-linux_x86_64.whl
+rtl --version
+python -c 'import ctypes; from rocm_trace_lite import get_lib_path; ctypes.CDLL(get_lib_path())'
 ```
 
-### From source
+For source development, in a checkout of this branch with ROCm 10 and HSA headers installed:
 
 ```bash
-# Build (requires ROCm headers)
-make -j
-
-# Install system-wide
-make install    # copies librtl.so to /usr/local/lib, scripts to /usr/local/bin
+sudo apt-get install g++ make libsqlite3-dev python3-venv
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install .
+rtl --version
 ```
 
-Requirements:
-- ROCm 10 is the validated runtime. Older runtimes must include ROCR fix [`559d48b1`](https://github.com/ROCm/rocm-systems/commit/559d48b1); unpatched runtimes are unsupported.
-- HSA headers: `hsa/hsa.h`, `hsa/hsa_api_trace.h`
-- SQLite3 development headers (`apt install libsqlite3-dev`)
-- g++ with C++17
+A source install builds the native profiler and fails if it cannot be built. Installing the wheel does not require a compiler. Both need the ROCm HSA runtime and SQLite shared library. See [installation and compatibility](docs/installation.md) for the pinned environment and troubleshooting.
 
 ## Quick start
 
 ```bash
 rtl trace python3 my_model.py                        # lite mode (default)
-rtl trace --mode standard python3 my_model.py        # standard mode (~2-4% overhead)
+rtl trace --mode standard python3 my_model.py        # complete GPU dispatch coverage
 rtl trace --mode hip python3 my_model.py             # hip mode (HIP API + GPU timing)
 ```
 
 ### Profiling modes
 
-| Mode | GPU timing | HIP API | Graph replay | Overhead | Use case |
-|------|-----------|---------|-------------|----------|----------|
-| **lite** | Yes (partial) | No | Partial | ~0% | Production / always-on **(default)** |
-| **standard** | Yes | No | Profiled | ~2-4% | General profiling |
-| **hip** | Yes | Yes | Profiled | <1% | CPU+GPU correlation |
-| **full** | Yes (all) | No | Profiled | ~2-5% | Compatibility name for standard GPU coverage |
+| Mode | GPU timing | HIP API | Graph replay | Intended scope |
+|------|-----------|---------|-------------|----------------|
+| **lite** (default) | Partial | No | Partial | Sampling dispatches without an existing completion signal |
+| **standard** | All intercepted kernels | No | Profiled | GPU timeline and kernel analysis |
+| **full** | Same as standard | No | Profiled | Compatibility name for standard GPU coverage |
+| **hip** | GPU timing plus wrapped APIs | Yes | Profiled | Selected HIP API correlation; separate validation required |
+
+Overhead depends on launch rate, capture coverage, mode and runtime. Use `--mode standard` when validating completeness. See [measured performance and limitations](docs/performance.md); no fixed overhead percentage applies to every workload.
 
 Set via CLI (`--mode`) or env var (`RTL_MODE=lite`).
 
@@ -128,7 +130,7 @@ This produces an Excel workbook with GPU timeline breakdown, kernel summary by c
 ## How it works
 
 1. **HSA_TOOLS_LIB OnLoad** — ROCm HSA runtime calls `OnLoad()` when the library is loaded, giving us the HSA API table
-2. **Queue intercept** — We replace `hsa_queue_create` to create interceptible queues via `hsa_amd_queue_intercept_create`, then register a callback on every AQL packet
+2. **Queue intercept** — We hook `hsa_queue_create` and the supported ROCm 10 `hsa_amd_queue_create` descriptor path to create interceptible queues via `hsa_amd_queue_intercept_create`, then register a callback on every AQL packet
 3. **Kernel profiling** — For each kernel dispatch packet, we insert a profiling signal, wait for completion, then read GPU timestamps via `hsa_amd_profiling_get_dispatch_time`
 4. **Symbol resolution** — We intercept `hsa_executable_freeze` to enumerate kernel symbols from code objects
 5. **roctx shim** — Provides `roctxRangePushA`/`roctxRangePop`/`roctxMarkA`/`roctxRangeStartA`/`roctxRangeStop` symbols so applications using roctx markers get captured without linking libroctx64
@@ -153,7 +155,7 @@ SELECT * FROM busy;
 
 ## Tests
 
-314 tests covering unit, E2E, multi-GPU, stress, and release validation.
+Tests cover unit behavior, GPU capture, multi-GPU traces, stress and release artifacts.
 
 ```bash
 # CPU-only tests (no GPU required)
