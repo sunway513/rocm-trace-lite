@@ -20,15 +20,20 @@ def main():
     parser.add_argument('--modes', nargs='+', choices=['standard', 'full'],
                         default=['standard', 'full'])
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--workload', type=Path,
+                        help='Use a precompiled graph_stress from the verified CI runtime artifact')
     parser.add_argument('--installed', action='store_true',
                         help='Use the installed package, with Python isolated from the checkout')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
-    executable = args.output / 'graph_stress'
-    subprocess.run(['hipcc', '-O2', '--offload-arch=gfx950', '-o', str(executable),
-                    str(repo / 'repro/repro_hipgraph_stress.hip')], check=True)
+    if args.workload:
+        executable = args.workload.resolve(strict=True)
+    else:
+        executable = args.output / 'graph_stress'
+        subprocess.run(['hipcc', '-O2', '--offload-arch=gfx950', '-o', str(executable),
+                        str(repo / 'repro/repro_hipgraph_stress.hip')], check=True)
 
     def run_one(device, mode):
         db = args.output / f'gpu-{device}-{mode}.db'

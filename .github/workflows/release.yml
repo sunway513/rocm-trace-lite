@@ -13,6 +13,8 @@ on:
       - 'rocm_trace_lite/_build.py'
       - 'tools/verify_release.py'
       - 'tools/check_source_build_failure.py'
+      - 'tools/pull_ci_image.sh'
+      - 'tools/build_gpu_test_runtime.py'
       - 'tools/check_graph_capture.py'
   workflow_dispatch:
 
@@ -21,6 +23,7 @@ permissions:
 
 env:
   GPU_CONTAINER: rocm/dev-ubuntu-24.04@sha256:a90cf047f615abe70fbef83c64def0a2d549ef37a39c8ea545430aba4981b374
+  GPU_RUNTIME_CONTAINER: ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
 
 jobs:
   build-wheel:
@@ -53,6 +56,18 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+      - name: Package native test runtime from the pinned build image
+        run: |
+          set -eu
+          /tmp/build-venv/bin/python tools/build_gpu_test_runtime.py \
+            --output gpu-runtime-artifact/gpu-test-runtime.tar.gz \
+            --source-image "$GPU_CONTAINER"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gpu-test-runtime
+          path: gpu-runtime-artifact/gpu-test-runtime.tar.gz
+          if-no-files-found: error
+
   installed-gpu:
     name: Installed wheel (8x MI355X)
     needs: build-wheel
@@ -64,37 +79,54 @@ jobs:
         with:
           name: release-candidate
           path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: gpu-test-runtime
+          path: gpu-runtime-artifact/
+      - name: Pull small pinned runtime base with bounded retries
+        shell: bash
+        run: bash tools/pull_ci_image.sh "$GPU_RUNTIME_CONTAINER" "$GITHUB_WORKSPACE/image-pull.log"
       - name: Validate installed-wheel graph capture on eight GPUs
         shell: bash
         run: |
           set -euo pipefail
-          docker pull "$GPU_CONTAINER"
           device_groups=()
           while read -r gid; do device_groups+=(--group-add "$gid"); done < <(stat -c %g /dev/kfd /dev/dri/renderD* | sort -u)
           docker run --rm "${device_groups[@]}" \
             --device=/dev/kfd --device=/dev/dri \
             --security-opt seccomp=unconfined \
             -v "$GITHUB_WORKSPACE:/workspace" -w /tmp \
-            --entrypoint bash "$GPU_CONTAINER" -c '
+            --entrypoint bash "$GPU_RUNTIME_CONTAINER" -c '
               set -euo pipefail
-              export LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/core-10.0/lib
+              tar -xzf /workspace/gpu-runtime-artifact/gpu-test-runtime.tar.gz -C /tmp
+              cd /tmp/gpu-test-runtime
+              sha256sum --check SHA256SUMS
+              export LD_LIBRARY_PATH=/tmp/gpu-test-runtime/lib
+              mkdir -p /workspace/wheel-gpu
+              cp manifest.json /workspace/wheel-gpu/runtime-manifest.json
+              echo "$(date -u +%FT%TZ) phase=install-system-dependencies"
               apt-get update -qq
-              apt-get install -y -qq python3-venv libsqlite3-0
+              apt-get install -y -qq python3-venv libstdc++6 libsqlite3-0
+              echo "$(date -u +%FT%TZ) phase=verify-artifacts-and-install-wheel"
               cd /workspace/dist
               sha256sum --check SHA256SUMS
               cd /tmp
               python3 -m venv /tmp/installed
               /tmp/installed/bin/pip install --no-index --no-deps /workspace/dist/*.whl
               /tmp/installed/bin/python -I -c "from pathlib import Path; import sys; from rocm_trace_lite import get_lib_path; p=Path(get_lib_path()).resolve(); assert Path(sys.prefix) in p.parents; print(p)"
+              echo "$(date -u +%FT%TZ) phase=validate-installed-graph-capture"
               /tmp/installed/bin/python /workspace/tools/check_graph_capture.py \
-                --installed --devices 0,1,2,3,4,5,6,7 --output /workspace/wheel-gpu
+                --installed --workload /tmp/gpu-test-runtime/graph_stress \
+                --devices 0,1,2,3,4,5,6,7 --output /workspace/wheel-gpu
             '
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: installed-wheel-gpu-evidence
           path: |
+            image-pull.log
             wheel-gpu/summary.json
+            wheel-gpu/runtime-manifest.json
             wheel-gpu/*.log
 
   release:
