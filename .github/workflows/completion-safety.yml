@@ -1,0 +1,38 @@
+name: Completion safety
+on: [pull_request, workflow_dispatch]
+jobs:
+  cpu-worker:
+    runs-on: ubuntu-latest
+    container: rocm/dev-ubuntu-24.04:latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update && apt-get install -y g++ libsqlite3-dev python3-pip
+      - run: pip install --break-system-packages pytest
+      - run: python3 -m pytest tests/test_native_completion.py -v
+  gpu-shutdown:
+    runs-on: linux-rocm-trace-lite-mi355-1
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Drain live GPU work at shutdown
+        run: |
+          device_groups=()
+          while read -r gid; do device_groups+=(--group-add "$gid"); done < <(stat -c %g /dev/kfd /dev/dri/renderD* | sort -u)
+          docker run --rm "${device_groups[@]}" --device=/dev/kfd --device=/dev/dri \
+            -v "${{ github.workspace }}:/workspace" -w /workspace \
+            rocm/dev-ubuntu-24.04:latest bash -c '
+              set -euo pipefail
+              rtl_rocm_root="${ROCM_PATH:-${HIP_PATH:-/opt/rocm}}"
+              export LD_LIBRARY_PATH="$rtl_rocm_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+              apt-get update -qq
+              apt-get install -y libsqlite3-dev python3-pip
+              pip install --break-system-packages pytest
+              make -j4 librtl.so
+              /opt/rocm/bin/hipcc -O2 tests/shutdown_workload.hip -ldl -o tests/shutdown_workload
+              python3 -m pytest tests/test_gpu_shutdown.py -v --junitxml=completion-safety.xml
+            '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: completion-safety
+          path: completion-safety.xml

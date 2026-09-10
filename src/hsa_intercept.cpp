@@ -193,6 +193,24 @@ static std::condition_variable g_work_cv;
 static std::deque<DispatchData*> g_work_queue;
 static std::atomic<bool> g_shutdown{false};
 static std::thread g_worker;
+// Serialize admission with shutdown, and keep the worker alive until every
+// admitted callback has published its dispatch records.
+static size_t g_active_intercepts = 0;  // protected by g_work_mutex
+class InterceptAdmission {
+public:
+    bool admitted;
+    InterceptAdmission() {
+        std::lock_guard<std::mutex> lock(g_work_mutex);
+        admitted = !g_shutdown.load(std::memory_order_acquire);
+        if (admitted) ++g_active_intercepts;
+    }
+    ~InterceptAdmission() {
+        if (!admitted) return;
+        std::lock_guard<std::mutex> lock(g_work_mutex);
+        --g_active_intercepts;
+        g_work_cv.notify_all();
+    }
+};
 
 static void completion_worker() {
     while (true) {
@@ -200,7 +218,8 @@ static void completion_worker() {
         {
             std::unique_lock<std::mutex> lock(g_work_mutex);
             g_work_cv.wait(lock, [] {
-                return !g_work_queue.empty() || g_shutdown.load(std::memory_order_acquire);
+                return !g_work_queue.empty() ||
+                    (g_shutdown.load(std::memory_order_acquire) && g_active_intercepts == 0);
             });
             if (g_work_queue.empty()) {
                 if (g_shutdown.load(std::memory_order_acquire)) break;
@@ -211,28 +230,15 @@ static void completion_worker() {
         }
 
         // Wait for kernel completion with bounded timeout.
-        static constexpr uint64_t WAIT_TIMEOUT_NS = 100000000ULL;  // 100ms
-        hsa_signal_value_t wait_val;
-        bool abandoned = false;
-        while (true) {
-            wait_val = g_orig_core.hsa_signal_wait_scacquire_fn(
+        // A timeout is not completion. Rotate incomplete records so a later
+        // completed dispatch can forward a signal needed by the queue head.
+        static constexpr uint64_t WAIT_TIMEOUT_TICKS = 1000000ULL;
+        hsa_signal_value_t wait_val = g_orig_core.hsa_signal_wait_scacquire_fn(
                 dd->profiling_signal, HSA_SIGNAL_CONDITION_LT, 1,
-                WAIT_TIMEOUT_NS, HSA_WAIT_STATE_BLOCKED);
-            if (wait_val < 1) break;  // signal completed
-            if (g_shutdown.load(std::memory_order_acquire)) {
-                abandoned = true;
-                break;
-            }
-        }
-
-        if (abandoned) {
-            // Forward original signal even during shutdown to avoid hangs.
-            // Use subtract (decrement by 1) to match HSA packet completion semantics.
-            if (dd->original_signal.handle != 0) {
-                g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
-            }
-            release_signal(dd->profiling_signal);
-            delete dd;
+                WAIT_TIMEOUT_TICKS, HSA_WAIT_STATE_BLOCKED);
+        if (wait_val >= 1) {
+            std::lock_guard<std::mutex> lock(g_work_mutex);
+            g_work_queue.push_back(dd);
             continue;
         }
 
@@ -396,7 +402,8 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
                                 hsa_amd_queue_intercept_packet_writer writer) {
     g_total_intercepts.fetch_add(1, std::memory_order_relaxed);
 
-    if (g_shutdown.load(std::memory_order_acquire)) {
+    InterceptAdmission admission;
+    if (!admission.admitted) {
         g_drop_shutdown.fetch_add(count, std::memory_order_relaxed);
         writer(in_packets, count);
         return;
@@ -659,6 +666,15 @@ static void shutdown() {
     static std::atomic<bool> shutdown_done{false};
     if (shutdown_done.exchange(true)) return;  // prevent double shutdown
 
+    {
+        std::unique_lock<std::mutex> lock(g_work_mutex);
+        g_shutdown.store(true, std::memory_order_release);
+        g_work_cv.notify_all();
+        g_work_cv.wait(lock, [] { return g_active_intercepts == 0; });
+    }
+    if (g_worker.joinable()) g_worker.join();
+    // The worker has drained actual completions. Report final counters only now.
+
     // Print diagnostic counters
     fprintf(stderr, "\n=== rtl diagnostic (PID %d) ===\n", getpid());
     fprintf(stderr, "  intercept calls:     %" PRIu64 "\n", g_total_intercepts.load());
@@ -676,29 +692,6 @@ static void shutdown() {
     fprintf(stderr, "  drop (ts invalid):   %" PRIu64 "\n", g_drop_ts_invalid.load());
     fprintf(stderr, "  recorded OK:         %" PRIu64 "\n", g_recorded_ok.load());
     fprintf(stderr, "====================================\n\n");
-
-    // Signal worker to stop
-    g_shutdown.store(true, std::memory_order_release);
-    g_work_cv.notify_all();
-
-    if (g_worker.joinable()) {
-        g_worker.join();
-    }
-
-    // Drain remaining work queue
-    {
-        std::lock_guard<std::mutex> lock(g_work_mutex);
-        while (!g_work_queue.empty()) {
-            auto* dd = g_work_queue.front();
-            g_work_queue.pop_front();
-            // Forward original signals to avoid app hangs
-            if (dd->original_signal.handle != 0) {
-                g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
-            }
-            release_signal(dd->profiling_signal);
-            delete dd;
-        }
-    }
 
     // Flush and close trace DB (skip if never initialized — callback-only mode)
     if (trace_db::is_trace_ready()) {
