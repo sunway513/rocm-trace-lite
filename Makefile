@@ -20,6 +20,10 @@ LDFLAGS = -shared -rdynamic \
 SRCDIR = src
 SRCS = trace_db.cpp hip_api_intercept.cpp roctx_shim.cpp hsa_intercept.cpp
 OBJS = $(addprefix $(SRCDIR)/,$(SRCS:.cpp=.o))
+DEPS = $(OBJS:.o=.d)
+
+.DEFAULT_GOAL := all
+-include $(DEPS)
 TARGET = librtl.so
 
 .PHONY: all clean install test test-cpu test-gpu
@@ -31,10 +35,13 @@ $(TARGET): $(OBJS)
 	@echo "Built $(TARGET)"
 	@echo "  Dependencies: libhsa-runtime64, libsqlite3"
 	@echo "  NO roctracer, NO rocprofiler-sdk"
-	@ldd $@ | grep -E "roctracer|rocprofiler-sdk|libamdhip64" && echo "ERROR: unwanted dependency!" && exit 1 || echo "  Verified: clean dependency chain (no roctracer, no rocprofiler-sdk, no libamdhip64)"
+	@deps="$$(ldd $@)" || exit 1; \
+	if printf '%s\n' "$$deps" | grep -E "not found|roctracer|rocprofiler-sdk|libamdhip64|libroctx64"; then \
+	  echo "ERROR: missing or forbidden native dependency" >&2; exit 1; \
+	fi
 
 $(SRCDIR)/%.o: $(SRCDIR)/%.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 install: $(TARGET)
 	install -d $(PREFIX)/lib $(PREFIX)/bin
@@ -50,7 +57,7 @@ $(GPU_WORKLOAD): tests/gpu_workload.hip
 	hipcc -O2 -o $@ $< -lpthread
 
 clean:
-	rm -f $(OBJS) $(TARGET) $(GPU_WORKLOAD)
+	rm -f $(OBJS) $(DEPS) $(TARGET) $(GPU_WORKLOAD)
 
 # Non-GPU tests (runs in CI)
 test-cpu:

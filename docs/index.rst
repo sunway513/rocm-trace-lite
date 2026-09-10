@@ -9,7 +9,7 @@ One command to profile, one file to analyze.
 
 .. code-block:: bash
 
-   rtl trace -o trace.db python3 my_model.py
+   rtl trace --mode standard -o trace.db python3 my_model.py
 
 .. raw:: html
 
@@ -38,11 +38,11 @@ Quick Example
 
 .. code-block:: bash
 
-   # Install
-   pip install rocm-trace-lite
+   # Install the candidate wheel following installation.html
+   python -m pip install ./rocm_trace_lite-0.4.0rc1-py3-none-linux_x86_64.whl
 
    # Trace a workload
-   rtl trace -o trace.db python3 my_model.py
+   rtl trace --mode standard -o trace.db python3 my_model.py
 
    # View top kernels
    rtl summary trace.db
@@ -67,7 +67,8 @@ Sample output (DeepSeek-R1 671B, TP=8, MI355X):
      GPU 0: 51.2% (25074 ops, 7.3s busy)
      GPU 1: 50.8% (25081 ops, 7.2s busy)
 
-**< 1% overhead** validated on 6 ATOM dashboard models (DeepSeek-R1, GPT-OSS, Kimi-K2.5, MiniMax-M2.5).
+Overhead depends on workload and capture coverage. The ROCm 10 candidate is still under validation;
+see `performance and limitations <performance.html>`_ before interpreting historical samples.
 See `tutorial: profiling prefill vs decode <tutorial_roctx.html>`_ with built-in roctx markers.
 
 
@@ -100,18 +101,12 @@ Supported Hardware
    * - Architecture
      - GPU
      - Status
-   * - CDNA 3 (gfx942)
-     - MI300A, MI300X
-     - Tested
-   * - CDNA 3.5 (gfx950)
+   * - gfx950
      - MI355X
-     - Tested (TP=8 validated)
-   * - CDNA 4 (gfx1250)
-     - MI450
-     - Tested (single GPU)
-   * - CDNA 2 (gfx90a)
-     - MI210, MI250, MI250X
-     - Expected to work (untested)
+     - ROCm 10 candidate: single GPU and TP=8 trace validation
+   * - Other targets
+     - Other ROCm-supported GPUs
+     - Not validated for this candidate
 
 
 .. toctree::
@@ -120,6 +115,7 @@ Supported Hardware
    :hidden:
 
    installation
+   performance
    quickstart
    cli_reference
 
@@ -163,3 +159,4 @@ This project was inspired by and builds upon the work of:
 
    contributing
    changelog
+   release-notes

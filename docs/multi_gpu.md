@@ -77,7 +77,7 @@ Key indicators:
 
 On the validated ROCm 10 runtime, graph replay batches are processed in every mode. Standard/full capture all kernel dispatches; lite skips individual dispatches with application-owned completion signals. The obsolete batch-skip workaround and its counter have been removed.
 
-For near-zero overhead with CUDAGraph workloads, use lite mode:
+For partial graph capture, select lite explicitly and measure its overhead on your workload:
 
 ```bash
 rtl trace --mode lite -o trace.db torchrun --nproc_per_node=8 my_model.py

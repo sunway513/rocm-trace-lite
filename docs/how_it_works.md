@@ -101,20 +101,20 @@ Standard and full modes collect every kernel dispatch. Lite applies its per-disp
 
 ### Profiling modes (RTL_MODE)
 
-RTL supports three profiling modes to balance data completeness vs overhead:
+The HSA backend provides three profiling modes to balance data completeness vs overhead:
 
 | Mode | Mechanism | Behavior | Overhead |
 |------|-----------|----------|----------|
-| **lite** | HSA signal injection | Skip packets with existing `completion_signal` (NCCL, barriers). | ~0% |
-| **standard** | HSA signal injection | Signal injection for all kernel dispatches, including graph replay. | ~2-4% |
-| **full** | HSA signal injection | Same complete GPU capture as standard; retained for compatibility. | ~2-5% |
-| **hip** | LD_PRELOAD + dlsym | HIP API interception via `dlsym(RTLD_NEXT)`. Captures CPU-side HIP call timings (21 APIs) alongside GPU kernel execution. No HSA queue interception. | <1% |
+| **lite** | HSA signal injection | Skip packets with existing `completion_signal` (NCCL, barriers). | Workload-dependent; partial capture |
+| **standard** | HSA signal injection | Signal injection for all kernel dispatches, including graph replay. | Workload-dependent |
+| **full** | HSA signal injection | Same complete GPU capture as standard; retained for compatibility. | Workload-dependent |
+| **hip** | LD_PRELOAD + dlsym | HIP API interception via `dlsym(RTLD_NEXT)`. Captures CPU-side HIP call timings (21 APIs) alongside GPU kernel execution. Uses standard HSA queue interception for GPU timing. | Workload-dependent |
 
 Set via `RTL_MODE=lite` env var or `rtl trace --mode lite` CLI flag.
 
 ### HIP API interception (RTL_MODE=hip)
 
-When `RTL_MODE=hip`, RTL uses a fundamentally different mechanism: `LD_PRELOAD` function interposition via `dlsym(RTLD_NEXT)` to wrap 21 HIP runtime functions (hipModuleLaunchKernel, hipMemcpy, hipMalloc, hipFree, hipStreamSynchronize, etc.). Each wrapper records CPU-side start/end timestamps and a correlation ID, then forwards to the real HIP function. A thread-local re-entrancy guard prevents recursive recording during HIP runtime initialization. This mode populates the `rocpd_api` table with HIP API call timings.
+When `RTL_MODE=hip`, RTL enables standard HSA GPU capture and adds `LD_PRELOAD` function interposition via `dlsym(RTLD_NEXT)` to wrap selected HIP runtime functions (hipModuleLaunchKernel, hipMemcpy, hipMalloc, hipFree, hipStreamSynchronize, etc.). Each wrapper records CPU-side start/end timestamps and a correlation ID, then forwards to the real HIP function. A thread-local re-entrancy guard prevents recursive recording during HIP runtime initialization. This mode populates the `rocpd_api` table with HIP API call timings.
 
 ### Known limitation
 
