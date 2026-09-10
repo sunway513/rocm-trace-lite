@@ -16,8 +16,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Drain live GPU work at shutdown
         run: |
-          docker run --rm --device=/dev/kfd --device=/dev/dri \
-            --group-add render --group-add video \
+          device_groups=()
+          while read -r gid; do device_groups+=(--group-add "$gid"); done < <(stat -c %g /dev/kfd /dev/dri/renderD* | sort -u)
+          docker run --rm "${device_groups[@]}" --device=/dev/kfd --device=/dev/dri \
             -v "${{ github.workspace }}:/workspace" -w /workspace \
             rocm/dev-ubuntu-24.04:latest bash -c '
               set -euo pipefail
