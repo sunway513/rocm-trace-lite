@@ -2,6 +2,8 @@
 
 rocm-trace-lite generates [Perfetto](https://perfetto.dev/)-compatible trace files for interactive timeline visualization.
 
+Try the [downloadable eight-GPU example](example_trace.md) if you do not have a trace yet.
+
 ## Opening traces
 
 1. The `rtl trace` command automatically generates a compressed `trace.json.gz`
