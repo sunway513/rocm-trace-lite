@@ -13,6 +13,7 @@ on:
       - 'rocm_trace_lite/_build.py'
       - 'tools/verify_release.py'
       - 'tools/check_source_build_failure.py'
+      - 'tools/pull_ci_image.sh'
       - 'tools/check_graph_capture.py'
   workflow_dispatch:
 
@@ -64,11 +65,13 @@ jobs:
         with:
           name: release-candidate
           path: dist/
+      - name: Pull pinned runtime image with bounded retries
+        shell: bash
+        run: bash tools/pull_ci_image.sh "$GPU_CONTAINER" "$GITHUB_WORKSPACE/image-pull.log"
       - name: Validate installed-wheel graph capture on eight GPUs
         shell: bash
         run: |
           set -euo pipefail
-          docker pull "$GPU_CONTAINER"
           device_groups=()
           while read -r gid; do device_groups+=(--group-add "$gid"); done < <(stat -c %g /dev/kfd /dev/dri/renderD* | sort -u)
           docker run --rm "${device_groups[@]}" \
@@ -78,14 +81,17 @@ jobs:
             --entrypoint bash "$GPU_CONTAINER" -c '
               set -euo pipefail
               export LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/core-10.0/lib
+              echo "$(date -u +%FT%TZ) phase=install-system-dependencies"
               apt-get update -qq
               apt-get install -y -qq python3-venv libsqlite3-0
+              echo "$(date -u +%FT%TZ) phase=verify-artifacts-and-install-wheel"
               cd /workspace/dist
               sha256sum --check SHA256SUMS
               cd /tmp
               python3 -m venv /tmp/installed
               /tmp/installed/bin/pip install --no-index --no-deps /workspace/dist/*.whl
               /tmp/installed/bin/python -I -c "from pathlib import Path; import sys; from rocm_trace_lite import get_lib_path; p=Path(get_lib_path()).resolve(); assert Path(sys.prefix) in p.parents; print(p)"
+              echo "$(date -u +%FT%TZ) phase=compile-and-validate-installed-graph-capture"
               /tmp/installed/bin/python /workspace/tools/check_graph_capture.py \
                 --installed --devices 0,1,2,3,4,5,6,7 --output /workspace/wheel-gpu
             '
@@ -94,6 +100,7 @@ jobs:
         with:
           name: installed-wheel-gpu-evidence
           path: |
+            image-pull.log
             wheel-gpu/summary.json
             wheel-gpu/*.log
 
