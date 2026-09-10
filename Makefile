@@ -49,6 +49,9 @@ GPU_WORKLOAD = tests/gpu_workload
 $(GPU_WORKLOAD): tests/gpu_workload.hip
 	hipcc -O2 -o $@ $< -lpthread
 
+tests/trace_regions: tests/trace_regions.hip
+	$(HIP_PATH)/bin/hipcc -O2 -o $@ $< -ldl -lpthread
+
 clean:
 	rm -f $(OBJS) $(TARGET) $(GPU_WORKLOAD)
 
