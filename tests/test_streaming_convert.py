@@ -129,3 +129,53 @@ print(json.dumps({"maxrss_kib":resource.getrusage(resource.RUSAGE_SELF).ru_maxrs
     # a Python tuple/dict per event. Leave room for platform allocator variance.
     print("RSS KiB for 10k/100k unique-queue dispatches:", peaks)
     assert peaks[1] < peaks[0] + 32*1024, peaks
+
+
+@pytest.mark.parametrize('no_perfetto', [False, True])
+def test_no_perfetto_keeps_merge_and_summary(tmp_path, monkeypatch, capsys, no_perfetto):
+    from types import SimpleNamespace
+    import rocm_trace_lite
+
+    output = tmp_path / 'trace.db'
+    json_output = tmp_path / 'trace.json.gz'
+    json_output.write_bytes(b'previous visualization')
+    monkeypatch.setattr(rocm_trace_lite, 'get_lib_path', lambda: '')
+    monkeypatch.setattr(cmd_trace, '_preflight_check', lambda _: None)
+
+    def workload(*_):
+        create_trace(tmp_path / 'trace_123.db', 'single')
+        create_trace(tmp_path / 'trace_456.db', 'single')
+        for path in (tmp_path / 'trace_123.db', tmp_path / 'trace_456.db'):
+            with sqlite3.connect(path) as db:
+                db.execute('DELETE FROM rocpd_op WHERE description_id=999')
+        return 0
+
+    calls = []
+    monkeypatch.setattr(cmd_trace, '_run_workload', workload)
+    monkeypatch.setattr(cmd_trace, '_generate_perfetto', lambda *args: calls.append(args))
+    with pytest.raises(SystemExit) as error:
+        cmd_trace.run_trace(SimpleNamespace(cmd=['workload'], output=str(output), no_perfetto=no_perfetto))
+    assert error.value.code == 0
+    with sqlite3.connect(output) as db:
+        assert db.execute('SELECT count(*) FROM rocpd_op WHERE end>start').fetchone()[0] == 14
+        assert db.execute('PRAGMA integrity_check').fetchone() == ('ok',)
+    assert (tmp_path / 'trace_summary.txt').is_file()
+    assert not list(tmp_path.glob('trace_[0-9]*.db'))
+    assert calls == ([] if no_perfetto else [(str(output), str(json_output))])
+    assert json_output.read_bytes() == b'previous visualization'
+    displayed = capsys.readouterr().out.split('Output files:')[-1]
+    assert (str(json_output) in displayed) is not no_perfetto
+
+
+@pytest.mark.parametrize('flag', [[], ['--no-perfetto']])
+def test_cli_parses_no_perfetto_without_changing_workload(monkeypatch, flag):
+    import sys
+    from rocm_trace_lite import cli
+
+    seen = []
+    monkeypatch.setattr(cmd_trace, 'run_trace', lambda args: seen.append(args))
+    monkeypatch.setattr(sys, 'argv', ['rtl', 'trace', *flag, '--', 'python', 'work.py'])
+    cli.main()
+    assert len(seen) == 1
+    assert seen[0].no_perfetto == bool(flag)
+    assert seen[0].cmd == ['--', 'python', 'work.py']

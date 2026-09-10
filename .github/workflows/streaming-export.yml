@@ -5,6 +5,7 @@ on:
       - '.github/workflows/streaming-export.yml'
       - 'rocm_trace_lite/cmd_convert.py'
       - 'rocm_trace_lite/cmd_trace.py'
+      - 'rocm_trace_lite/cli.py'
       - 'tests/test_streaming_convert.py'
       - 'tests/fixtures/streaming-convert-golden.json'
   workflow_dispatch:

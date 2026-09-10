@@ -38,3 +38,11 @@ command with a new output path. Conversion is CPU-only and does not load the
 native profiler. Clear inherited `HSA_TOOLS_LIB` and `LD_PRELOAD` for that export
 process. This change does not modify native sources or the capture protocol;
 never replace a running workload's package as part of offline conversion.
+
+For repeated capture runs, `rtl trace --no-perfetto -o trace.db -- COMMAND`
+keeps the complete SQLite capture/merge and summary while omitting only the
+post-capture Perfetto export. Default behavior still generates Perfetto. This
+option does not change GPU recording or measurement windows. A later
+`rtl convert trace.db -o trace.json.gz` exports a selected run offline; existing
+JSON files are not removed or advertised as newly generated when export is
+deferred.

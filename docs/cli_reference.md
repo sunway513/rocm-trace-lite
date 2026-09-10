@@ -7,7 +7,7 @@ rocm-trace-lite provides the `rtl` command-line tool. (`rtl-legacy` also works a
 Trace a GPU workload and generate profiling output.
 
 ```bash
-rtl trace [-o OUTPUT] COMMAND [ARGS...]
+rtl trace [-o OUTPUT] [--no-perfetto] COMMAND [ARGS...]
 ```
 
 **Options:**
@@ -15,6 +15,7 @@ rtl trace [-o OUTPUT] COMMAND [ARGS...]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-o, --output` | `trace.db` | Output trace file path |
+| `--no-perfetto` | off | Preserve capture, merged SQLite and summary; defer JSON visualization export |
 
 **Workload shutdown:** `rtl trace` waits for the launched process group, including
 workers whose parent has already exited, before collecting trace databases.
