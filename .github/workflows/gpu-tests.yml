@@ -32,7 +32,7 @@ jobs:
             --entrypoint bash \
             ${{ env.GPU_CONTAINER }} \
             -c '
-              set -e
+              set -euo pipefail
 
               # Build librtl.so + HIP test workload
               apt-get update -qq && apt-get install -y -qq libsqlite3-dev python3-pip > /dev/null 2>&1
@@ -66,7 +66,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gpu-single-results
-          path: gpu-test-results.txt
+          path: |
+            gpu-test-results.txt
+            graph-*/summary.json
+            graph-*/*.log
 
   gpu-multi:
     name: GPU tests (8x MI355X, optional)
@@ -92,7 +95,7 @@ jobs:
             --entrypoint bash \
             ${{ env.GPU_CONTAINER }} \
             -c '
-              set -e
+              set -euo pipefail
 
               # Build librtl.so + HIP test workload
               apt-get update -qq && apt-get install -y -qq libsqlite3-dev python3-pip > /dev/null 2>&1
@@ -126,4 +129,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gpu-multi-results
-          path: gpu-test-results.txt
+          path: |
+            gpu-test-results.txt
+            graph-*/summary.json
+            graph-*/*.log

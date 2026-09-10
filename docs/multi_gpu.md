@@ -59,7 +59,6 @@ Each process prints diagnostic counters at shutdown:
   signals injected:    2630
   drop (shutdown):     0
   drop (not kernel):   500
-  drop (batch skip):   250
   drop (no qi):        0
   drop (sig pool):     0
   drop (ts fail):      0
@@ -70,14 +69,13 @@ Each process prints diagnostic counters at shutdown:
 
 Key indicators:
 - **signals injected** should match **recorded OK** (no drops)
-- **drop (batch skip)** counts packets from batch submissions (`count > 1`) that were skipped — typically from CUDAGraph replay. This is expected.
 - **drop (not kernel)** counts non-kernel AQL packets (barriers, vendor-specific) that were not profiled.
 - **drop (sig pool)** > 0 means signal pool exhaustion (increase `SIGNAL_POOL_MAX`)
 - **drop (ts fail)** > 0 indicates GPU timestamp read failures
 
 ## CUDAGraph compatibility
 
-When profiling CUDAGraph workloads (e.g., ATOM/vLLM with hipgraph), batch submissions from graph replay are automatically skipped in default and lite modes. The `drop (batch skip)` counter reflects these skipped packets.
+On the validated ROCm 10 runtime, graph replay batches are processed in every mode. Standard/full capture all kernel dispatches; lite skips individual dispatches with application-owned completion signals. The obsolete batch-skip workaround and its counter have been removed.
 
 For near-zero overhead with CUDAGraph workloads, use lite mode:
 
@@ -87,10 +85,10 @@ rtl trace --mode lite -o trace.db torchrun --nproc_per_node=8 my_model.py
 RTL_MODE=lite rtl trace -o trace.db torchrun --nproc_per_node=8 my_model.py
 ```
 
-To profile graph replay kernels (requires ROCm 7.13+ with [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1)):
+For complete graph replay kernel capture on ROCm 10 (which includes [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1)):
 
 ```bash
-RTL_MODE=full rtl trace -o trace.db torchrun --nproc_per_node=8 my_model.py
+RTL_MODE=standard rtl trace -o trace.db torchrun --nproc_per_node=8 my_model.py
 ```
 
 See `RTL_DEBUG=1` output for per-call diagnostics.

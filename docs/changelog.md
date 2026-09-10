@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Validate ROCm 10 with a pinned GPU CI image and descriptor queue interception.
+- Remove the old HSA batch-skip workaround and its diagnostic counter. Standard/full now capture graph replay; lite keeps per-dispatch completion-signal filtering. All HSA profiling modes require ROCR fix `559d48b1`; unpatched runtimes are unsupported.
+- Gate standard and full graph capture independently with exact kernel counts on MI355X.
+
 ## v0.3.7
 
 ### New features

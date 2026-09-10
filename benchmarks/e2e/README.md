@@ -20,7 +20,7 @@ this image; the SDK distribution version is 10.0.0.
 TheRock 10.0 contains ROCR fix
 [`559d48b1`](https://github.com/ROCm/rocm-systems/commit/559d48b1f013a2a8e9decd2557508de7ac6c6b10),
 which sizes the intercept staging buffer to the queue rather than 256 packets.
-This enables full graph tracing, but also exposes a new compatibility issue:
+RTL removes the old batch-skip workaround and requires this fix in every HSA profiling mode. Standard/full now both capture graph replay; lite retains only its per-dispatch signal filter. The runtime also exposes a new compatibility issue:
 CLR now creates queues through `hsa_amd_queue_create`, bypassing tools that
 replace only `hsa_queue_create`. Without the descriptor hook the native graph
 workload returns success while RTL records zero GPU operations.
@@ -33,7 +33,7 @@ a full trace when that warning appears.
 
 The regression executes 580 graph replays of 256 kernels on each selected
 MI355X, verifies the numerical output in the native workload, and requires
-exactly 148,480 named kernels per trace plus a valid SQLite database. It
+exactly 148,480 named kernels per trace plus a valid SQLite database, independently in standard and full modes. Modes run sequentially per GPU; selected GPUs run concurrently. It
 returns nonzero for missing/empty/partial traces. It is a graph capture gate,
 not a substitute for GPT-OSS and DeepSeek serving validation.
 

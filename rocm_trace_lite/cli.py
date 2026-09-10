@@ -17,10 +17,10 @@ def main():
     trace_p.add_argument("-o", "--output", default="trace.db", help="Output trace file (default: trace.db)")
     trace_p.add_argument("-m", "--mode", choices=["lite", "standard", "default", "full", "hip"], default=None,
                          help="Profiling mode: "
-                              "lite (~0%% overhead, skip has-signal packets, safe for all ROCm, default), "
-                              "standard (GPU timing for all count==1 dispatches, skip graph replay), "
+                              "lite (partial GPU timing, skip has-signal packets, default), "
+                              "standard (GPU timing including graph replay), "
                               "hip (standard + HIP API interception for CPU-GPU correlation), "
-                              "full (profile everything including graph replay, requires ROCm 7.13+). "
+                              "full (same GPU coverage as standard). HSA profiling requires a fixed ROCR runtime (validated on ROCm 10). "
                               "'default' is accepted as alias for 'standard'.")
     trace_p.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to trace")
 

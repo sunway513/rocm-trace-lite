@@ -71,9 +71,9 @@ static bool g_intercept_available = false;
 
 // RTL_MODE controls profiling behavior:
 //   "lite"     — skip packets with existing completion_signal (~0% overhead). Default.
-//   "standard" — signal injection + GPU timing for all count==1 dispatches, skip graph replay
-//   "full"     — profile everything including graph replay batches. Requires ROCm 7.13+
-//                with ROCR fix (rocm-systems commit 559d48b1). Will crash on ROCm <= 7.2.
+//   "standard" — GPU timing for all kernel dispatches, including graph replay.
+//   "full"     — compatibility name for the same complete GPU capture.
+// All modes require a runtime with ROCR fix 559d48b1 (validated on ROCm 10).
 enum class RtlMode { STANDARD = 0, LITE = 1, FULL = 2 };
 static RtlMode g_rtl_mode = RtlMode::LITE;
 
@@ -161,7 +161,6 @@ static void release_signal(hsa_signal_t sig) {
 static std::atomic<uint64_t> g_total_intercepts{0};
 static std::atomic<uint64_t> g_drop_shutdown{0};
 static std::atomic<uint64_t> g_drop_not_kernel{0};
-static std::atomic<uint64_t> g_drop_batch_skip{0};  // batch submissions (count>1) skipped
 static std::atomic<uint64_t> g_drop_no_qi{0};
 static std::atomic<uint64_t> g_drop_sig_fail{0};     // signal pool exhausted
 static std::atomic<uint64_t> g_drop_ts_fail{0};      // profiling_get_dispatch_time failed
@@ -453,25 +452,10 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
                 this_call, count, qi->device_id, getpid());
     }
 
-    // CUDAGraph replay submits batch packets (count > 1) containing
-    // pre-recorded AQL packets.  Injecting profiling signals into these
-    // corrupts the graph's execution dependency chain (issue #67).
-    //
-    // Default and lite modes skip batch submissions for safety.
-    // Full mode profiles everything — requires ROCm 7.13+ with ROCR fix
-    // (rocm-systems PR #1194, commit 559d48b1) to avoid SEGFAULT.
-    // See: https://github.com/ROCm/rocm-systems/commit/559d48b1
-    const bool batch_mode = (count > 1);
-
-    if (batch_mode && g_rtl_mode != RtlMode::FULL) {
-        g_drop_batch_skip.fetch_add(count, std::memory_order_relaxed);
-        if (debug_level >= 1) {
-            fprintf(stderr, "rtl-dbg: call#%" PRIu64 " count=%" PRIu64 " dev=%d pid=%d SKIP(batch)\n",
-                    this_call, count, qi->device_id, getpid());
-        }
-        writer(in_packets, count);
-        return;
-    }
+    // ROCm 10 includes ROCR fix 559d48b1 for the intercept staging buffer.
+    // Process batched submissions normally; batch size is not a reason to
+    // discard graph replay kernels. Lite filtering remains per dispatch.
+    const bool batch_mode = (count > 1);  // diagnostics only
 
     for (uint64_t i = 0; i < count; i++) {
         hsa_kernel_dispatch_packet_t* pkt =
@@ -724,7 +708,6 @@ static void shutdown() {
 
     fprintf(stderr, "  drop (shutdown):     %" PRIu64 "\n", g_drop_shutdown.load());
     fprintf(stderr, "  drop (not kernel):   %" PRIu64 "\n", g_drop_not_kernel.load());
-    fprintf(stderr, "  drop (batch skip):   %" PRIu64 "\n", g_drop_batch_skip.load());
     fprintf(stderr, "  drop (no qi):        %" PRIu64 "\n", g_drop_no_qi.load());
     fprintf(stderr, "  drop (sig pool):     %" PRIu64 "\n", g_drop_sig_fail.load());
     fprintf(stderr, "  drop (ts fail):      %" PRIu64 "\n", g_drop_ts_fail.load());
