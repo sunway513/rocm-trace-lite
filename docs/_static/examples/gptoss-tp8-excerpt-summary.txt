@@ -1,0 +1,36 @@
+Trace: gptoss-tp8-excerpt.db
+  GPU ops:   1382
+  API calls: 0
+
+Kernel                                                        Calls  Total(us)  Avg(us)      %
+================================================================================================
+_ZN5aiter26cross_device_reduce_2stageIDF16bLi8ELb0EEEvPNS...    112    47823.7    427.0   76.1
+_ZN5aiter33reduce_scatter_cross_device_storeIDF16bLi8EEEv...      8     3023.7    378.0    4.8
+_ZN7ck_tile6kentryILi2ENS_15MoeFlatmmKernelINS_33GemmSpat...     56     1709.8     30.5    2.7
+_ZN7ck_tile6kentryILi2ENS_15MoeFlatmmKernelINS_33GemmSpat...     56     1512.4     27.0    2.4
+_ZN7ck_tile6kentryINS_8gfx950_tELi3ENS_13FmhaFwdKernelINS...     56     1433.1     25.6    2.3
+_gemm_a16_w16_kernel_BLOCK_SIZE_M_128_BLOCK_SIZE_N_32_BLO...     56     1335.3     23.8    2.1
+__amd_rocclr_copyBuffer                                         184      880.8      4.8    1.4
+_gemm_a16_w16_kernel_BLOCK_SIZE_M_128_BLOCK_SIZE_N_128_BL...     49      815.0     16.6    1.3
+_gemm_a16_w16_kernel_BLOCK_SIZE_M_32_BLOCK_SIZE_N_16_BLOC...     56      453.4      8.1    0.7
+aiter::opus_moe_sorting_entry<aiter::MoeSortingMultiPhase...     56      416.9      7.4    0.7
+_fused_add_rmsnorm_pad                                           56      350.6      6.3    0.6
+_ZN5aiter24add_rmsnorm_quant_kernelIDF16bDF16bLi256ELi16E...     54      312.0      5.8    0.5
+_ZN5aiter30fused_mx_quant_moe_sort_kernelIDF16bDB8_Li64EL...     56      302.2      5.4    0.5
+_ZN5aiter37dynamic_per_group_scaled_quant_kernelIDF16bDB8...     56      284.0      5.1    0.5
+vllm::moe::topkGatingSoftmax<bool _Accum, int, ELi128ELi8...     56      283.9      5.1    0.5
+triton_poi_fused_0                                               56      279.0      5.0    0.4
+aiter::opus_moe_sorting_entry<aiter::MoeSortingMultiPhase...     56      273.5      4.9    0.4
+aiter::mxfp4_moe_sort_kernel<256, 32, 16, 32>                    56      263.0      4.7    0.4
+vllm::reshape_and_cache_flash_kernel<__hip_bfloat16, __hi...     56      261.7      4.7    0.4
+at::native::vectorized_elementwise_kernel<4, at::native::...     56      241.3      4.3    0.4
+
+GPU Utilization:
+  GPU 0: 91.45% (173 ops, 9.1ms busy, 10.0ms wall)
+  GPU 1: 87.56% (173 ops, 8.4ms busy, 9.6ms wall)
+  GPU 2: 91.47% (173 ops, 9.1ms busy, 10.0ms wall)
+  GPU 3: 18.39% (172 ops, 1.8ms busy, 9.9ms wall)
+  GPU 4: 89.8% (173 ops, 8.9ms busy, 9.9ms wall)
+  GPU 5: 91.41% (173 ops, 9.1ms busy, 10.0ms wall)
+  GPU 6: 81.43% (172 ops, 8.0ms busy, 9.8ms wall)
+  GPU 7: 83.23% (173 ops, 8.3ms busy, 10.0ms wall)

@@ -59,6 +59,10 @@ rtl --version
 
 A source install builds the native profiler and fails if it cannot be built. Installing the wheel does not require a compiler. Both need the ROCm HSA runtime and SQLite shared library. See [installation and compatibility](docs/installation.md) for the pinned environment and troubleshooting.
 
+## Try a trace first
+
+Explore the [small GPT-OSS TP8 trace example](docs/example_trace.md) in Perfetto without installing ROCm or downloading model weights. It is a labeled excerpt for learning the output format.
+
 ## Quick start
 
 ```bash
