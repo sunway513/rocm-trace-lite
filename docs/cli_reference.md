@@ -7,7 +7,7 @@ rocm-trace-lite provides the `rtl` command-line tool. (`rtl-legacy` also works a
 Trace a GPU workload and generate profiling output.
 
 ```bash
-rtl trace [-o OUTPUT] [--no-perfetto] COMMAND [ARGS...]
+rtl trace [-o OUTPUT] [--mode MODE] [--no-perfetto] COMMAND [ARGS...]
 ```
 
 **Options:**
@@ -15,6 +15,7 @@ rtl trace [-o OUTPUT] [--no-perfetto] COMMAND [ARGS...]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-o, --output` | `trace.db` | Output trace file path |
+| `--mode` | `lite` | `lite` filters dispatches with existing completion signals (partial GPU coverage); `standard` and `full` use the same complete GPU capture path, including graph replay; `hip` adds CPU-side HIP API timings to standard GPU capture. Requires a supported fixed ROCR runtime (validated on ROCm 10). |
 | `--no-perfetto` | off | Preserve capture, merged SQLite and summary; defer JSON visualization export |
 
 **Workload shutdown:** `rtl trace` waits for the launched process group, including
@@ -38,19 +39,19 @@ contract covers Ctrl-C; externally killing the CLI is not graceful shutdown.
 |------|-------------|
 | `trace.db` | SQLite trace database (RPD format) |
 | `trace_summary.txt` | Text summary of top kernels |
-| `trace.json.gz` | Compressed Perfetto JSON (open in ui.perfetto.dev) |
+| `trace.json.gz` | Compressed Perfetto JSON; not generated with `--no-perfetto` (an existing file is left unchanged) |
 
 **Examples:**
 
 ```bash
 # Basic tracing
-rtl trace -o trace.db python3 my_model.py
+rtl trace --mode standard -o trace.db python3 my_model.py
 
 # Multi-GPU with torchrun
-rtl trace -o trace.db torchrun --nproc_per_node=4 train.py
+rtl trace --mode standard -o trace.db torchrun --nproc_per_node=4 train.py
 
 # Trace a shell command
-rtl trace -o trace.db -- ./my_hip_app --batch-size 32
+rtl trace --mode standard -o trace.db -- ./my_hip_app --batch-size 32
 ```
 
 ## rtl summary
@@ -99,6 +100,19 @@ rtl convert trace.db -o trace.json
 rtl convert trace.db --format rocprofv3 -o trace_results.json
 TraceLens_generate_perf_report_rocprof --profile_json_path trace_results.json
 ```
+
+### Large traces
+
+For long or repeated runs, use `rtl trace --mode standard --no-perfetto -o trace.db ...`
+to retain complete SQLite capture and the summary, then export once with
+`rtl convert trace.db -o trace.json.gz`. The converter streams events and gzip
+output, but export still takes CPU time and disk space. Streaming export does
+not bound the memory needed by a browser to import or display the resulting
+trace: the measured 25.6-million-event example expands to about 18.3 GB of JSON.
+Start with the [small trace example](example_trace.md), inspect `rtl summary`
+and SQLite first, and use a shorter capture window when a full trace is too large
+for interactive viewing. See [streaming export validation](validation-streaming-export.md)
+for measured exporter memory and its limits.
 
 ## rtl info
 
