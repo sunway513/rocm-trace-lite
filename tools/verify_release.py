@@ -4,6 +4,8 @@ import argparse
 import hashlib
 import json
 import os
+import platform
+import re
 from pathlib import Path
 import subprocess
 import tarfile
@@ -66,6 +68,23 @@ print(json.dumps(dict(version=rtl.__version__,library=str(p),sha256=hashlib.sha2
                 raise RuntimeError("Missing or forbidden dependency: " + forbidden)
         subprocess.run([str(root / "venv/bin/rtl"), "--version"], cwd=root, env=clean_env, check=True)
         identity["dependencies"] = deps
+        # A linux_x86_64 tag does not express a glibc compatibility floor.
+        versions = subprocess.run(
+            ["readelf", "--version-info", identity["library"]],
+            check=True, text=True, capture_output=True,
+        ).stdout
+        glibc_versions = sorted(set(re.findall(r"\bGLIBC_(\d+(?:\.\d+)+)\b", versions)),
+                                key=lambda value: tuple(map(int, value.split("."))))
+        if not glibc_versions:
+            raise RuntimeError("No versioned glibc requirements found in native library")
+        identity["native_abi"] = {
+            "build_libc": dict(zip(("name", "version"), platform.libc_ver())),
+            "direct_glibc_requirements": glibc_versions,
+            "minimum_direct_glibc": glibc_versions[-1],
+            "os_release": Path("/etc/os-release").read_text(),
+            "wheel_tag_encodes_glibc_floor": False,
+            "scope": "Direct ELF requirements only; transitive dependencies also need validation",
+        }
         # The temporary install is removed; its path records validation provenance.
         (dist / "validation.json").write_text(json.dumps(identity, indent=2) + "\n")
     files = [wheel, source, dist / "validation.json"]

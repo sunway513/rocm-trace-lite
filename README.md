@@ -27,14 +27,24 @@ A streamlined, lightweight GPU kernel profiler. Captures dispatch timestamps usi
 This branch prepares the **0.4.0rc1 ROCm 10 candidate**. It has not been published.
 Use [GitHub Releases](https://github.com/sunway513/rocm-trace-lite/releases) for published artifacts and their version-specific requirements. The older v0.3.7 wheel is not this ROCm 10 candidate. A PyPI installation is not currently a verified distribution route.
 
+The CI wheel is built and validated on **Ubuntu 24.04 with glibc 2.39**.
+Its native library requires `GLIBC_2.38`; it cannot load on Ubuntu 22.04
+(glibc 2.35), including the pinned vLLM serving image. The `linux_x86_64`
+filename does not encode this requirement, so pip can accept an incompatible
+wheel. On Ubuntu 22.04, build the same-version sdist inside the target
+ROCm environment; that route still requires its own validation.
+
 For a candidate wheel supplied by the release workflow, download its `SHA256SUMS` and all listed assets to the same directory, then:
 
 ```bash
 sha256sum --check SHA256SUMS
+# Check inside the target environment/container, not on its host.
+python3 -c 'import platform; n,v=platform.libc_ver(); assert n=="glibc" and tuple(map(int,v.split("."))) >= (2,39), "Use the matching sdist: this CI wheel targets Ubuntu 24.04 / glibc 2.39"'
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install ./rocm_trace_lite-0.4.0rc1-py3-none-linux_x86_64.whl
 rtl --version
+python -c 'import ctypes; from rocm_trace_lite import get_lib_path; ctypes.CDLL(get_lib_path())'
 ```
 
 For source development, in a checkout of this branch with ROCm 10 and HSA headers installed:
