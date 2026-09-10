@@ -62,10 +62,13 @@ jobs:
           /tmp/build-venv/bin/python tools/build_gpu_test_runtime.py \
             --output gpu-runtime-artifact/gpu-test-runtime.tar.gz \
             --source-image "$GPU_CONTAINER"
+          cd gpu-runtime-artifact
+          sha256sum gpu-test-runtime.tar.gz > SHA256SUMS
+          gzip -t gpu-test-runtime.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: gpu-test-runtime
-          path: gpu-runtime-artifact/gpu-test-runtime.tar.gz
+          path: gpu-runtime-artifact/*
           if-no-files-found: error
 
   installed-gpu:
@@ -79,10 +82,38 @@ jobs:
         with:
           name: release-candidate
           path: dist/
-      - uses: actions/download-artifact@v4
+      - name: Download compact GPU runtime
+        uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: gpu-test-runtime
           path: gpu-runtime-artifact/
+      - name: Check runtime download integrity
+        id: runtime-download-check
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd gpu-runtime-artifact
+          sha256sum --check SHA256SUMS
+          gzip -t gpu-test-runtime.tar.gz
+      - name: Remove incomplete runtime download before retry
+        if: steps.runtime-download-check.outcome == 'failure'
+        shell: bash
+        run: rm -f gpu-runtime-artifact/gpu-test-runtime.tar.gz gpu-runtime-artifact/SHA256SUMS
+      - name: Retry compact GPU runtime download
+        if: steps.runtime-download-check.outcome == 'failure'
+        uses: actions/download-artifact@v4
+        with:
+          name: gpu-test-runtime
+          path: gpu-runtime-artifact/
+      - name: Require complete runtime archive before GPU validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd gpu-runtime-artifact
+          sha256sum --check SHA256SUMS
+          gzip -t gpu-test-runtime.tar.gz
       - name: Pull small pinned runtime base with bounded retries
         shell: bash
         run: bash tools/pull_ci_image.sh "$GPU_RUNTIME_CONTAINER" "$GITHUB_WORKSPACE/image-pull.log"
