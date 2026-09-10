@@ -52,15 +52,7 @@ jobs:
               python3 tools/check_graph_capture.py --devices 0 --output /workspace/graph-single
 
               # Run GPU tests
-              python3 -m pytest tests/test_gpu_hip.py -v --tb=short --timeout=120 2>&1 | tee /workspace/gpu-test-results.txt
-
-              # Guard: fail if no GPU tests passed
-              gpu_passed=$(grep -c "PASSED" /workspace/gpu-test-results.txt || echo 0)
-              echo "GPU tests passed: $gpu_passed"
-              if [ "$gpu_passed" -lt 5 ]; then
-                echo "FATAL: fewer than 5 GPU tests passed"
-                exit 1
-              fi
+              bash tools/run_gpu_tests.sh /workspace/gpu-test-results.txt 5 tests/test_gpu_hip.py --tb=short --timeout=120
             '
 
       - name: Upload results
@@ -70,6 +62,7 @@ jobs:
           name: gpu-single-results
           path: |
             gpu-test-results.txt
+            gpu-test-results.txt.xml
             graph-*/summary.json
             graph-*/*.log
 
@@ -116,16 +109,8 @@ jobs:
 
               python3 tools/check_graph_capture.py --devices 0,1,2,3,4,5,6,7 --output /workspace/graph-multi
 
-              # CPU tests run in their dedicated job; this job validates GPU capture.
-              python3 -m pytest tests/test_gpu_hip.py -v --tb=short --timeout=180 2>&1 | tee /workspace/gpu-test-results.txt
-
-              # Guard
-              gpu_passed=$(grep -c "PASSED" /workspace/gpu-test-results.txt || echo 0)
-              echo "GPU tests passed: $gpu_passed"
-              if [ "$gpu_passed" -lt 10 ]; then
-                echo "FATAL: fewer than 10 tests passed"
-                exit 1
-              fi
+              # CPU tests run in their dedicated job; count only executed GPU tests.
+              bash tools/run_gpu_tests.sh /workspace/gpu-test-results.txt 10 tests/test_gpu_hip.py --tb=short --timeout=180
             '
 
       - name: Upload results
@@ -135,5 +120,6 @@ jobs:
           name: gpu-multi-results
           path: |
             gpu-test-results.txt
+            gpu-test-results.txt.xml
             graph-*/summary.json
             graph-*/*.log
