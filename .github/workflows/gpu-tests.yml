@@ -19,9 +19,10 @@ jobs:
       - name: Run GPU tests in container
         run: |
           set -o pipefail
-          docker run --rm \
+          device_groups=()
+          while read -r gid; do device_groups+=(--group-add "$gid"); done < <(stat -c %g /dev/kfd /dev/dri/renderD* | sort -u)
+          docker run --rm "${device_groups[@]}" \
             --device=/dev/kfd --device=/dev/dri \
-            --group-add render --group-add video \
             --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
@@ -64,9 +65,10 @@ jobs:
       - name: Run GPU tests in container
         run: |
           set -o pipefail
-          docker run --rm \
+          device_groups=()
+          while read -r gid; do device_groups+=(--group-add "$gid"); done < <(stat -c %g /dev/kfd /dev/dri/renderD* | sort -u)
+          docker run --rm "${device_groups[@]}" \
             --device=/dev/kfd --device=/dev/dri \
-            --group-add render --group-add video \
             --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
