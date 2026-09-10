@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  GPU_CONTAINER: rocm/dev-ubuntu-24.04:latest
+  GPU_CONTAINER: vllm/vllm-openai-rocm@sha256:72e90adf360ccffb231a098a15eadfb808719c029c6cd43f6386095064552b7e
 
 jobs:
   gpu-single:
@@ -19,14 +19,16 @@ jobs:
       - name: Run GPU tests in container
         run: |
           set -o pipefail
-          docker run --rm \
+          device_groups=()
+          while read -r gid; do device_groups+=(--group-add "$gid"); done < <(stat -c %g /dev/kfd /dev/dri/renderD* | sort -u)
+          docker run --rm "${device_groups[@]}" \
             --device=/dev/kfd --device=/dev/dri \
-            --group-add render --group-add video \
             --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
+            --entrypoint bash \
             ${{ env.GPU_CONTAINER }} \
-            bash -c '
+            -c '
               set -e
 
               # Build librtl.so + HIP test workload
@@ -35,12 +37,14 @@ jobs:
               make tests/gpu_workload
               mkdir -p rocm_trace_lite/lib && cp librtl.so rocm_trace_lite/lib/
 
-              # Install Python test deps (no PyTorch)
+              # Install Python test dependencies
               pip install --break-system-packages pytest pytest-timeout -e .
 
-              # Verify GPU via HIP (no torch)
+              # Verify GPU via HIP
               ./tests/gpu_workload noop
               echo "GPU verified via HIP"
+
+              python3 tools/check_graph_capture.py --devices 0 --output /workspace/graph-single
 
               # Run GPU tests
               python3 -m pytest tests/test_gpu_hip.py -v --tb=short --timeout=120 2>&1 | tee /workspace/gpu-test-results.txt
@@ -72,14 +76,16 @@ jobs:
       - name: Run GPU tests in container
         run: |
           set -o pipefail
-          docker run --rm \
+          device_groups=()
+          while read -r gid; do device_groups+=(--group-add "$gid"); done < <(stat -c %g /dev/kfd /dev/dri/renderD* | sort -u)
+          docker run --rm "${device_groups[@]}" \
             --device=/dev/kfd --device=/dev/dri \
-            --group-add render --group-add video \
             --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
+            --entrypoint bash \
             ${{ env.GPU_CONTAINER }} \
-            bash -c '
+            -c '
               set -e
 
               # Build librtl.so + HIP test workload
@@ -88,15 +94,17 @@ jobs:
               make tests/gpu_workload
               mkdir -p rocm_trace_lite/lib && cp librtl.so rocm_trace_lite/lib/
 
-              # Install Python test deps (no PyTorch)
+              # Install Python test dependencies
               pip install --break-system-packages pytest pytest-timeout -e .
 
               # Verify GPU
               ./tests/gpu_workload noop
               echo "GPU verified via HIP"
 
-              # Run all tests (GPU HIP + CPU)
-              python3 -m pytest tests/test_gpu_hip.py tests/ -v --tb=short --timeout=180 2>&1 | tee /workspace/gpu-test-results.txt
+              python3 tools/check_graph_capture.py --devices 0,1,2,3,4,5,6,7 --output /workspace/graph-multi
+
+              # CPU tests run in their dedicated job; this job validates GPU capture.
+              python3 -m pytest tests/test_gpu_hip.py -v --tb=short --timeout=180 2>&1 | tee /workspace/gpu-test-results.txt
 
               # Guard
               gpu_passed=$(grep -c "PASSED" /workspace/gpu-test-results.txt || echo 0)

@@ -636,6 +636,61 @@ static hsa_status_t my_hsa_queue_create(
     return HSA_STATUS_SUCCESS;
 }
 
+#ifdef HSA_AMD_QUEUE_CREATE_DESC_VERSION
+// ROCm 10 CLR creates compute queues through the descriptor API instead of
+// hsa_queue_create. The tools API still exposes only the legacy intercept
+// constructor, so translate descriptors whose attributes it can preserve.
+static hsa_status_t my_hsa_amd_queue_create(
+    hsa_agent_t agent, hsa_amd_queue_create_desc_t* descs, uint32_t count) {
+    if (!descs || count == 0 || !g_intercept_available)
+        return g_orig_ext.hsa_amd_queue_create_fn(agent, descs, count);
+    hsa_status_t first_error = HSA_STATUS_SUCCESS;
+    for (uint32_t i = 0; i < count; ++i) {
+        auto& d = descs[i];
+        const auto& cp = d.engine.compute;
+        bool reserved_zero = true;
+        for (auto v : d.reserved_header) reserved_zero &= v == 0;
+        for (auto v : d.reserved) reserved_zero &= v == 0;
+        for (auto v : cp.reserved) reserved_zero &= v == 0;
+        const bool supported = d.version == HSA_AMD_QUEUE_CREATE_DESC_VERSION &&
+            d.engine_type == HSA_AMD_QUEUE_ENGINE_COMPUTE && d.flags == 0 &&
+            d.traffic_class == 0 && reserved_zero && d.queue_size_bytes >= 64 &&
+            (d.queue_size_bytes & (d.queue_size_bytes - 1)) == 0 &&
+            cp.type <= HSA_QUEUE_TYPE_COOPERATIVE &&
+            cp.cu_mask_count % 32 == 0 && (cp.cu_mask_count == 0 || cp.cu_mask) &&
+            d.priority >= HSA_AMD_QUEUE_PRIORITY_LOW &&
+            d.priority <= HSA_AMD_QUEUE_PRIORITY_HIGH;
+        hsa_status_t status;
+        if (!supported) {
+            // Preserve unknown attributes/validation in the runtime. Never
+            // silently change device-memory placement or SDMA queue semantics.
+            fprintf(stderr, "rtl: WARNING: descriptor queue not intercepted "
+                    "(engine=%u flags=%u); trace coverage may be incomplete\n",
+                    unsigned(d.engine_type), unsigned(d.flags));
+            status = g_orig_ext.hsa_amd_queue_create_fn(agent, &d, 1);
+        } else {
+            d.queue = nullptr;
+            status = my_hsa_queue_create(agent,
+                d.queue_size_bytes / sizeof(hsa_kernel_dispatch_packet_t), cp.type,
+                d.callback, d.callback_data, cp.private_segment_size, UINT32_MAX,
+                &d.queue);
+            if (status == HSA_STATUS_SUCCESS)
+                status = g_orig_ext.hsa_amd_queue_set_priority_fn(d.queue, d.priority);
+            if (status == HSA_STATUS_SUCCESS && cp.cu_mask_count)
+                status = g_orig_ext.hsa_amd_queue_cu_set_mask_fn(
+                    d.queue, cp.cu_mask_count, cp.cu_mask);
+            if (status != HSA_STATUS_SUCCESS && d.queue) {
+                g_orig_core.hsa_queue_destroy_fn(d.queue);
+                d.queue = nullptr;
+            }
+        }
+        if (first_error == HSA_STATUS_SUCCESS && status != HSA_STATUS_SUCCESS)
+            first_error = status;
+    }
+    return first_error;
+}
+#endif
+
 static hsa_status_t my_hsa_executable_freeze(hsa_executable_t executable, const char* options) {
     hsa_status_t status = g_orig_core.hsa_executable_freeze_fn(executable, options);
     if (status == HSA_STATUS_SUCCESS) {
@@ -756,11 +811,24 @@ extern "C" bool OnLoad(void* pTable,
     HsaApiTable* table = reinterpret_cast<HsaApiTable*>(pTable);
     g_orig_table = table;
     g_orig_core = *table->core_;
-    g_orig_ext = *table->amd_ext_;
+    // A newer SDK can describe more extension slots than an older runtime
+    // supplies. Never read past the runtime's versioned table.
+    g_orig_ext = {};
+    const size_t ext_bytes = table->amd_ext_->version.minor_id;
+    memcpy(&g_orig_ext, table->amd_ext_,
+           ext_bytes < sizeof(g_orig_ext) ? ext_bytes : sizeof(g_orig_ext));
 
     // Replace queue creation and executable freeze
     table->core_->hsa_queue_create_fn = my_hsa_queue_create;
     table->core_->hsa_executable_freeze_fn = my_hsa_executable_freeze;
+#ifdef HSA_AMD_QUEUE_CREATE_DESC_VERSION
+    if (table->amd_ext_->version.minor_id >=
+            offsetof(AmdExtTable, hsa_amd_queue_create_fn) +
+                sizeof(table->amd_ext_->hsa_amd_queue_create_fn) &&
+        g_orig_ext.hsa_amd_queue_create_fn) {
+        table->amd_ext_->hsa_amd_queue_create_fn = my_hsa_amd_queue_create;
+    }
+#endif
 
     // Discover GPU agents (immutable after this point)
     hsa_iterate_agents(agent_iterate_cb, nullptr);
