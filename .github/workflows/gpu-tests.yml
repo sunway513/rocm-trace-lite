@@ -12,9 +12,12 @@ jobs:
   gpu-single:
     name: GPU tests (single MI355X)
     runs-on: linux-rocm-trace-lite-mi355-1
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - name: Pull pinned GPU image
+        run: docker pull "${{ env.GPU_CONTAINER }}"
 
       - name: Run GPU tests in container
         run: |
@@ -72,6 +75,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - name: Pull pinned GPU image
+        run: docker pull "${{ env.GPU_CONTAINER }}"
 
       - name: Run GPU tests in container
         run: |
