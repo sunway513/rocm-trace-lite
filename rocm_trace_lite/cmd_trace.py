@@ -423,20 +423,7 @@ def _generate_perfetto(db_path, json_gz_path):
         return
     try:
         from rocm_trace_lite.cmd_convert import convert
-        import gzip
-        import tempfile
-
-        # Convert to temp JSON first
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
-            tmp_json = tmp.name
-
-        convert(db_path, tmp_json)
-
-        # Compress to .json.gz
-        with open(tmp_json, "rb") as f_in:
-            with gzip.open(json_gz_path, "wb") as f_out:
-                f_out.write(f_in.read())
-
-        os.unlink(tmp_json)
+        # The converter streams gzip directly and atomically publishes the file.
+        convert(db_path, json_gz_path)
     except Exception as e:
         print(f"Warning: could not generate Perfetto trace: {e}", file=sys.stderr)
