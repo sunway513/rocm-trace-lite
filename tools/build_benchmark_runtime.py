@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.metadata as metadata
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -80,11 +81,18 @@ def build(output, source_image):
         seeds += list(Path('/opt/rocm/lib').glob('libroctracer64.so*'))
         seeds += list(Path('/opt/rocm/lib').glob('libroctx64.so*'))
         package_sources = {record['source'] for record in records.values()}
+        # TheRock splits host-math/sysdeps into nested SDK directories. Resolve
+        # each ELF against the complete selected source layout, just as the
+        # relocated target uses all manifest library directories.
+        source_library_dirs = sorted({str(path.parent) for path in seeds})
+        resolver_env = dict(os.environ)
+        resolver_env['LD_LIBRARY_PATH'] = ':'.join(
+            [resolver_env.get('LD_LIBRARY_PATH', ''), *source_library_dirs])
         system_glibc = re.compile(r'^(?:ld-linux.*|lib(?:c|m|pthread|dl|rt|util|resolv|anl)\.so(?:\..*)?)$')
         for seed in seeds:
-            result = subprocess.run(['ldd', str(seed)], text=True, capture_output=True)
+            result = subprocess.run(['ldd', str(seed)], text=True, capture_output=True, env=resolver_env)
             if 'not found' in result.stdout:
-                raise RuntimeError(result.stdout)
+                raise RuntimeError(f'Unresolved dependency for {seed}:\n{result.stdout}')
             dependencies = re.findall(r'=> (/\S+)', result.stdout)
             if str(seed).startswith('/opt/rocm/'):
                 dependencies.append(str(seed))
