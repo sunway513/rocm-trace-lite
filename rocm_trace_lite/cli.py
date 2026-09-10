@@ -22,6 +22,8 @@ def main():
                               "hip (standard + HIP API interception for CPU-GPU correlation), "
                               "full (same GPU coverage as standard). HSA profiling requires a fixed ROCR runtime (validated on ROCm 10). "
                               "'default' is accepted as alias for 'standard'.")
+    trace_p.add_argument("--no-perfetto", action="store_true",
+                         help="Keep SQLite capture and summary; defer Perfetto JSON export")
     trace_p.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to trace")
 
     # convert

@@ -79,8 +79,10 @@ raise SystemExit(code)
 @pytest.mark.parametrize("exit_code", [0, 9, 130])
 def test_cli_preserves_status_without_trace(monkeypatch, tmp_path, exit_code):
     from types import SimpleNamespace
+    import rocm_trace_lite
     from rocm_trace_lite import cmd_trace
 
+    monkeypatch.setattr(rocm_trace_lite, "get_lib_path", lambda: "")
     monkeypatch.setattr(cmd_trace, "_preflight_check", lambda _: None)
     monkeypatch.setattr(cmd_trace, "_run_workload", lambda *_: exit_code)
     args = SimpleNamespace(cmd=["unused"], output=str(tmp_path / "trace.db"))

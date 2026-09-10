@@ -9,13 +9,87 @@ import os
 import json
 import gzip
 import sqlite3
+import tempfile
+from pathlib import Path
+
+
+# Level 3 keeps compression CPU modest for large traces; decoded events are unchanged.
+GZIP_LEVEL = 3
+
+
+class _EventWriter:
+    def __init__(self, stream):
+        self.stream = stream
+        self.count = 0
+
+    def append(self, event):
+        if self.count:
+            self.stream.write(", ")
+        self.stream.write(json.dumps(event))
+        self.count += 1
+
+
+def _parse_dispatch(info):
+    fields = {}
+    if info:
+        for part in info.split():
+            for key in ("hwq", "wg", "grid"):
+                if part.startswith(key + "="):
+                    fields[key] = part[len(key) + 1:]
+    return fields.get("hwq"), fields.get("wg"), fields.get("grid")
+
+
+def _iter_ops(conn):
+    # Cursor iteration keeps only the current joined row in Python memory.
+    for gpu, queue, start, end, name, kind, info in conn.execute("""
+        SELECT o.gpuId, o.queueId, o.start, o.end, s.string, ot.string,
+               o.completionSignal
+        FROM rocpd_op o
+        JOIN rocpd_string s ON o.description_id = s.id
+        LEFT JOIN rocpd_string ot ON o.opType_id = ot.id
+        WHERE o.end > o.start
+        ORDER BY o.start
+    """):
+        yield gpu, queue, start, end, name, kind, *_parse_dispatch(info)
 
 
 def convert(input_rpd, output_json):
-    """Convert an RPD trace file to Chrome Trace JSON format."""
+    """Stream events into an atomic plain/gzip output, outside the source DB."""
+    output = Path(output_json)
+    if Path(input_rpd).resolve() == output.resolve():
+        raise ValueError("Output must not replace the input database")
     conn = sqlite3.connect(input_rpd)
-    events = []
+    temp = None
+    try:
+        # Keep SQLite's ORDER BY work off the Python heap and bounded in cache.
+        conn.execute("PRAGMA temp_store=FILE")
+        conn.execute("PRAGMA cache_size=-8192")
+        conn.execute("BEGIN")
+        fd, temp = tempfile.mkstemp(prefix="." + output.name + ".", suffix=".tmp", dir=output.parent)
+        os.close(fd)
+        opener = gzip.open if str(output).endswith('.gz') else open
+        kwargs = {"compresslevel": GZIP_LEVEL} if opener is gzip.open else {}
+        with opener(temp, "wt", **kwargs) as stream:
+            stream.write('{"traceEvents": [')
+            events = _EventWriter(stream)
+            counts = _convert(conn, events)
+            if counts is None:
+                return
+            stream.write(']}')
+        os.replace(temp, output)
+        temp = None
+        size_mb = output.stat().st_size / 1024 / 1024
+        print(f"Written {output_json} ({size_mb:.1f} MB)")
+        print(f"  GPU ops:   {counts[0]}")
+        print(f"  API calls: {counts[1]}")
+        print(f"  Total events: {events.count}")
+    finally:
+        conn.close()
+        if temp is not None:
+            os.unlink(temp)
 
+
+def _convert(conn, events):
     # Get time range from ops
     row = conn.execute("SELECT MIN(start), MAX(end) FROM rocpd_op WHERE end > start").fetchone()
     if not row or row[0] is None:
@@ -30,47 +104,29 @@ def convert(input_rpd, output_json):
     print(f"Trace duration: {duration_s:.3f}s")
     print(f"Base timestamp: {base_ns} ns")
 
-    # Collect all GPU ops
-    ops = []
-    for r in conn.execute("""
-        SELECT o.gpuId, o.queueId, o.start, o.end, s.string, ot.string,
-               o.completionSignal
-        FROM rocpd_op o
-        JOIN rocpd_string s ON o.description_id = s.id
-        LEFT JOIN rocpd_string ot ON o.opType_id = ot.id
-        WHERE o.end > o.start
-        ORDER BY o.start
-    """):
-        ops.append(r)
-
-    # Pre-parse dispatch_info to extract hwq for each op
-    parsed_ops = []
-    for gpu_id, queue_id, start_ns, end_ns, name, op_type, dispatch_info in ops:
-        hwq = None
-        wg = None
-        grid = None
-        if dispatch_info:
-            for part in dispatch_info.split():
-                if part.startswith("hwq="):
-                    hwq = part[4:]
-                elif part.startswith("wg="):
-                    wg = part[3:]
-                elif part.startswith("grid="):
-                    grid = part[5:]
-        parsed_ops.append((gpu_id, queue_id, start_ns, end_ns, name, op_type, hwq, wg, grid))
-
-    # Decide track layout: hwq-based (if dispatch_info present) or queue-based (fallback)
-    gpu_ids = sorted(set(r[0] for r in parsed_ops if r[0] is not None and r[0] >= 0))
-    if not gpu_ids:
-        gpu_ids = [0]
-
-    # Collect unique hwq addresses per GPU
+    # Discover only track metadata; never retain one Python object per op.
+    gpu_ids = set()
     hwq_by_gpu = {}
-    for gpu_id, _q, _s, _e, _n, _t, hwq, _wg, _grid in parsed_ops:
+    for gpu_id, info in conn.execute("""
+        SELECT o.gpuId, o.completionSignal FROM rocpd_op o
+        JOIN rocpd_string s ON o.description_id = s.id
+        WHERE o.end > o.start
+    """):
+        if gpu_id is not None and gpu_id >= 0:
+            gpu_ids.add(gpu_id)
+        hwq, _wg, _grid = _parse_dispatch(info)
         gid = gpu_id if gpu_id is not None and gpu_id >= 0 else 0
         if hwq:
             hwq_by_gpu.setdefault(gid, set()).add(hwq)
+    gpu_ids = sorted(gpu_ids) or [0]
 
+    queue_sql = """
+        SELECT DISTINCT o.queueId FROM rocpd_op o
+        JOIN rocpd_string s ON o.description_id = s.id
+        WHERE o.end > o.start AND o.queueId IS NOT NULL
+        ORDER BY o.queueId
+    """
+    collapsed_queues = False
     use_hwq_tracks = len(hwq_by_gpu) > 0
 
     if use_hwq_tracks:
@@ -101,13 +157,15 @@ def convert(input_rpd, output_json):
         all_same_gpu = len(gpu_ids) <= 1
 
         if all_same_gpu:
-            queue_ids = sorted(set(r[1] for r in parsed_ops if r[1] is not None))
-            if len(queue_ids) > 100:
-                queue_to_track = {q: 0 for q in queue_ids}
-                print(f"  Single GPU detected, {len(queue_ids)} unique queue IDs (per-dispatch) -> collapsing to 1 track")
+            # A per-dispatch queue ID must not create an event-sized dictionary.
+            queue_count = conn.execute("SELECT COUNT(*) FROM (" + queue_sql + ")").fetchone()[0]
+            collapsed_queues = queue_count > 100
+            if collapsed_queues:
+                queue_to_track = {}
+                print(f"  Single GPU detected, {queue_count} unique queue IDs (per-dispatch) -> collapsing to 1 track")
             else:
-                queue_to_track = {q: i for i, q in enumerate(queue_ids)}
-                print(f"  Single GPU detected, {len(queue_ids)} queues -> using queue-based tracks")
+                queue_to_track = {q: i for i, (q,) in enumerate(conn.execute(queue_sql))}
+                print(f"  Single GPU detected, {queue_count} queues -> using queue-based tracks")
 
             events.append({
                 "name": "process_name", "ph": "M",
@@ -125,7 +183,7 @@ def convert(input_rpd, output_json):
 
     # GPU ops -> complete events
     op_count = 0
-    for gpu_id, queue_id, start_ns, end_ns, name, op_type, hwq, wg, grid in parsed_ops:
+    for gpu_id, queue_id, start_ns, end_ns, name, op_type, hwq, wg, grid in _iter_ops(conn):
         if gpu_id is None or gpu_id < 0:
             gpu_id = 0
 
@@ -174,7 +232,8 @@ def convert(input_rpd, output_json):
 
     # Add thread names for queues (fallback mode only)
     if hwq_track is None and queue_to_track is not None:
-        for qid, track in queue_to_track.items():
+        queue_tracks = ((q, 0) for (q,) in conn.execute(queue_sql)) if collapsed_queues else queue_to_track.items()
+        for qid, track in queue_tracks:
             events.append({
                 "name": "thread_name", "ph": "M",
                 "pid": 0, "tid": track,
@@ -220,22 +279,7 @@ def convert(input_rpd, output_json):
     except sqlite3.OperationalError:
         pass
 
-    conn.close()
-
-    # Write JSON (gzip if output ends with .gz)
-    trace = {"traceEvents": events}
-    if output_json.endswith('.gz'):
-        with gzip.open(output_json, 'wt') as f:
-            json.dump(trace, f)
-    else:
-        with open(output_json, 'w') as f:
-            json.dump(trace, f)
-
-    size_mb = os.path.getsize(output_json) / 1024 / 1024
-    print(f"Written {output_json} ({size_mb:.1f} MB)")
-    print(f"  GPU ops:   {op_count}")
-    print(f"  API calls: {api_count}")
-    print(f"  Total events: {len(events)}")
+    return op_count, api_count
 
 
 def run_convert(args):

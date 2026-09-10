@@ -259,14 +259,16 @@ def run_trace(args):
             f.write(summary_text)
 
     # 2. Perfetto JSON → compressed .json.gz
-    _generate_perfetto(output, json_file)
+    export_perfetto = not getattr(args, "no_perfetto", False)
+    if export_perfetto:
+        _generate_perfetto(output, json_file)
 
     # 3. Print output locations
     print("\nOutput files:")
     print(f"  {output}")
     if os.path.exists(summary_file):
         print(f"  {summary_file}")
-    if os.path.exists(json_file):
+    if export_perfetto and os.path.exists(json_file):
         size_mb = os.path.getsize(json_file) / 1024 / 1024
         print(f"  {json_file} ({size_mb:.1f} MB → open in https://ui.perfetto.dev)")
 
@@ -423,20 +425,7 @@ def _generate_perfetto(db_path, json_gz_path):
         return
     try:
         from rocm_trace_lite.cmd_convert import convert
-        import gzip
-        import tempfile
-
-        # Convert to temp JSON first
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
-            tmp_json = tmp.name
-
-        convert(db_path, tmp_json)
-
-        # Compress to .json.gz
-        with open(tmp_json, "rb") as f_in:
-            with gzip.open(json_gz_path, "wb") as f_out:
-                f_out.write(f_in.read())
-
-        os.unlink(tmp_json)
+        # The converter streams gzip directly and atomically publishes the file.
+        convert(db_path, json_gz_path)
     except Exception as e:
         print(f"Warning: could not generate Perfetto trace: {e}", file=sys.stderr)
