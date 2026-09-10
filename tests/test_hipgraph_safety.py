@@ -67,13 +67,9 @@ class TestShutdownSafety:
         assert "shutdown_done" in body or "once_flag" in body, \
             "No double-shutdown prevention"
 
-    def test_work_queue_drained(self):
-        """shutdown() must drain pending items from work queue."""
-        src = self._get_source()
-        match = re.search(r'static void shutdown\(\).*?\n\}', src, re.DOTALL)
-        body = match.group()
-        assert "g_work_queue" in body, "shutdown does not touch work queue"
-        assert "delete" in body, "shutdown does not delete pending items"
+    # Actual drain semantics are covered by test_native_completion.py and
+    # test_gpu_shutdown.py. Requiring shutdown() itself to delete queue entries
+    # accepted premature completion; only the completion worker may drain them.
 
     def test_join_before_close(self):
         """Worker join must happen before DB close."""
