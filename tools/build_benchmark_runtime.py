@@ -30,7 +30,7 @@ def build(output, source_image):
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary) / 'benchmark-runtime'
         root.mkdir()
-        records, distributions, seen = {}, {}, set()
+        records, distributions, seen, copied = {}, {}, set(), set()
 
         def copy(source, relative):
             source = Path(source).resolve()
@@ -44,10 +44,13 @@ def build(output, source_image):
             records[str(relative)] = {'source': str(source), 'sha256': digest(target),
                                       'bytes': target.stat().st_size}
 
-        pending = ['torch', 'pytest', 'numpy', 'pyyaml', 'packaging']
+        torch_requirements = metadata.requires('torch') or []
+        torch_root = 'torch[device-gfx950]' if any('device-gfx950' in item for item in torch_requirements) else 'torch'
+        pending = [Requirement(item) for item in [torch_root, 'pytest', 'numpy', 'pyyaml', 'packaging']]
         while pending:
-            name = pending.pop()
-            normalized = re.sub(r'[-_.]+', '-', name).lower()
+            requested = pending.pop()
+            name = requested.name
+            normalized = (re.sub(r'[-_.]+', '-', name).lower(), tuple(sorted(requested.extras)))
             if normalized in seen:
                 continue
             seen.add(normalized)
@@ -55,8 +58,12 @@ def build(output, source_image):
             distributions[distribution.metadata['Name']] = distribution.version
             for requirement_text in distribution.requires or []:
                 requirement = Requirement(requirement_text)
-                if requirement.marker is None or requirement.marker.evaluate({'extra': ''}):
-                    pending.append(requirement.name)
+                if requirement.marker is None or any(requirement.marker.evaluate({'extra': extra})
+                                                     for extra in requested.extras | {''}):
+                    pending.append(requirement)
+            if distribution.metadata['Name'] in copied:
+                continue
+            copied.add(distribution.metadata['Name'])
             for item in distribution.files or []:
                 # Entry-point scripts outside site-packages are unnecessary:
                 # every check uses python -m. Preserve all package runtime data.
@@ -89,7 +96,9 @@ def build(output, source_image):
 
         manifest = {'source_image': source_image, 'distributions': distributions,
                     'files': records, 'uncompressed_bytes': sum(x['bytes'] for x in records.values()),
-                    'scope': 'Original pinned Torch packages and ELF dependencies; system Python/glibc supplied by Ubuntu 24.04'}
+                    'library_directories': sorted({str(Path(path).parent) for path in records
+                                                   if '.so' in Path(path).name}),
+                    'scope': 'Original pinned Torch/gfx950 packages and ELF dependencies; system Python/glibc supplied by Ubuntu 24.04'}
         (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         checksums = {path: record['sha256'] for path, record in records.items()}
         checksums['manifest.json'] = digest(root / 'manifest.json')

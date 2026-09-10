@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      SOURCE_IMAGE: rocm/atom@sha256:13d8564eeef3a267c1cc25410c78029097bd8f218b71ef37d32df971d73d25bb
+      SOURCE_IMAGE: vllm/vllm-openai-rocm@sha256:72e90adf360ccffb231a098a15eadfb808719c029c6cd43f6386095064552b7e
       RUNTIME_IMAGE: ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,7 @@ jobs:
           set -euo pipefail
           mkdir -p benchmark-artifact
           docker pull "$SOURCE_IMAGE"
-          docker run --rm --entrypoint bash \
+          docker run --rm -e DEBIAN_FRONTEND=noninteractive --entrypoint bash \
             -v "$PWD:/workspace" -w /workspace "$SOURCE_IMAGE" -c '
               set -euo pipefail
               test ! -e /dev/kfd
@@ -39,7 +39,7 @@ jobs:
       - name: Verify CPU import and profiler in an isolated small runtime
         run: |
           set -euo pipefail
-          docker run --rm --entrypoint bash \
+          docker run --rm -e DEBIAN_FRONTEND=noninteractive --entrypoint bash \
             -v "$PWD:/workspace" -w /workspace "$RUNTIME_IMAGE" -c '
               set -euo pipefail
               test ! -e /dev/kfd
@@ -51,17 +51,36 @@ jobs:
               cd /tmp/benchmark-runtime
               sha256sum -c SHA256SUMS > /workspace/benchmark-artifact/internal-sha-check.log
               export PYTHONPATH=/tmp/benchmark-runtime/python:/workspace
-              export LD_LIBRARY_PATH=/tmp/benchmark-runtime/lib:/tmp/benchmark-runtime/python/torch/lib
+              export LD_LIBRARY_PATH=$(python3 /workspace/tools/benchmark_runtime_paths.py /tmp/benchmark-runtime)
               cd /workspace
               python3 -m pytest profiler_perf_bench/tests/test_measurement_integrity.py -v \
                 --junitxml=benchmark-artifact/isolated-cpu.xml
               python3 tools/check_benchmark_ci.py benchmark-artifact/isolated-cpu.xml
             '
+      - name: Split the verified archive into observable transfer units
+        run: |
+          python3 tools/benchmark_runtime_parts.py split benchmark-artifact/benchmark-runtime.tar.gz benchmark-parts
+          npm install --prefix "$RUNNER_TEMP/artifact-uploader" @actions/artifact@2.3.2
+      - name: Upload independently checksummed runtime parts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const {DefaultArtifactClient} = require(`${process.env.RUNNER_TEMP}/artifact-uploader/node_modules/@actions/artifact`);
+            const root = path.resolve('benchmark-parts');
+            const manifest = JSON.parse(fs.readFileSync(path.join(root, 'parts.json'), 'utf8'));
+            const client = new DefaultArtifactClient();
+            for (let i = 0; i < manifest.parts.length; i += 4) {
+              await Promise.all(manifest.parts.slice(i, i + 4).map(async part => {
+                const result = await client.uploadArtifact(`benchmark-${part.name}`, [path.join(root, part.name)], root, {compressionLevel: 0});
+                core.info(`${part.name}: ${part.bytes} bytes; source SHA256=${part.sha256}; artifact=${result.id}`);
+              }));
+            }
       - uses: actions/upload-artifact@v4
         with:
-          name: benchmark-runtime
-          path: benchmark-artifact/benchmark-runtime.tar.gz*
-          compression-level: 0
+          name: benchmark-runtime-index
+          path: benchmark-parts/parts.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -77,8 +96,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: benchmark-runtime
-          path: benchmark-artifact
+          name: benchmark-runtime-index
+          path: benchmark-parts
+      - name: Download runtime parts in parallel
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-runtime.part*
+          merge-multiple: true
+          path: benchmark-parts
+      - name: Verify parts and reconstructed archive
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-artifact
+          python3 tools/benchmark_runtime_parts.py join benchmark-parts benchmark-artifact/benchmark-runtime.tar.gz
       - name: Verify workload marker and GPU kernels with the original bundled Torch
         run: |
           set -euo pipefail
@@ -101,7 +131,7 @@ jobs:
               sha256sum -c SHA256SUMS > /workspace/benchmark-runtime-sha.log
               cp manifest.json /workspace/benchmark-runtime-manifest.json
               export PYTHONPATH=/tmp/benchmark-runtime/python:/workspace
-              export LD_LIBRARY_PATH=/tmp/benchmark-runtime/lib:/tmp/benchmark-runtime/python/torch/lib
+              export LD_LIBRARY_PATH=$(python3 /workspace/tools/benchmark_runtime_paths.py /tmp/benchmark-runtime)
               cd /workspace
               python3 -c "import torch; print(torch.__version__, torch.__file__); assert torch.cuda.is_available()"
               python3 -m pytest profiler_perf_bench/tests/test_measurement_integrity.py -v --junitxml=benchmark-integrity.xml
