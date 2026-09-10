@@ -1,0 +1,148 @@
+name: Benchmark integrity
+on: [pull_request, workflow_dispatch]
+jobs:
+  benchmark-cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pytest pyyaml
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pytest profiler_perf_bench/tests --ignore=profiler_perf_bench/tests/integration -v
+  prepare-torch-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_IMAGE: vllm/vllm-openai-rocm@sha256:72e90adf360ccffb231a098a15eadfb808719c029c6cd43f6386095064552b7e
+      RUNTIME_IMAGE: ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reserve ephemeral hosted-runner space for the original image
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          df -h /
+      - name: Prepare original Torch runtime on the CPU runner
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-artifact
+          docker pull "$SOURCE_IMAGE"
+          docker run --rm -e DEBIAN_FRONTEND=noninteractive --entrypoint bash \
+            -v "$PWD:/workspace" -w /workspace "$SOURCE_IMAGE" -c '
+              set -euo pipefail
+              test ! -e /dev/kfd
+              python3 tools/build_benchmark_runtime.py --source-image "'"$SOURCE_IMAGE"'" \
+                --output benchmark-artifact/benchmark-runtime.tar.gz
+            '
+      - name: Verify CPU import and profiler in an isolated small runtime
+        run: |
+          set -euo pipefail
+          docker run --rm -e DEBIAN_FRONTEND=noninteractive --entrypoint bash \
+            -v "$PWD:/workspace" -w /workspace "$RUNTIME_IMAGE" -c '
+              set -euo pipefail
+              test ! -e /dev/kfd
+              apt-get update -qq
+              apt-get install -y python3 libstdc++6 libsqlite3-0
+              cd benchmark-artifact
+              sha256sum -c benchmark-runtime.tar.gz.sha256
+              tar -xzf benchmark-runtime.tar.gz -C /tmp
+              cd /tmp/benchmark-runtime
+              sha256sum -c SHA256SUMS > /workspace/benchmark-artifact/internal-sha-check.log
+              export PYTHONPATH=/tmp/benchmark-runtime/python:/workspace
+              export LD_LIBRARY_PATH=$(python3 /workspace/tools/benchmark_runtime_paths.py /tmp/benchmark-runtime)
+              cd /workspace
+              python3 -m pytest profiler_perf_bench/tests/test_measurement_integrity.py -v \
+                --junitxml=benchmark-artifact/isolated-cpu.xml
+              python3 tools/check_benchmark_ci.py benchmark-artifact/isolated-cpu.xml
+            '
+      - name: Split the verified archive into observable transfer units
+        run: |
+          python3 tools/benchmark_runtime_parts.py split benchmark-artifact/benchmark-runtime.tar.gz benchmark-parts
+          npm install --prefix "$RUNNER_TEMP/artifact-uploader" @actions/artifact@2.3.2
+      - name: Upload independently checksummed runtime parts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const {DefaultArtifactClient} = require(`${process.env.RUNNER_TEMP}/artifact-uploader/node_modules/@actions/artifact`);
+            const root = path.resolve('benchmark-parts');
+            const manifest = JSON.parse(fs.readFileSync(path.join(root, 'parts.json'), 'utf8'));
+            const client = new DefaultArtifactClient();
+            for (let i = 0; i < manifest.parts.length; i += 4) {
+              await Promise.all(manifest.parts.slice(i, i + 4).map(async part => {
+                const result = await client.uploadArtifact(`benchmark-${part.name}`, [path.join(root, part.name)], root, {compressionLevel: 0});
+                core.info(`${part.name}: ${part.bytes} bytes; source SHA256=${part.sha256}; artifact=${result.id}`);
+              }));
+            }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-runtime-index
+          path: benchmark-parts/parts.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-runtime-cpu-evidence
+          path: |
+            benchmark-artifact/isolated-cpu.xml
+            benchmark-artifact/internal-sha-check.log
+  benchmark-gpu:
+    needs: prepare-torch-runtime
+    runs-on: linux-rocm-trace-lite-mi355-1
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: benchmark-runtime-index
+          path: benchmark-parts
+      - name: Download runtime parts in parallel
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-runtime.part*
+          merge-multiple: true
+          path: benchmark-parts
+      - name: Verify parts and reconstructed archive
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-artifact
+          python3 tools/benchmark_runtime_parts.py join benchmark-parts benchmark-artifact/benchmark-runtime.tar.gz
+      - name: Verify workload marker and GPU kernels with the original bundled Torch
+        run: |
+          set -euo pipefail
+          cd benchmark-artifact
+          sha256sum -c benchmark-runtime.tar.gz.sha256
+          gzip -t benchmark-runtime.tar.gz
+          cd ..
+          DEVICE_GROUPS=()
+          for device in /dev/kfd /dev/dri/renderD*; do
+            [[ ! -e "$device" ]] || DEVICE_GROUPS+=(--group-add "$(stat -c %g "$device")")
+          done
+          docker run --rm --device=/dev/kfd --device=/dev/dri "${DEVICE_GROUPS[@]}" \
+            --entrypoint bash -v "$PWD:/workspace" -w /workspace \
+            ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254 -c '
+              set -euo pipefail
+              apt-get update -qq
+              apt-get install -y python3 libstdc++6 libsqlite3-0
+              tar -xzf benchmark-artifact/benchmark-runtime.tar.gz -C /tmp
+              cd /tmp/benchmark-runtime
+              sha256sum -c SHA256SUMS > /workspace/benchmark-runtime-sha.log
+              cp manifest.json /workspace/benchmark-runtime-manifest.json
+              export PYTHONPATH=/tmp/benchmark-runtime/python:/workspace
+              export LD_LIBRARY_PATH=$(python3 /workspace/tools/benchmark_runtime_paths.py /tmp/benchmark-runtime)
+              cd /workspace
+              python3 -c "import torch; print(torch.__version__, torch.__file__); assert torch.cuda.is_available()"
+              python3 -m pytest profiler_perf_bench/tests/test_measurement_integrity.py -v --junitxml=benchmark-integrity.xml
+              python3 tools/check_benchmark_ci.py benchmark-integrity.xml
+            ' 2>&1 | tee benchmark-integrity.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-integrity
+          path: |
+            benchmark-integrity.xml
+            benchmark-integrity.log
+            benchmark-runtime-sha.log
+            benchmark-runtime-manifest.json

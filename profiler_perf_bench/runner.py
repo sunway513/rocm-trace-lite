@@ -10,18 +10,33 @@ Handles:
 
 from __future__ import annotations
 import os
-import resource
 import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional
 
 from .adapters.base import ExecutionModel, ProfilerAdapter
-from .metrics import BenchResult, RunResult, UniversalMetrics
+from .metrics import BenchResult, RunResult
 from .sanity import check_sanity
-from .workloads.base import Level, Workload
+from .workloads.base import Workload
 
+
+def _run_measured(cmd, env, cwd):
+    """Measure one workload via a fresh supervisor, excluding previous rounds.
+
+    A fresh supervisor also avoids the fork-before-exec RSS floor of a runner
+    that has already imported torch. Its launch cost applies to every adapter.
+    """
+    import json
+    import sys
+    report = Path(cwd) / 'child-usage.json'
+    helper = str(Path(__file__).with_name('_measure_child.py'))
+    proc = subprocess.run([sys.executable, helper, str(report), *cmd],
+                          env=env, cwd=cwd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        return proc, None
+    usage = json.loads(report.read_text())
+    return subprocess.CompletedProcess(cmd, usage['returncode'], proc.stdout, proc.stderr), usage['peak_rss_MB']
 
 class BenchmarkRunner:
     """Runs (adapter × workload) N rounds and returns aggregated BenchResult."""
@@ -60,17 +75,16 @@ class BenchmarkRunner:
 
         if adapter.execution_model == ExecutionModel.EXTERNAL_WRAPPER:
             # Apply adapter's cmd/env modifications
-            modified_cmd, modified_env = adapter.prepare_run(base_cmd, base_env, tmpdir)
+            try:
+                modified_cmd, modified_env = adapter.prepare_run(base_cmd, base_env, tmpdir)
+            except ValueError as e:
+                return RunResult(adapter_name=adapter.name, workload_name=workload.name,
+                                 round_idx=0, metrics=_empty_metrics(False), run_succeeded=False,
+                                 dropped_reason=f'adapter_prepare_failed: {e}')
 
             sub_start = time.perf_counter()
             try:
-                proc = subprocess.run(
-                    modified_cmd,
-                    env=modified_env,
-                    capture_output=True,
-                    text=True,
-                    cwd=str(tmpdir),
-                )
+                proc, peak_rss_mb = _run_measured(modified_cmd, modified_env, str(tmpdir))
                 exit_code = proc.returncode
                 stdout_str = proc.stdout
                 stderr_str = proc.stderr
@@ -82,42 +96,9 @@ class BenchmarkRunner:
             subprocess_wall = sub_end - sub_start
 
         elif adapter.execution_model == ExecutionModel.IN_PROCESS_PYTHON:
-            # In-process: start profiler, run workload as subprocess, stop profiler
-            try:
-                adapter.start(tmpdir)
-            except Exception as e:
-                return RunResult(
-                    adapter_name=adapter.name,
-                    workload_name=workload.name,
-                    round_idx=0,
-                    metrics=_empty_metrics(run_succeeded=False),
-                    run_succeeded=False,
-                    dropped_reason=f"adapter_start_failed: {e}",
-                )
-
-            sub_start = time.perf_counter()
-            try:
-                proc = subprocess.run(
-                    base_cmd,
-                    env=base_env,
-                    capture_output=True,
-                    text=True,
-                    cwd=str(tmpdir),
-                )
-                exit_code = proc.returncode
-                stdout_str = proc.stdout
-                stderr_str = proc.stderr
-            except FileNotFoundError as e:
-                exit_code = -2
-                stderr_str = str(e)
-            sub_end = time.perf_counter()
-            subprocess_wall = sub_end - sub_start
-
-            try:
-                adapter.stop()
-            except Exception:
-                pass  # stop failure doesn't invalidate the run
-
+            return RunResult(adapter_name=adapter.name, workload_name=workload.name,
+                             round_idx=0, metrics=_empty_metrics(False), run_succeeded=False,
+                             dropped_reason='in_process_adapter_requires_workload_bootstrap')
         wall_end = time.perf_counter()
         wall_s = wall_end - wall_start
 
@@ -131,12 +112,6 @@ class BenchmarkRunner:
             trace_bytes = sum(
                 Path(m).stat().st_size for m in matches if Path(m).is_file()
             )
-
-        # Measure RSS (best-effort — Linux only)
-        try:
-            peak_rss_mb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024.0
-        except Exception:
-            peak_rss_mb = 0.0
 
         # Parse workload-specific metrics
         try:
