@@ -95,23 +95,9 @@ Creating HSA signals is expensive. The signal pool avoids per-dispatch overhead:
 
 ## CUDAGraph / HIP graph handling
 
-Signal injection is incompatible with CUDAGraph replay at two levels:
+ROCm 10 includes the [ROCR staging-buffer fix](https://github.com/ROCm/rocm-systems/commit/559d48b1). RTL therefore processes multi-packet submissions normally, including graph replay, rather than discarding them based on `count > 1`. Original application completion signals are forwarded after profiling.
 
-1. **Batch replay**: CUDAGraph replay submits pre-recorded AQL packets via the intercept callback with `count > 1`. Injecting signals into these packets corrupts the graph's execution chain (`0x1009`).
-2. **Graph capture**: Signals injected during capture get baked into the graph. On replay, these signal handles are stale/recycled, causing GPU memory access faults.
-
-### Batch skip (automatic)
-
-The intercept callback detects batch submissions (`count > 1`) and passes them through unmodified:
-
-```cpp
-if (count > 1) {
-    writer(in_packets, count);  // pass through, no signal injection
-    return;
-}
-```
-
-Graph-replayed kernels are not profiled, but the application runs correctly.
+Standard and full modes collect every kernel dispatch. Lite applies its per-dispatch completion-signal filter to both eager and graph work, so its timing coverage remains partial. Unpatched older runtimes are unsupported; selecting lite does not restore the removed workaround.
 
 ### Profiling modes (RTL_MODE)
 
@@ -120,8 +106,8 @@ RTL supports three profiling modes to balance data completeness vs overhead:
 | Mode | Mechanism | Behavior | Overhead |
 |------|-----------|----------|----------|
 | **lite** | HSA signal injection | Skip packets with existing `completion_signal` (NCCL, barriers). | ~0% |
-| **standard** | HSA signal injection | Signal injection for all `count==1` kernel dispatches. Skip graph replay batches. | ~2-4% |
-| **full** | HSA signal injection | Profile everything including graph replay batches. Requires ROCm 7.13+ with [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1). | ~2-5% |
+| **standard** | HSA signal injection | Signal injection for all kernel dispatches, including graph replay. | ~2-4% |
+| **full** | HSA signal injection | Same complete GPU capture as standard; retained for compatibility. | ~2-5% |
 | **hip** | LD_PRELOAD + dlsym | HIP API interception via `dlsym(RTLD_NEXT)`. Captures CPU-side HIP call timings (21 APIs) alongside GPU kernel execution. No HSA queue interception. | <1% |
 
 Set via `RTL_MODE=lite` env var or `rtl trace --mode lite` CLI flag.
@@ -132,7 +118,7 @@ When `RTL_MODE=hip`, RTL uses a fundamentally different mechanism: `LD_PRELOAD` 
 
 ### Known limitation
 
-The HSA intercept API does not distinguish graph replay from normal multi-packet submissions. Default and lite modes skip all `count > 1` submissions. Full mode profiles them but requires the ROCR staging buffer fix to avoid heap overflow (see [issue #67](https://github.com/sunway513/rocm-trace-lite/issues/67)).
+The HSA intercept API does not distinguish graph replay from normal multi-packet submissions. Batch size no longer changes profiling policy. All HSA profiling modes require the ROCR staging buffer fix (see [issue #67](https://github.com/sunway513/rocm-trace-lite/issues/67)).
 
 ### Why signal injection?
 

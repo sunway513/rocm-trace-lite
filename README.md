@@ -54,7 +54,8 @@ make install    # copies librtl.so to /usr/local/lib, scripts to /usr/local/bin
 ```
 
 Requirements:
-- ROCm (for HSA headers: `hsa/hsa.h`, `hsa/hsa_api_trace.h`)
+- ROCm 10 is the validated runtime. Older runtimes must include ROCR fix [`559d48b1`](https://github.com/ROCm/rocm-systems/commit/559d48b1); unpatched runtimes are unsupported.
+- HSA headers: `hsa/hsa.h`, `hsa/hsa_api_trace.h`
 - SQLite3 development headers (`apt install libsqlite3-dev`)
 - g++ with C++17
 
@@ -70,14 +71,14 @@ rtl trace --mode hip python3 my_model.py             # hip mode (HIP API + GPU t
 
 | Mode | GPU timing | HIP API | Graph replay | Overhead | Use case |
 |------|-----------|---------|-------------|----------|----------|
-| **lite** | Yes (partial) | No | Skipped | ~0% | Production / always-on **(default)** |
-| **standard** | Yes | No | Skipped | ~2-4% | General profiling |
-| **hip** | Yes | Yes | Skipped | <1% | CPU+GPU correlation |
-| **full** | Yes (all) | No | Profiled | ~2-5% | Deep analysis (requires ROCm 7.13+) |
+| **lite** | Yes (partial) | No | Partial | ~0% | Production / always-on **(default)** |
+| **standard** | Yes | No | Profiled | ~2-4% | General profiling |
+| **hip** | Yes | Yes | Profiled | <1% | CPU+GPU correlation |
+| **full** | Yes (all) | No | Profiled | ~2-5% | Compatibility name for standard GPU coverage |
 
 Set via CLI (`--mode`) or env var (`RTL_MODE=lite`).
 
-**lite** skips packets that already have a completion signal (e.g., NCCL kernels, barriers), resulting in near-zero overhead and safety on ROCm <= 7.2. This is the default when `--mode` is not specified. **standard** mode profiles all count==1 dispatches including those with signals. **full** profiles everything including CUDAGraph replay batches, but requires ROCm 7.13+ to avoid a [known ROCR heap overflow](https://github.com/sunway513/rocm-trace-lite/issues/67).
+**lite** remains the default and skips individual dispatches with an existing completion signal. **standard** profiles all kernel dispatches, including graph replay; **full** retains the same GPU coverage for compatibility. The old batch-skip workaround has been removed because the ROCm 10 baseline contains the [ROCR staging-buffer fix](https://github.com/ROCm/rocm-systems/commit/559d48b1). Lite is a partial-capture option, not a compatibility workaround for unpatched runtimes.
 
 Sample output:
 
