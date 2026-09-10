@@ -3,6 +3,8 @@ import os
 import sys
 import subprocess
 import sqlite3
+import signal
+import time
 
 
 def _preflight_check(lib_path):
@@ -106,6 +108,50 @@ def _suggest_rocm_paths():
         warn("  install ROCm or set ROCM_PATH/LD_LIBRARY_PATH to your ROCm installation")
 
 
+def _process_group_running(pgid):
+    """Linux: zombies cannot write traces and must not delay collection."""
+    for entry in os.scandir("/proc"):
+        if not entry.name.isdigit():
+            continue
+        try:
+            with open(os.path.join(entry.path, "stat")) as stat:
+                # comm may contain spaces and parentheses; fields start after ')'.
+                fields = stat.read().rsplit(")", 1)[1].split()
+            if int(fields[2]) == pgid and fields[0] not in ("Z", "X"):
+                return True
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return False
+
+
+def _run_workload(cmd, env):
+    """Wait for the workload group before collecting any process's database.
+
+    Children that deliberately detach into another session are outside this
+    lifecycle contract. A second Ctrl-C aborts collection, preserving raw DBs.
+    """
+    process = subprocess.Popen(cmd, env=env, start_new_session=True)
+    interrupted = False
+    while True:
+        try:
+            returncode = process.wait()
+            while _process_group_running(process.pid):
+                time.sleep(0.05)
+            return 130 if interrupted else (
+                128 - returncode if returncode < 0 else returncode
+            )
+        except KeyboardInterrupt:
+            if interrupted:
+                print("rtl: cleanup interrupted; raw trace files retained", file=sys.stderr)
+                raise
+            interrupted = True
+            print("rtl: interrupted; waiting for workload workers to finish", file=sys.stderr)
+            try:
+                os.killpg(process.pid, signal.SIGINT)
+            except ProcessLookupError:
+                pass
+
+
 def run_trace(args):
     cmd = [c for c in args.cmd if c != "--"]
     if not cmd:
@@ -165,7 +211,7 @@ def run_trace(args):
         except OSError:
             pass
 
-    result = subprocess.run(cmd, env=env)
+    returncode = _run_workload(cmd, env)
 
     # Collect per-process trace files
     # Collect per-process files (strict PID pattern: trace_DIGITS.db)
@@ -183,7 +229,7 @@ def run_trace(args):
         print("rtl: Try: export HSA_TOOLS_LIB=$(python3 -c 'from rocm_trace_lite import get_lib_path; print(get_lib_path())')", file=sys.stderr)
         print("rtl:      export RTL_OUTPUT=trace_%p.db", file=sys.stderr)
         print("rtl:      <your command>", file=sys.stderr)
-        sys.exit(result.returncode)
+        sys.exit(returncode)
 
     import shutil
     if len(per_process_files) == 1:
@@ -224,7 +270,7 @@ def run_trace(args):
         size_mb = os.path.getsize(json_file) / 1024 / 1024
         print(f"  {json_file} ({size_mb:.1f} MB → open in https://ui.perfetto.dev)")
 
-    sys.exit(result.returncode)
+    sys.exit(returncode)
 
 
 def _checkpoint_wal(db_path):

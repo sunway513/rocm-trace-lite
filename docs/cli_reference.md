@@ -16,6 +16,21 @@ rtl trace [-o OUTPUT] COMMAND [ARGS...]
 |------|---------|-------------|
 | `-o, --output` | `trace.db` | Output trace file path |
 
+**Workload shutdown:** `rtl trace` waits for the launched process group, including
+workers whose parent has already exited, before collecting trace databases.
+Ctrl-C sends SIGINT to that group, waits for worker cleanup, then collects the
+traces and exits with status 130. A second Ctrl-C aborts collection and retains
+the raw per-process databases; remaining workers may still be running. Normal
+workload exit codes are preserved, and signal termination uses status 128 plus
+the signal number.
+
+The workload runs in a separate session. Inherited stdin (pipes or a terminal
+file descriptor) remains available, and terminal Ctrl-C is forwarded by the CLI.
+Programs requiring their own controlling terminal or interactive shell job
+control are outside this interface. Workers that deliberately call `setsid` to
+detach into another session are outside the wait/cleanup guarantee. This cleanup
+contract covers Ctrl-C; externally killing the CLI is not graceful shutdown.
+
 **Output files generated:**
 
 | File | Description |
