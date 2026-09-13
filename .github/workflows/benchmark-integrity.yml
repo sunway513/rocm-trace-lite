@@ -11,6 +11,8 @@ jobs:
       - run: pip install pytest pyyaml
       - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
       - run: python -m pytest profiler_perf_bench/tests --ignore=profiler_perf_bench/tests/integration -v
+      - name: Test bounded artifact downloads and integrity failure handling
+        run: node --test tests/test_benchmark_part_download.cjs
   prepare-torch-runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -98,12 +100,24 @@ jobs:
         with:
           name: benchmark-runtime-index
           path: benchmark-parts
-      - name: Download runtime parts in parallel
-        uses: actions/download-artifact@v4
+      - name: Install the pinned artifact client
+        run: npm install --prefix "$RUNNER_TEMP/artifact-downloader" @actions/artifact@2.3.2
+      - name: Download and verify runtime parts with bounded concurrency
+        uses: actions/github-script@v7
         with:
-          pattern: benchmark-runtime.part*
-          merge-multiple: true
-          path: benchmark-parts
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const {DefaultArtifactClient} = require(`${process.env.RUNNER_TEMP}/artifact-downloader/node_modules/@actions/artifact`);
+            const {downloadParts} = require(path.resolve('tools/download_benchmark_parts.cjs'));
+            const directory = path.resolve('benchmark-parts');
+            const manifest = JSON.parse(fs.readFileSync(path.join(directory, 'parts.json'), 'utf8'));
+            const client = new DefaultArtifactClient();
+            const {artifacts} = await client.listArtifacts({latest: true});
+            const results = await downloadParts({manifest, artifacts, directory,
+              concurrency: 4, attempts: 3, log: message => core.info(message),
+              downloadArtifact: (artifact, target) => client.downloadArtifact(artifact.id, {path: target})});
+            fs.writeFileSync('benchmark-download-results.json', JSON.stringify(results, null, 2));
       - name: Verify parts and reconstructed archive
         run: |
           set -euo pipefail
@@ -146,3 +160,4 @@ jobs:
             benchmark-integrity.log
             benchmark-runtime-sha.log
             benchmark-runtime-manifest.json
+            benchmark-download-results.json

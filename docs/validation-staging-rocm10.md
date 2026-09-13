@@ -43,6 +43,18 @@ Serving protocol tests reject incomplete SSE responses and incomplete worker
 barriers. Existing GPU workflows retain actual execution-count gates; a skipped
 GPU test does not count as passing GPU coverage.
 
+The first integrated Torch GPU CI run failed during artifact transfer, before
+GPU tests executed. Its `actions/download-artifact@v4` implementation starts all
+download promises before grouping their awaits, so the apparent grouping does
+not bound active transfers; logs show concurrent ListArtifacts timeouts. The
+staging helper claims parts through at most four active workers, retries failed
+parts, and verifies publisher byte counts and SHA256 before atomically publishing
+each part. Failed attempts remain separate and active transfers settle before a
+failure is returned. Five executable Node tests cover concurrency, transport and
+same-size corruption retries, exhaustion/output preservation, invalid metadata,
+and cleanup coordination. Reconstruction still independently checks every part
+and the complete archive hash before any GPU test runs.
+
 ## Validation environment and interpretation
 
 The development image is
