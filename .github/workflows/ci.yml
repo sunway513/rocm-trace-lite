@@ -2,9 +2,9 @@ name: CI (no GPU)
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'staging/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'staging/**']
 
 jobs:
   source-guard:
@@ -70,16 +70,21 @@ jobs:
         run: pip install ruff
 
       - name: Lint Python
-        run: ruff check rocm_trace_lite/ tools/rpd2trace.py tests/ --select=E,F,W --ignore=E501,E402
+        run: ruff check rocm_trace_lite/ tools/rpd2trace.py tests/ benchmarks/e2e/ --select=E,F,W --ignore=E501,E402
 
       - name: Shell syntax
-        run: bash -n tools/rtl.sh
+        run: |
+          for script in tools/rtl.sh tools/check_native_dependencies.sh; do
+            bash -n "$script"
+          done
 
   build:
-    name: Build (ROCm container)
+    name: Build (ROCm 10)
     runs-on: ubuntu-latest
     container:
-      image: rocm/dev-ubuntu-24.04:latest
+      image: rocm/dev-ubuntu-24.04@sha256:a90cf047f615abe70fbef83c64def0a2d549ef37a39c8ea545430aba4981b374
+    env:
+      LD_LIBRARY_PATH: /opt/rocm/lib:/opt/rocm/core-10.0/lib
     steps:
       - uses: actions/checkout@v4
 
@@ -90,9 +95,7 @@ jobs:
         run: make -j$(nproc)
 
       - name: Verify no forbidden deps
-        run: |
-          ldd librtl.so
-          ldd librtl.so | grep -E "roctracer|rocprofiler-sdk|libroctx64" && exit 1 || echo "Clean"
+        run: bash tools/check_native_dependencies.sh librtl.so
 
       - name: Verify .so exports expected symbols
         run: |

@@ -43,7 +43,46 @@ exactly 148,480 named kernels per trace plus a valid SQLite database, independen
 returns nonzero for missing/empty/partial traces. It is a graph capture gate,
 not a substitute for GPT-OSS and DeepSeek serving validation.
 
-Before claiming serving functionality, run real requests with TP=8, retain
+Before claiming serving functionality, run real requests with the allocated tensor-parallel size (TP=4 or TP=8), retain
 graph execution, check all rank traces and prefill/decode windows, and verify
 completed record counts and final merge integrity. Validation of the combined
 multi-process/shutdown PRs must be identified separately from this PR alone.
+
+
+## Serving measurements
+
+`serving_latency.py` measures non-streaming requests. `serving_latency_stream.py`
+uses SSE and reports end-to-end latency, first nonempty content, and an estimated
+TPOT (the content span divided by output tokens minus one). These are client
+transport measurements, not isolated GPU prefill/decode durations. Both require
+fixed prompt/output lengths, a pinned server manifest, graphs enabled and prefix
+caching disabled. Missing worker acknowledgements or invalid responses fail the
+run before its timing can be accepted. CPU CI covers truncated streams, incorrect
+length/finish metadata, and missing, duplicate or unsynchronized workers.
+
+Example against an already allocated, task-owned TP4 server:
+
+```bash
+python3 benchmarks/e2e/serving_latency_stream.py \
+  --url http://127.0.0.1:18913 --model gptoss --condition candidate-full \
+  --manifest /results/server-manifest.json --output /results/requests \
+  --tensor-parallel-size 4 --worker-setup-barrier \
+  --prompt-tokens 709 --prompt-repetitions 24 --output-tokens 128 \
+  --concurrency 1 8 --requests 32 --rounds 1
+```
+
+Tokenize the generated prompt with the selected model first; 709 is only an
+example. The manifest must contain `image_digest`, `server_command`,
+`model_config_sha256`, `rtl_mode`, `rtl_library_sha256`, `tensor_parallel_size`,
+`graph_enabled`, and `prefix_cache_enabled`. For a development validation server,
+load `rtl_e2e_worker.TraceValidationWorker` through vLLM's worker extension option
+and keep its development RPC endpoint on an isolated loopback binding.
+
+The client does not allocate GPUs or certify trace completeness. The caller must
+record physical device mapping and exclusivity, verify each worker's loaded
+library hash and graph replay, finalize traces, check zero lost completions,
+validate per-phase device coverage and lossless merging, and release only its
+own server. Use at least three independent server restarts with rotated condition
+order. Compare baseline and candidate full capture on the same pinned serving
+image; retain a no-profiler control to show total instrumentation overhead. Do not
+pool an older ATOM/ROCm stack with vLLM/ROCm 10 as a ROCm-only comparison.
