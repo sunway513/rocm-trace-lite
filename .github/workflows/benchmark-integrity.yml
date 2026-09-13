@@ -100,6 +100,9 @@ jobs:
         with:
           name: benchmark-runtime-index
           path: benchmark-parts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Install the pinned artifact client
         run: npm install --prefix "$RUNNER_TEMP/artifact-downloader" @actions/artifact@2.3.2
       - name: Download and verify runtime parts with bounded concurrency

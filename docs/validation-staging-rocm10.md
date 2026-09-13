@@ -55,6 +55,13 @@ same-size corruption retries, exhaustion/output preservation, invalid metadata,
 and cleanup coordination. Reconstruction still independently checks every part
 and the complete archive hash before any GPU test runs.
 
+The minimal GPU runner does not provide npm on PATH; CI now provisions Node 24
+before installing the artifact client. A separate native GPU job failed while
+fetching Pytest metadata from PyPI. Native GPU containers now install Pytest and
+its timeout plugin from Ubuntu packages, and install the checked-out RTL project
+with `--no-index --no-deps --no-build-isolation`. These changes address CI setup
+failures; they do not reinterpret unexecuted GPU tests as passing.
+
 ## Validation environment and interpretation
 
 The development image is
