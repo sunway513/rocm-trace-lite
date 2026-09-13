@@ -71,5 +71,7 @@ allocation, zero dropped completion records, all-device phase coverage and a
 lossless SQLite merge. Raw evidence lives under the owner's
 `/home/pensun/rtl-staging-20260913/evidence` and `/data/rtl-staging-20260913`.
 
-Final E2E measurements and merge readiness will be appended after the matrix
-finishes. Until then, no performance-regression conclusion is claimed.
+Final E2E measurements, CI run links and merge readiness are maintained in the
+integrated review [PR #120](https://github.com/sunway513/rocm-trace-lite/pull/120).
+This document records the source review and validation protocol; it is not a
+claim that unfinished measurement or CI runs have passed.
