@@ -30,12 +30,14 @@ mean that their changes were merged into main.
 
 ## CI changes added during consolidation
 
-The CPU build previously used `rocm/dev-ubuntu-24.04:latest`, and its shell
-`grep && exit 1 || echo Clean` could print success even after finding forbidden
-dependencies. Staging pins the same ROCm 10 development image used by GPU CI and
-runs `tools/check_native_dependencies.sh`. Seven executable tests cover accepted,
-missing and forbidden libraries, and an `ldd` execution failure. Pushes to
-`staging/**` run the CPU CI workflow.
+The CPU build previously used `rocm/dev-ubuntu-24.04:latest`. Its dependency
+check rejected the listed forbidden libraries but did not reject `ldd` output
+containing `not found`, or a direct `libamdhip64` dependency. A controlled shell
+reproduction confirms both omissions; the existing forbidden-library rejection
+already returned nonzero. Staging pins the same ROCm 10 development image used
+by GPU CI and runs `tools/check_native_dependencies.sh`. Seven executable tests
+cover accepted, missing and forbidden libraries, and an `ldd` execution failure.
+Pushes to `staging/**` run the CPU CI workflow.
 
 Serving protocol tests reject incomplete SSE responses and incomplete worker
 barriers. Existing GPU workflows retain actual execution-count gates; a skipped
