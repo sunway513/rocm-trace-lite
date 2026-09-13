@@ -4,7 +4,13 @@
 project = "rocm-trace-lite"
 copyright = "2026, AMD"
 author = "AMD AI Software Engineering"
-release = "0.2.1"
+import re
+from pathlib import Path
+
+release = re.search(
+    r'__version__ = "([^"]+)"',
+    (Path(__file__).resolve().parents[1] / "rocm_trace_lite/__init__.py").read_text(),
+).group(1)
 
 extensions = [
     "myst_parser",

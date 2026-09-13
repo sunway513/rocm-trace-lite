@@ -1,7 +1,7 @@
 # ADR-001: HIP Graph Safety in rocm-trace-lite
 
 ## Status
-**Accepted** — Timeout-based signal wait + batch skip + RTL_MODE profiling modes
+**Updated for ROCm 10**: bounded signal waits and profiling modes remain; batch skipping is retired.
 
 ## Problem 1: Worker signal wait crash (v0.1.x)
 
@@ -47,7 +47,9 @@ while (true) {
 
 Double-shutdown prevented via `shutdown_done` atomic flag.
 
-## Problem 2: CUDAGraph replay crashes signal injection (v0.2.x, issue #67)
+## Historical investigation: graph replay crashes (v0.2.x, issue #67)
+
+The hypotheses below describe the original investigation. The confirmed runtime staging-buffer cause and the current policy are recorded in the ROCm 10 update below.
 
 Signal injection via `hsa_amd_queue_intercept_create` is incompatible with CUDAGraph/hipGraph workloads at two levels:
 
@@ -78,26 +80,17 @@ if (batch_mode) {
 
 Individual dispatches (`count == 1`) are still profiled normally. Graph-replayed kernels are not profiled.
 
-### Profiling modes: RTL_MODE
+### ROCm 10 update: retire batch skipping
 
-`RTL_MODE` controls how aggressively RTL profiles kernel dispatches:
+ROCm 10 includes [ROCR fix 559d48b1](https://github.com/ROCm/rocm-systems/commit/559d48b1), which sizes `InterceptQueue::staging_buffer_` to the real queue capacity. The earlier decision to skip all `count > 1` submissions is superseded: RTL now processes graph replay batches normally.
 
-| Mode | Behavior | Overhead |
-|------|----------|----------|
-| **default** (no flag) | Signal injection for all `count==1` dispatches, skip graph replay batches (`count > 1`) | ~2-4% |
-| **lite** | Like default, but also skip packets with existing `completion_signal` (NCCL, barriers) | ~0% |
-| **full** | Profile everything including graph replay batches. **Requires ROCm 7.13+** with [ROCR fix](https://github.com/ROCm/rocm-systems/commit/559d48b1). Crashes on ROCm <= 7.2 due to `InterceptQueue::staging_buffer_` heap overflow. | ~2-5% |
+- `standard` and `full` capture all kernel dispatches, including graph replay. The `full` spelling remains compatible with existing scripts.
+- `lite` remains the default partial-capture policy and skips individual dispatches with existing completion signals. It no longer skips a whole batch.
+- The `drop (batch skip)` diagnostic has been removed.
+- All HSA profiling modes require the upstream fix. Older unpatched runtimes are unsupported; lite is not a safety fallback for those runtimes.
 
-Set via env var (`RTL_MODE=lite`) or CLI (`rtl trace --mode lite`).
+The bounded completion waits, signal forwarding, and shutdown synchronization remain necessary independently of the ROCR heap-overflow fix.
 
-### Diagnostic logging: RTL_DEBUG
+`RTL_DEBUG=1` logs callback summaries; `RTL_DEBUG=2` adds per-packet details.
 
-`RTL_DEBUG=1` logs per-call summary (count, device, batch skip decisions).
-`RTL_DEBUG=2` adds per-packet details (AQL type, signal handle, kernel object address).
-
-### Known limitations
-
-- Default and lite modes skip all `count > 1` batched submissions (graph replay). The HSA intercept API does not distinguish graph replay from normal multi-packet submissions.
-- Graph-captured kernels dispatched individually during capture phase still get signal injection. This is correct for profiling.
-- Root cause is a ROCm runtime bug in `InterceptQueue::staging_buffer_` (hardcoded to 256 entries, heap overflow for larger batches). Fixed in [rocm-systems commit 559d48b1](https://github.com/ROCm/rocm-systems/commit/559d48b1), expected in ROCm 7.13+.
-- `RTL_MODE=full` re-enables graph replay profiling once the ROCR fix is available.
+The ROCm 10 CI graph gate checks standard and full independently, requiring 148,480 named kernels per GPU, valid numerical output, and database integrity. Lite/default graph coverage is also exercised by native GPU tests.

@@ -382,14 +382,6 @@ class TestHipGraph:
         trace, r = _trace(tmp_path, ["hipgraph_stress", "4", "20", "3"], timeout=120)
         assert r.returncode == 0, "hipgraph_stress crashed: {}".format(r.stderr[-500:])
 
-    def test_hipgraph_batch_skip_logged(self, tmp_path):
-        """Batch skip counter is logged in shutdown stats."""
-        trace, r = _trace(tmp_path, ["hipgraph", "50", "3"])
-        assert r.returncode == 0
-        # Shutdown stats should show drop (batch skip) > 0
-        assert "drop (batch skip)" in r.stderr, \
-            "No batch skip counter in shutdown stats"
-
     def test_hipgraph_no_0x1009(self, tmp_path):
         """No 0x1009 errors during hipgraph replay."""
         trace, r = _trace(tmp_path, ["hipgraph_stress", "4", "20", "3"], timeout=120)
@@ -415,6 +407,7 @@ class TestRtlModes:
         trace = str(tmp_path / "trace_{}.db".format(mode))
         env = os.environ.copy()
         env["PYTHONPATH"] = "{}:{}".format(REPO_ROOT, env.get("PYTHONPATH", ""))
+        env.pop("RTL_MODE", None)
         if mode:
             env["RTL_MODE"] = mode
         cmd = [
@@ -453,17 +446,26 @@ class TestRtlModes:
         assert avg > 100, "Lite mode: avg duration {}ns too small".format(avg)
         conn.close()
 
-    def test_default_mode_skips_graph_replay(self, tmp_path):
-        """Default mode must skip graph replay (count > 1) batches."""
-        trace, r = self._trace_with_mode(tmp_path, None, ["hipgraph", "50", "3"])
-        assert r.returncode == 0, r.stderr[-500:]
-        assert "drop (batch skip)" in r.stderr, "No batch skip in default mode"
-
-    def test_lite_mode_skips_graph_replay(self, tmp_path):
-        """Lite mode must skip graph replay batches."""
-        trace, r = self._trace_with_mode(tmp_path, "lite", ["hipgraph", "50", "3"])
-        assert r.returncode == 0, r.stderr[-500:]
-        assert "drop (batch skip)" in r.stderr, "No batch skip in lite mode"
+    @pytest.mark.parametrize("mode", [None, "lite", "standard", "full"])
+    def test_graph_replay_capture(self, tmp_path, mode):
+        """Fixed ROCR captures replay dispatches, not just the three eager kernels."""
+        replays = 50
+        trace, result = self._trace_with_mode(tmp_path, mode, ["hipgraph", str(replays)])
+        assert result.returncode == 0, result.stderr[-2000:]
+        with sqlite3.connect(trace) as db:
+            kernels, invalid = db.execute(
+                "SELECT count(*), sum(o.end <= o.start) FROM rocpd_op o "
+                "JOIN rocpd_string s ON s.id=o.description_id "
+                "WHERE o.gpuId >= 0 AND s.string LIKE '%matmul%'"
+            ).fetchone()
+            assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        expected = replays * 5 + 3
+        if mode in ("standard", "full"):
+            assert kernels == expected, (mode, kernels, expected)
+        else:
+            # Lite may omit dispatches with application-owned completion signals.
+            assert 3 < kernels <= expected, (mode, kernels, expected)
+        assert invalid == 0
 
     def test_mode_printed_at_startup(self, tmp_path):
         """RTL must print the active mode at startup."""

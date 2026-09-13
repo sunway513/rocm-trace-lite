@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <string>
 #include <cstdio>
+#include <mutex>
 
 using namespace trace_db;
 
@@ -25,7 +26,9 @@ struct RoctxEntry {
 };
 
 static thread_local std::vector<RoctxEntry> tls_roctx_stack;
-static thread_local std::unordered_map<uint64_t, RoctxEntry> tls_roctx_ranges;
+// Start/Stop ranges belong to the process and may cross thread boundaries.
+static std::unordered_map<uint64_t, RoctxEntry> g_roctx_ranges;
+static std::mutex g_roctx_ranges_mutex;
 static std::atomic<uint64_t> g_range_id{1};
 
 extern "C" {
@@ -49,29 +52,35 @@ int roctxRangePop() {
     uint64_t now = tick();
     get_trace_db().record_roctx(entry.message.c_str(), entry.start_ns,
                                  now - entry.start_ns, entry.correlation_id);
+    int level = (int)tls_roctx_stack.size() - 1;
     tls_roctx_stack.pop_back();
-    return 0;
+    return level;
 }
 
 // roctxRangeStartA — start a non-nested range, returns range ID
 uint64_t roctxRangeStartA(const char* message) {
     uint64_t id = g_range_id.fetch_add(1, std::memory_order_relaxed);
-    tls_roctx_ranges[id] = {message ? message : "", tick(), next_correlation_id()};
+    std::lock_guard<std::mutex> lock(g_roctx_ranges_mutex);
+    g_roctx_ranges[id] = {message ? message : "", tick(), next_correlation_id()};
     return id;
 }
 
 // roctxRangeStop — stop a non-nested range by ID
 void roctxRangeStop(uint64_t id) {
-    auto it = tls_roctx_ranges.find(id);
-    if (it == tls_roctx_ranges.end()) {
-        fprintf(stderr, "rtl: roctxRangeStop: unknown range id %lu\n", id);
-        return;
+    RoctxEntry entry;
+    {
+        std::lock_guard<std::mutex> lock(g_roctx_ranges_mutex);
+        auto it = g_roctx_ranges.find(id);
+        if (it == g_roctx_ranges.end()) {
+            fprintf(stderr, "rtl: roctxRangeStop: unknown range id %lu\n", id);
+            return;
+        }
+        entry = std::move(it->second);
+        g_roctx_ranges.erase(it);
     }
     uint64_t now = tick();
-    auto& entry = it->second;
     get_trace_db().record_roctx(entry.message.c_str(), entry.start_ns,
                                  now - entry.start_ns, entry.correlation_id);
-    tls_roctx_ranges.erase(it);
 }
 
 // Legacy aliases

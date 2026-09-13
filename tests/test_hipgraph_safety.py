@@ -67,13 +67,9 @@ class TestShutdownSafety:
         assert "shutdown_done" in body or "once_flag" in body, \
             "No double-shutdown prevention"
 
-    def test_work_queue_drained(self):
-        """shutdown() must drain pending items from work queue."""
-        src = self._get_source()
-        match = re.search(r'static void shutdown\(\).*?\n\}', src, re.DOTALL)
-        body = match.group()
-        assert "g_work_queue" in body, "shutdown does not touch work queue"
-        assert "delete" in body, "shutdown does not delete pending items"
+    # Actual drain semantics are covered by test_native_completion.py and
+    # test_gpu_shutdown.py. Requiring shutdown() itself to delete queue entries
+    # accepted premature completion; only the completion worker may drain them.
 
     def test_join_before_close(self):
         """Worker join must happen before DB close."""
@@ -88,51 +84,6 @@ class TestShutdownSafety:
         """ADR-001 document must exist."""
         adr = os.path.join(REPO_ROOT, "docs", "ADR-001-hipgraph-safety.md")
         assert os.path.exists(adr), "Missing ADR-001 document"
-
-
-class TestBatchSkip:
-    """Verify batch mode (count > 1) skips signal injection (issue #67)."""
-
-    def _get_source(self):
-        with open(HSA_FILE) as f:
-            return f.read()
-
-    def _get_interceptor(self):
-        src = self._get_source()
-        match = re.search(r'static void queue_intercept_cb\(.*?\n\}', src, re.DOTALL)
-        assert match, "Could not find queue_intercept_cb"
-        return match.group()
-
-    def test_batch_mode_detected(self):
-        """Batch mode (count > 1) must be detected."""
-        body = self._get_interceptor()
-        assert "batch_mode" in body or "count > 1" in body, \
-            "No batch mode detection in interceptor"
-
-    def test_batch_skip_passthrough(self):
-        """Batch submissions must be passed through unmodified."""
-        body = self._get_interceptor()
-        assert "batch_mode" in body, "No batch_mode variable"
-        # Must call writer() and return early for batch
-        assert "writer(in_packets, count)" in body, \
-            "Batch mode must call writer(in_packets, count) to pass through unmodified"
-
-    def test_batch_skip_counter(self):
-        """Batch skip must increment a dedicated counter for diagnostics."""
-        body = self._get_interceptor()
-        # Should increment dedicated batch skip counter, not g_drop_not_kernel
-        assert "g_drop_batch_skip" in body, \
-            "No dedicated batch skip counter"
-
-    def test_no_signal_injection_in_batch(self):
-        """Batch submissions must return early (no signal injection) in default/lite modes."""
-        body = self._get_interceptor()
-        # The batch_mode block should return early before the signal injection loop
-        # Pattern: if (batch_mode && g_rtl_mode != RtlMode::FULL) { ... return; }
-        batch_block = re.search(
-            r'if\s*\(batch_mode.*?\{.*?\breturn\b', body, re.DOTALL)
-        assert batch_block, \
-            "batch_mode block must return early before signal injection"
 
 
 class TestSignalForwarding:
@@ -182,7 +133,7 @@ class TestRtlModes:
         assert 'getenv("RTL_MODE")' in src, "RTL_MODE env var not read"
 
     def test_default_mode_is_lite(self):
-        """Default mode must be LITE (safe for ROCm <= 7.2)."""
+        """Default mode remains LITE for partial, lower-overhead capture."""
         src = self._get_source()
         assert "g_rtl_mode = RtlMode::LITE" in src, \
             "Default mode is not LITE"
@@ -199,27 +150,11 @@ class TestRtlModes:
         assert "RtlMode::LITE" in body and "completion_signal" in body, \
             "Lite mode does not check completion_signal"
 
-    def test_full_mode_allows_batch(self):
-        """Full mode must NOT skip batch submissions (count > 1)."""
-        body = self._get_interceptor()
-        assert "RtlMode::FULL" in body, \
-            "Full mode not referenced in batch skip logic"
-        # The batch skip should check g_rtl_mode != FULL
-        assert "g_rtl_mode != RtlMode::FULL" in body, \
-            "Batch skip does not exempt FULL mode"
-
     def test_full_mode_rocr_requirement_documented(self):
-        """Full mode must document ROCm 7.13+ / ROCR fix requirement."""
+        """The fixed ROCR runtime requirement must be documented."""
         src = self._get_source()
         assert "559d48b1" in src or "ROCm 7.13" in src or "rocm-systems" in src, \
             "Full mode ROCR requirement not documented in source"
-
-    def test_default_skips_graph_replay(self):
-        """Default mode must skip graph replay batches (count > 1)."""
-        body = self._get_interceptor()
-        # batch_mode check should apply when mode is not FULL
-        batch_check = re.search(r'if\s*\(batch_mode.*?RtlMode::FULL', body, re.DOTALL)
-        assert batch_check, "Default mode batch skip logic not found"
 
     def test_mode_lite_parse(self):
         """RTL_MODE=lite must set LITE mode."""

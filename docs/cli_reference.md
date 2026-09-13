@@ -7,7 +7,7 @@ rocm-trace-lite provides the `rtl` command-line tool. (`rtl-legacy` also works a
 Trace a GPU workload and generate profiling output.
 
 ```bash
-rtl trace [-o OUTPUT] COMMAND [ARGS...]
+rtl trace [-o OUTPUT] [--mode MODE] [--no-perfetto] COMMAND [ARGS...]
 ```
 
 **Options:**
@@ -15,6 +15,23 @@ rtl trace [-o OUTPUT] COMMAND [ARGS...]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-o, --output` | `trace.db` | Output trace file path |
+| `--mode` | `lite` | `lite` filters dispatches with existing completion signals (partial GPU coverage); `standard` and `full` use the same complete GPU capture path, including graph replay; `hip` adds CPU-side HIP API timings to standard GPU capture. Requires a supported fixed ROCR runtime (validated on ROCm 10). |
+| `--no-perfetto` | off | Preserve capture, merged SQLite and summary; defer JSON visualization export |
+
+**Workload shutdown:** `rtl trace` waits for the launched process group, including
+workers whose parent has already exited, before collecting trace databases.
+Ctrl-C sends SIGINT to that group, waits for worker cleanup, then collects the
+traces and exits with status 130. A second Ctrl-C aborts collection and retains
+the raw per-process databases; remaining workers may still be running. Normal
+workload exit codes are preserved, and signal termination uses status 128 plus
+the signal number.
+
+The workload runs in a separate session. Inherited stdin (pipes or a terminal
+file descriptor) remains available, and terminal Ctrl-C is forwarded by the CLI.
+Programs requiring their own controlling terminal or interactive shell job
+control are outside this interface. Workers that deliberately call `setsid` to
+detach into another session are outside the wait/cleanup guarantee. This cleanup
+contract covers Ctrl-C; externally killing the CLI is not graceful shutdown.
 
 **Output files generated:**
 
@@ -22,19 +39,19 @@ rtl trace [-o OUTPUT] COMMAND [ARGS...]
 |------|-------------|
 | `trace.db` | SQLite trace database (RPD format) |
 | `trace_summary.txt` | Text summary of top kernels |
-| `trace.json.gz` | Compressed Perfetto JSON (open in ui.perfetto.dev) |
+| `trace.json.gz` | Compressed Perfetto JSON; not generated with `--no-perfetto` (an existing file is left unchanged) |
 
 **Examples:**
 
 ```bash
 # Basic tracing
-rtl trace -o trace.db python3 my_model.py
+rtl trace --mode standard -o trace.db python3 my_model.py
 
 # Multi-GPU with torchrun
-rtl trace -o trace.db torchrun --nproc_per_node=4 train.py
+rtl trace --mode standard -o trace.db torchrun --nproc_per_node=4 train.py
 
 # Trace a shell command
-rtl trace -o trace.db -- ./my_hip_app --batch-size 32
+rtl trace --mode standard -o trace.db -- ./my_hip_app --batch-size 32
 ```
 
 ## rtl summary
@@ -84,6 +101,19 @@ rtl convert trace.db --format rocprofv3 -o trace_results.json
 TraceLens_generate_perf_report_rocprof --profile_json_path trace_results.json
 ```
 
+### Large traces
+
+For long or repeated runs, use `rtl trace --mode standard --no-perfetto -o trace.db ...`
+to retain complete SQLite capture and the summary, then export once with
+`rtl convert trace.db -o trace.json.gz`. The converter streams events and gzip
+output, but export still takes CPU time and disk space. Streaming export does
+not bound the memory needed by a browser to import or display the resulting
+trace: the measured 25.6-million-event example expands to about 18.3 GB of JSON.
+Start with the [small trace example](example_trace.md), inspect `rtl summary`
+and SQLite first, and use a shorter capture window when a full trace is too large
+for interactive viewing. See [streaming export validation](validation-streaming-export.md)
+for measured exporter memory and its limits.
+
 ## rtl info
 
 Show structural information about a trace file.
@@ -113,6 +143,6 @@ Trace: trace.db
 | Variable | Values | Description |
 |----------|--------|-------------|
 | `RTL_OUTPUT` | file path | Output trace file (supports `%p` for PID). Alternative to `-o` flag. |
-| `RTL_MODE` | `lite`, `standard`, `full`, `hip` | Profiling mode. `lite` (default): skip has-signal packets (~0% overhead). `standard`: signal injection for all count==1 dispatches, skip graph replay. `full`: profile everything including graph replay (requires ROCm 7.13+). `hip`: HIP API interception via LD_PRELOAD — captures CPU-side HIP call timings alongside GPU kernel execution. |
-| `RTL_DEBUG` | `1` | Log per-call summary: intercept call count, device ID, batch skip decisions |
+| `RTL_MODE` | `lite`, `standard`, `full`, `hip` | Profiling mode. `lite` (default): skip dispatches with existing completion signals (partial coverage). `standard` and `full`: complete GPU capture including graph replay. All HSA profiling modes require the ROCR staging-buffer fix; ROCm 10 is validated. `hip`: HIP API interception via LD_PRELOAD — captures CPU-side HIP call timings alongside GPU kernel execution. |
+| `RTL_DEBUG` | `1` | Log per-call summary: intercept call count, device ID, packet count |
 | `RTL_DEBUG` | `2` | Log per-packet details: AQL type, signal handle, kernel object address |

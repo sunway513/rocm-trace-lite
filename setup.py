@@ -1,19 +1,15 @@
-"""Custom setup: JIT compile librtl.so + platform-specific wheel tag.
-
-librtl.so must be compiled against the target system's ROCm HSA headers.
-This setup.py attempts compilation during `pip install` from source.
-If ROCm is not available, the install succeeds but tracing is disabled.
-"""
+"""Build a platform wheel containing a freshly compiled native profiler."""
 import os
-import time
-import shutil
 import sys
 
 from setuptools import setup
 from setuptools.command.build_py import build_py
 
 try:
-    from wheel.bdist_wheel import bdist_wheel
+    try:
+        from setuptools.command.bdist_wheel import bdist_wheel
+    except ImportError:  # setuptools before 70.1
+        from wheel.bdist_wheel import bdist_wheel
 
     class PlatformWheel(bdist_wheel):
         """Force platform-specific wheel tag."""
@@ -32,49 +28,26 @@ except ImportError:
 
 
 class BuildWithLibrtl(build_py):
-    """Standard build_py + attempt to compile librtl.so at install time."""
+    """Build the native library from the same source as the Python package."""
 
     def run(self):
         super().run()
-
         lib_dest = os.path.join(self.build_lib, "rocm_trace_lite", "lib")
-        so_path = os.path.join(lib_dest, "librtl.so")
-
-        # Skip if .so already exists (pre-built via `make`)
-        if os.path.isfile(so_path):
-            return
-
-        # Check if user already ran `make` in source tree
-        # Prefer repo-root librtl.so (make output) over package-dir copy
-        # to avoid packaging a stale .so
-        for src_so in ["librtl.so", os.path.join("rocm_trace_lite", "lib", "librtl.so")]:
-            if os.path.isfile(src_so):
-                age_s = time.time() - os.path.getmtime(src_so)
-                if age_s > 3600:
-                    print("rocm-trace-lite: WARNING: packaging %s (%.0f min old) "
-                          "— run `make` to rebuild" % (src_so, age_s / 60),
-                          file=sys.stderr)
-                os.makedirs(lib_dest, exist_ok=True)
-                shutil.copy2(src_so, so_path)
-                print("rocm-trace-lite: packaged %s (%.1f KB)" %
-                      (src_so, os.path.getsize(so_path) / 1024))
-                return
-
-        # Attempt JIT compilation
+        # A copied package-local .so may belong to another checkout/runtime.
+        # Always rebuild; a source install must not silently omit the profiler.
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "rocm_trace_lite"))
         try:
-            sys.path.insert(0, os.path.join(os.path.dirname(__file__), "rocm_trace_lite"))
             from _build import compile_librtl
-            ok, msg = compile_librtl(lib_dest)
-            if ok:
-                print("rocm-trace-lite: compiled librtl.so -> %s" % msg)
-            else:
-                print("rocm-trace-lite: WARNING: skipping librtl.so build (%s)" % msg,
-                      file=sys.stderr)
-                print("rocm-trace-lite: CLI tools (convert, summary, info) will still work.",
-                      file=sys.stderr)
-        except Exception as e:
-            print("rocm-trace-lite: WARNING: librtl.so build failed: %s" % e,
-                  file=sys.stderr)
+            ok, message = compile_librtl(lib_dest, force=True)
+        finally:
+            sys.path.pop(0)
+        if not ok:
+            raise RuntimeError(
+                "Cannot build the native profiler: %s. Install ROCm HSA headers, "
+                "g++, make and libsqlite3-dev, or install a validated release wheel."
+                % message
+            )
+        print("rocm-trace-lite: compiled native library -> %s" % message)
 
 
 setup(cmdclass={"build_py": BuildWithLibrtl, **wheel_cmdclass})

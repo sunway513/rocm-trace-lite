@@ -3,6 +3,8 @@ import os
 import sys
 import subprocess
 import sqlite3
+import signal
+import time
 
 
 def _preflight_check(lib_path):
@@ -106,6 +108,50 @@ def _suggest_rocm_paths():
         warn("  install ROCm or set ROCM_PATH/LD_LIBRARY_PATH to your ROCm installation")
 
 
+def _process_group_running(pgid):
+    """Linux: zombies cannot write traces and must not delay collection."""
+    for entry in os.scandir("/proc"):
+        if not entry.name.isdigit():
+            continue
+        try:
+            with open(os.path.join(entry.path, "stat")) as stat:
+                # comm may contain spaces and parentheses; fields start after ')'.
+                fields = stat.read().rsplit(")", 1)[1].split()
+            if int(fields[2]) == pgid and fields[0] not in ("Z", "X"):
+                return True
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return False
+
+
+def _run_workload(cmd, env):
+    """Wait for the workload group before collecting any process's database.
+
+    Children that deliberately detach into another session are outside this
+    lifecycle contract. A second Ctrl-C aborts collection, preserving raw DBs.
+    """
+    process = subprocess.Popen(cmd, env=env, start_new_session=True)
+    interrupted = False
+    while True:
+        try:
+            returncode = process.wait()
+            while _process_group_running(process.pid):
+                time.sleep(0.05)
+            return 130 if interrupted else (
+                128 - returncode if returncode < 0 else returncode
+            )
+        except KeyboardInterrupt:
+            if interrupted:
+                print("rtl: cleanup interrupted; raw trace files retained", file=sys.stderr)
+                raise
+            interrupted = True
+            print("rtl: interrupted; waiting for workload workers to finish", file=sys.stderr)
+            try:
+                os.killpg(process.pid, signal.SIGINT)
+            except ProcessLookupError:
+                pass
+
+
 def run_trace(args):
     cmd = [c for c in args.cmd if c != "--"]
     if not cmd:
@@ -165,7 +211,7 @@ def run_trace(args):
         except OSError:
             pass
 
-    result = subprocess.run(cmd, env=env)
+    returncode = _run_workload(cmd, env)
 
     # Collect per-process trace files
     # Collect per-process files (strict PID pattern: trace_DIGITS.db)
@@ -183,7 +229,7 @@ def run_trace(args):
         print("rtl: Try: export HSA_TOOLS_LIB=$(python3 -c 'from rocm_trace_lite import get_lib_path; print(get_lib_path())')", file=sys.stderr)
         print("rtl:      export RTL_OUTPUT=trace_%p.db", file=sys.stderr)
         print("rtl:      <your command>", file=sys.stderr)
-        sys.exit(result.returncode)
+        sys.exit(returncode)
 
     import shutil
     if len(per_process_files) == 1:
@@ -213,18 +259,20 @@ def run_trace(args):
             f.write(summary_text)
 
     # 2. Perfetto JSON → compressed .json.gz
-    _generate_perfetto(output, json_file)
+    export_perfetto = not getattr(args, "no_perfetto", False)
+    if export_perfetto:
+        _generate_perfetto(output, json_file)
 
     # 3. Print output locations
     print("\nOutput files:")
     print(f"  {output}")
     if os.path.exists(summary_file):
         print(f"  {summary_file}")
-    if os.path.exists(json_file):
+    if export_perfetto and os.path.exists(json_file):
         size_mb = os.path.getsize(json_file) / 1024 / 1024
         print(f"  {json_file} ({size_mb:.1f} MB → open in https://ui.perfetto.dev)")
 
-    sys.exit(result.returncode)
+    sys.exit(returncode)
 
 
 def _checkpoint_wal(db_path):
@@ -240,122 +288,94 @@ def _checkpoint_wal(db_path):
 
 
 def _merge_traces(input_files, output_path):
-    """Merge multiple per-process RPD trace files into one.
+    """Atomically merge complete process traces, preserving foreign keys.
 
-    Copies the largest file as base, then batch-inserts rows from remaining
-    files using an in-memory string→id map (avoids per-row subqueries).
-    No ATTACH needed — avoids SQLite version compatibility issues.
+    SQLite backup includes committed WAL pages. Inputs are retained until the
+    caller has a complete output; any failure leaves all inputs recoverable.
     """
-    import shutil
+    import tempfile
+    from contextlib import closing
 
-    # Use the largest file as the base (likely the main ModelRunner)
-    input_files.sort(key=lambda f: os.path.getsize(f), reverse=True)
+    def connect_source(path):
+        from pathlib import Path
+        return sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
 
-    _checkpoint_wal(input_files[0])
+    def rows(db, table):
+        exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                            (table,)).fetchone()
+        if not exists:
+            return []
+        cur = db.execute('SELECT * FROM ' + table)
+        names = [col[0] for col in cur.description]
+        return [dict(zip(names, row)) for row in cur]
 
-    # Copy (not move) the base file so we don't lose it on merge failure
-    tmp_out = output_path + ".merging"
-    shutil.copy2(input_files[0], tmp_out)
+    def insert(db, table, row):
+        columns = ','.join(row)
+        marks = ','.join('?' for _ in row)
+        return db.execute(f'INSERT INTO {table}({columns}) VALUES({marks})',
+                          tuple(row.values())).lastrowid
 
-    merged_ops = 0
-    merged_count = 0
-
-    dst = sqlite3.connect(tmp_out)
-    dst.execute("PRAGMA journal_mode=WAL")
-
-    for src_file in input_files[1:]:
-        try:
-            _checkpoint_wal(src_file)
-
-            src = sqlite3.connect(src_file)
-            try:
-                # Read source strings and ops
-                src_strings = src.execute("SELECT string FROM rocpd_string").fetchall()
-                src_ops = src.execute(
-                    "SELECT o.gpuId, o.queueId, o.sequenceId, o.start, o.end, "
-                    "s.string AS desc_str, ot.string AS type_str, "
-                    "o.completionSignal "
-                    "FROM rocpd_op o "
-                    "JOIN rocpd_string s ON o.description_id = s.id "
-                    "JOIN rocpd_string ot ON o.opType_id = ot.id"
-                ).fetchall()
-                # Also merge metadata from non-base processes
-                try:
-                    src_meta = src.execute(
-                        "SELECT tag, value FROM rocpd_metadata"
-                    ).fetchall()
-                except sqlite3.OperationalError:
-                    src_meta = []
-            except sqlite3.OperationalError:
-                src_ops = []
-                src_strings = []
-                src_meta = []
-            finally:
-                src.close()
-
-            if not src_ops:
-                continue
-
-            dst.execute("BEGIN")
-
-            # Batch insert strings (dedup via OR IGNORE)
-            dst.executemany(
-                "INSERT OR IGNORE INTO rocpd_string(string) VALUES(?)",
-                src_strings,
-            )
-
-            # Build in-memory string→id map for fast op insertion
-            str_map = dict(dst.execute(
-                "SELECT string, id FROM rocpd_string"
-            ).fetchall())
-
-            # Batch insert ops using pre-resolved string IDs
-            op_rows = []
-            for gpuId, queueId, seqId, start, end, desc, optype, csig in src_ops:
-                desc_id = str_map.get(desc)
-                type_id = str_map.get(optype)
-                if desc_id is not None and type_id is not None:
-                    op_rows.append((gpuId, queueId, seqId, csig, start, end, desc_id, type_id))
-
-            dst.executemany(
-                "INSERT INTO rocpd_op(gpuId, queueId, sequenceId, completionSignal, "
-                "start, end, description_id, opType_id) VALUES(?,?,?,?,?,?,?,?)",
-                op_rows,
-            )
-
-            # Merge metadata (best-effort, OR IGNORE for dupes)
-            if src_meta:
-                dst.executemany(
-                    "INSERT OR IGNORE INTO rocpd_metadata(tag, value) VALUES(?,?)",
-                    src_meta,
-                )
-
-            dst.execute("COMMIT")
-
-            merged_ops += len(op_rows)
-            merged_count += 1
-
-        except (sqlite3.DatabaseError, OSError) as e:
-            print(f"Warning: could not merge {src_file}: {e}", file=sys.stderr)
-            try:
-                dst.execute("ROLLBACK")
-            except sqlite3.OperationalError:
-                pass
-
-    dst.close()
-
-    # Atomic replace: only overwrite output after successful merge
-    os.replace(tmp_out, output_path)
-
-    # Clean up per-process base file (others cleaned by caller)
+    if not input_files:
+        raise ValueError('No input traces')
+    inputs = sorted(input_files, key=os.path.getsize, reverse=True)
+    fd, temp = tempfile.mkstemp(prefix='.rtl-merge-', suffix='.db',
+                                dir=os.path.dirname(os.path.abspath(output_path)))
+    os.close(fd)
     try:
-        os.remove(input_files[0])
-    except OSError:
-        pass
-
-    if merged_count > 0:
-        print(f"Merged {merged_count + 1} process traces ({merged_ops} additional ops)",
-              file=sys.stderr)
+        with closing(sqlite3.connect(temp)) as dst:
+            with closing(connect_source(inputs[0])) as src:
+                src.backup(dst)
+            # Keep the output self-contained before the atomic rename.
+            dst.execute('PRAGMA journal_mode=DELETE')
+            cols = {r[1] for r in dst.execute('PRAGMA table_info(rocpd_op)')}
+            if 'roctxId' not in cols:
+                dst.execute('ALTER TABLE rocpd_op ADD COLUMN roctxId INTEGER DEFAULT 0')
+            next_range = dst.execute('SELECT COALESCE(MAX(roctxId),0) FROM rocpd_op').fetchone()[0]
+            for path in inputs[1:]:
+                with closing(connect_source(path)) as src, dst:
+                    strings = {}
+                    for row in rows(src, 'rocpd_string'):
+                        dst.execute('INSERT OR IGNORE INTO rocpd_string(string) VALUES(?)',
+                                    (row['string'],))
+                        strings[row['id']] = dst.execute(
+                            'SELECT id FROM rocpd_string WHERE string IS ?', (row['string'],)).fetchone()[0]
+                    maps = {'rocpd_api': {}, 'rocpd_op': {}}
+                    ranges = {}
+                    for table, string_cols in (
+                            ('rocpd_api', ('apiName_id', 'args_id')),
+                            ('rocpd_op', ('description_id', 'opType_id'))):
+                        for row in rows(src, table):
+                            old_id = row.pop('id')
+                            for col in string_cols:
+                                if row.get(col) is not None:
+                                    row[col] = strings[row[col]]
+                            if table == 'rocpd_op':
+                                old_range = row.get('roctxId') or 0
+                                if old_range and old_range not in ranges:
+                                    next_range += 1
+                                    ranges[old_range] = next_range
+                                row['roctxId'] = ranges.get(old_range, 0)
+                            maps[table][old_id] = insert(dst, table, row)
+                    for table in ('rocpd_api_ops', 'rocpd_kernelapi', 'rocpd_copyapi',
+                                  'rocpd_metadata', 'rocpd_monitor'):
+                        for row in rows(src, table):
+                            row.pop('id', None)
+                            for col, parent in (('api_id', 'rocpd_api'), ('op_id', 'rocpd_op')):
+                                if row.get(col) is not None:
+                                    row[col] = maps[parent][row[col]]
+                            if row.get('kernelName_id') is not None:
+                                row['kernelName_id'] = strings[row['kernelName_id']]
+                            insert(dst, table, row)
+            dst.commit()
+            if dst.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                raise sqlite3.DatabaseError('Merged trace failed integrity_check')
+            if dst.execute('PRAGMA foreign_key_check').fetchone():
+                raise sqlite3.DatabaseError('Merged trace has invalid references')
+        os.replace(temp, output_path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+    print(f'Merged {len(inputs)} process traces', file=sys.stderr)
 
 
 def _generate_summary(db_path):
@@ -405,20 +425,7 @@ def _generate_perfetto(db_path, json_gz_path):
         return
     try:
         from rocm_trace_lite.cmd_convert import convert
-        import gzip
-        import tempfile
-
-        # Convert to temp JSON first
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
-            tmp_json = tmp.name
-
-        convert(db_path, tmp_json)
-
-        # Compress to .json.gz
-        with open(tmp_json, "rb") as f_in:
-            with gzip.open(json_gz_path, "wb") as f_out:
-                f_out.write(f_in.read())
-
-        os.unlink(tmp_json)
+        # The converter streams gzip directly and atomically publishes the file.
+        convert(db_path, json_gz_path)
     except Exception as e:
         print(f"Warning: could not generate Perfetto trace: {e}", file=sys.stderr)

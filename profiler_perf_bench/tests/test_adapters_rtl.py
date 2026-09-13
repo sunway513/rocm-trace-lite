@@ -1,24 +1,24 @@
 """Unit tests for adapters/rtl.py — 3 tests as per spec §6."""
 
 import pytest
-import os
 from pathlib import Path
-
-try:
-    import rocm_trace_lite
-    _lib_path = rocm_trace_lite.get_lib_path()
-    _HAS_LIBRTL = os.path.isfile(_lib_path)
-except Exception:
-    _HAS_LIBRTL = False
-
-skipif_no_librtl = pytest.mark.skipif(
-    not _HAS_LIBRTL,
-    reason="librtl.so not found — skipping RTL adapter tests"
-)
 
 
 from profiler_perf_bench.adapters.rtl import RTLAdapter
-from profiler_perf_bench.adapters.base import ExecutionModel
+
+
+@pytest.fixture(autouse=True)
+def resolved_library_path(monkeypatch):
+    # These tests inspect the produced environment; they do not load a DSO.
+    # Real library loading belongs to the HIP integration tests.
+    monkeypatch.setattr('profiler_perf_bench.adapters.rtl._get_librtl_path',
+                        lambda: '/unit-test/librtl.so')
+
+
+def test_rtl_adapter_reports_missing_library(monkeypatch):
+    monkeypatch.setattr('profiler_perf_bench.adapters.rtl._get_librtl_path', lambda: None)
+    with pytest.raises(RuntimeError, match='librtl.so not found'):
+        RTLAdapter().prepare_run([], {}, Path('/tmp'))
 
 
 # Test 1: RTL adapter injects HSA_TOOLS_LIB and RTL_MODE into env

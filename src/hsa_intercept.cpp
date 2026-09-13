@@ -71,9 +71,9 @@ static bool g_intercept_available = false;
 
 // RTL_MODE controls profiling behavior:
 //   "lite"     — skip packets with existing completion_signal (~0% overhead). Default.
-//   "standard" — signal injection + GPU timing for all count==1 dispatches, skip graph replay
-//   "full"     — profile everything including graph replay batches. Requires ROCm 7.13+
-//                with ROCR fix (rocm-systems commit 559d48b1). Will crash on ROCm <= 7.2.
+//   "standard" — GPU timing for all kernel dispatches, including graph replay.
+//   "full"     — compatibility name for the same complete GPU capture.
+// All modes require a runtime with ROCR fix 559d48b1 (validated on ROCm 10).
 enum class RtlMode { STANDARD = 0, LITE = 1, FULL = 2 };
 static RtlMode g_rtl_mode = RtlMode::LITE;
 
@@ -161,7 +161,6 @@ static void release_signal(hsa_signal_t sig) {
 static std::atomic<uint64_t> g_total_intercepts{0};
 static std::atomic<uint64_t> g_drop_shutdown{0};
 static std::atomic<uint64_t> g_drop_not_kernel{0};
-static std::atomic<uint64_t> g_drop_batch_skip{0};  // batch submissions (count>1) skipped
 static std::atomic<uint64_t> g_drop_no_qi{0};
 static std::atomic<uint64_t> g_drop_sig_fail{0};     // signal pool exhausted
 static std::atomic<uint64_t> g_drop_ts_fail{0};      // profiling_get_dispatch_time failed
@@ -193,6 +192,24 @@ static std::condition_variable g_work_cv;
 static std::deque<DispatchData*> g_work_queue;
 static std::atomic<bool> g_shutdown{false};
 static std::thread g_worker;
+// Serialize admission with shutdown, and keep the worker alive until every
+// admitted callback has published its dispatch records.
+static size_t g_active_intercepts = 0;  // protected by g_work_mutex
+class InterceptAdmission {
+public:
+    bool admitted;
+    InterceptAdmission() {
+        std::lock_guard<std::mutex> lock(g_work_mutex);
+        admitted = !g_shutdown.load(std::memory_order_acquire);
+        if (admitted) ++g_active_intercepts;
+    }
+    ~InterceptAdmission() {
+        if (!admitted) return;
+        std::lock_guard<std::mutex> lock(g_work_mutex);
+        --g_active_intercepts;
+        g_work_cv.notify_all();
+    }
+};
 
 static void completion_worker() {
     while (true) {
@@ -200,7 +217,8 @@ static void completion_worker() {
         {
             std::unique_lock<std::mutex> lock(g_work_mutex);
             g_work_cv.wait(lock, [] {
-                return !g_work_queue.empty() || g_shutdown.load(std::memory_order_acquire);
+                return !g_work_queue.empty() ||
+                    (g_shutdown.load(std::memory_order_acquire) && g_active_intercepts == 0);
             });
             if (g_work_queue.empty()) {
                 if (g_shutdown.load(std::memory_order_acquire)) break;
@@ -211,28 +229,15 @@ static void completion_worker() {
         }
 
         // Wait for kernel completion with bounded timeout.
-        static constexpr uint64_t WAIT_TIMEOUT_NS = 100000000ULL;  // 100ms
-        hsa_signal_value_t wait_val;
-        bool abandoned = false;
-        while (true) {
-            wait_val = g_orig_core.hsa_signal_wait_scacquire_fn(
+        // A timeout is not completion. Rotate incomplete records so a later
+        // completed dispatch can forward a signal needed by the queue head.
+        static constexpr uint64_t WAIT_TIMEOUT_TICKS = 1000000ULL;
+        hsa_signal_value_t wait_val = g_orig_core.hsa_signal_wait_scacquire_fn(
                 dd->profiling_signal, HSA_SIGNAL_CONDITION_LT, 1,
-                WAIT_TIMEOUT_NS, HSA_WAIT_STATE_BLOCKED);
-            if (wait_val < 1) break;  // signal completed
-            if (g_shutdown.load(std::memory_order_acquire)) {
-                abandoned = true;
-                break;
-            }
-        }
-
-        if (abandoned) {
-            // Forward original signal even during shutdown to avoid hangs.
-            // Use subtract (decrement by 1) to match HSA packet completion semantics.
-            if (dd->original_signal.handle != 0) {
-                g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
-            }
-            release_signal(dd->profiling_signal);
-            delete dd;
+                WAIT_TIMEOUT_TICKS, HSA_WAIT_STATE_BLOCKED);
+        if (wait_val >= 1) {
+            std::lock_guard<std::mutex> lock(g_work_mutex);
+            g_work_queue.push_back(dd);
             continue;
         }
 
@@ -396,7 +401,8 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
                                 hsa_amd_queue_intercept_packet_writer writer) {
     g_total_intercepts.fetch_add(1, std::memory_order_relaxed);
 
-    if (g_shutdown.load(std::memory_order_acquire)) {
+    InterceptAdmission admission;
+    if (!admission.admitted) {
         g_drop_shutdown.fetch_add(count, std::memory_order_relaxed);
         writer(in_packets, count);
         return;
@@ -453,25 +459,10 @@ static void queue_intercept_cb(const void* in_packets, uint64_t count,
                 this_call, count, qi->device_id, getpid());
     }
 
-    // CUDAGraph replay submits batch packets (count > 1) containing
-    // pre-recorded AQL packets.  Injecting profiling signals into these
-    // corrupts the graph's execution dependency chain (issue #67).
-    //
-    // Default and lite modes skip batch submissions for safety.
-    // Full mode profiles everything — requires ROCm 7.13+ with ROCR fix
-    // (rocm-systems PR #1194, commit 559d48b1) to avoid SEGFAULT.
-    // See: https://github.com/ROCm/rocm-systems/commit/559d48b1
-    const bool batch_mode = (count > 1);
-
-    if (batch_mode && g_rtl_mode != RtlMode::FULL) {
-        g_drop_batch_skip.fetch_add(count, std::memory_order_relaxed);
-        if (debug_level >= 1) {
-            fprintf(stderr, "rtl-dbg: call#%" PRIu64 " count=%" PRIu64 " dev=%d pid=%d SKIP(batch)\n",
-                    this_call, count, qi->device_id, getpid());
-        }
-        writer(in_packets, count);
-        return;
-    }
+    // ROCm 10 includes ROCR fix 559d48b1 for the intercept staging buffer.
+    // Process batched submissions normally; batch size is not a reason to
+    // discard graph replay kernels. Lite filtering remains per dispatch.
+    const bool batch_mode = (count > 1);  // diagnostics only
 
     for (uint64_t i = 0; i < count; i++) {
         hsa_kernel_dispatch_packet_t* pkt =
@@ -636,6 +627,61 @@ static hsa_status_t my_hsa_queue_create(
     return HSA_STATUS_SUCCESS;
 }
 
+#ifdef HSA_AMD_QUEUE_CREATE_DESC_VERSION
+// ROCm 10 CLR creates compute queues through the descriptor API instead of
+// hsa_queue_create. The tools API still exposes only the legacy intercept
+// constructor, so translate descriptors whose attributes it can preserve.
+static hsa_status_t my_hsa_amd_queue_create(
+    hsa_agent_t agent, hsa_amd_queue_create_desc_t* descs, uint32_t count) {
+    if (!descs || count == 0 || !g_intercept_available)
+        return g_orig_ext.hsa_amd_queue_create_fn(agent, descs, count);
+    hsa_status_t first_error = HSA_STATUS_SUCCESS;
+    for (uint32_t i = 0; i < count; ++i) {
+        auto& d = descs[i];
+        const auto& cp = d.engine.compute;
+        bool reserved_zero = true;
+        for (auto v : d.reserved_header) reserved_zero &= v == 0;
+        for (auto v : d.reserved) reserved_zero &= v == 0;
+        for (auto v : cp.reserved) reserved_zero &= v == 0;
+        const bool supported = d.version == HSA_AMD_QUEUE_CREATE_DESC_VERSION &&
+            d.engine_type == HSA_AMD_QUEUE_ENGINE_COMPUTE && d.flags == 0 &&
+            d.traffic_class == 0 && reserved_zero && d.queue_size_bytes >= 64 &&
+            (d.queue_size_bytes & (d.queue_size_bytes - 1)) == 0 &&
+            cp.type <= HSA_QUEUE_TYPE_COOPERATIVE &&
+            cp.cu_mask_count % 32 == 0 && (cp.cu_mask_count == 0 || cp.cu_mask) &&
+            d.priority >= HSA_AMD_QUEUE_PRIORITY_LOW &&
+            d.priority <= HSA_AMD_QUEUE_PRIORITY_HIGH;
+        hsa_status_t status;
+        if (!supported) {
+            // Preserve unknown attributes/validation in the runtime. Never
+            // silently change device-memory placement or SDMA queue semantics.
+            fprintf(stderr, "rtl: WARNING: descriptor queue not intercepted "
+                    "(engine=%u flags=%u); trace coverage may be incomplete\n",
+                    unsigned(d.engine_type), unsigned(d.flags));
+            status = g_orig_ext.hsa_amd_queue_create_fn(agent, &d, 1);
+        } else {
+            d.queue = nullptr;
+            status = my_hsa_queue_create(agent,
+                d.queue_size_bytes / sizeof(hsa_kernel_dispatch_packet_t), cp.type,
+                d.callback, d.callback_data, cp.private_segment_size, UINT32_MAX,
+                &d.queue);
+            if (status == HSA_STATUS_SUCCESS)
+                status = g_orig_ext.hsa_amd_queue_set_priority_fn(d.queue, d.priority);
+            if (status == HSA_STATUS_SUCCESS && cp.cu_mask_count)
+                status = g_orig_ext.hsa_amd_queue_cu_set_mask_fn(
+                    d.queue, cp.cu_mask_count, cp.cu_mask);
+            if (status != HSA_STATUS_SUCCESS && d.queue) {
+                g_orig_core.hsa_queue_destroy_fn(d.queue);
+                d.queue = nullptr;
+            }
+        }
+        if (first_error == HSA_STATUS_SUCCESS && status != HSA_STATUS_SUCCESS)
+            first_error = status;
+    }
+    return first_error;
+}
+#endif
+
 static hsa_status_t my_hsa_executable_freeze(hsa_executable_t executable, const char* options) {
     hsa_status_t status = g_orig_core.hsa_executable_freeze_fn(executable, options);
     if (status == HSA_STATUS_SUCCESS) {
@@ -659,6 +705,15 @@ static void shutdown() {
     static std::atomic<bool> shutdown_done{false};
     if (shutdown_done.exchange(true)) return;  // prevent double shutdown
 
+    {
+        std::unique_lock<std::mutex> lock(g_work_mutex);
+        g_shutdown.store(true, std::memory_order_release);
+        g_work_cv.notify_all();
+        g_work_cv.wait(lock, [] { return g_active_intercepts == 0; });
+    }
+    if (g_worker.joinable()) g_worker.join();
+    // The worker has drained actual completions. Report final counters only now.
+
     // Print diagnostic counters
     fprintf(stderr, "\n=== rtl diagnostic (PID %d) ===\n", getpid());
     fprintf(stderr, "  intercept calls:     %" PRIu64 "\n", g_total_intercepts.load());
@@ -669,36 +724,12 @@ static void shutdown() {
 
     fprintf(stderr, "  drop (shutdown):     %" PRIu64 "\n", g_drop_shutdown.load());
     fprintf(stderr, "  drop (not kernel):   %" PRIu64 "\n", g_drop_not_kernel.load());
-    fprintf(stderr, "  drop (batch skip):   %" PRIu64 "\n", g_drop_batch_skip.load());
     fprintf(stderr, "  drop (no qi):        %" PRIu64 "\n", g_drop_no_qi.load());
     fprintf(stderr, "  drop (sig pool):     %" PRIu64 "\n", g_drop_sig_fail.load());
     fprintf(stderr, "  drop (ts fail):      %" PRIu64 "\n", g_drop_ts_fail.load());
     fprintf(stderr, "  drop (ts invalid):   %" PRIu64 "\n", g_drop_ts_invalid.load());
     fprintf(stderr, "  recorded OK:         %" PRIu64 "\n", g_recorded_ok.load());
     fprintf(stderr, "====================================\n\n");
-
-    // Signal worker to stop
-    g_shutdown.store(true, std::memory_order_release);
-    g_work_cv.notify_all();
-
-    if (g_worker.joinable()) {
-        g_worker.join();
-    }
-
-    // Drain remaining work queue
-    {
-        std::lock_guard<std::mutex> lock(g_work_mutex);
-        while (!g_work_queue.empty()) {
-            auto* dd = g_work_queue.front();
-            g_work_queue.pop_front();
-            // Forward original signals to avoid app hangs
-            if (dd->original_signal.handle != 0) {
-                g_orig_core.hsa_signal_subtract_screlease_fn(dd->original_signal, 1);
-            }
-            release_signal(dd->profiling_signal);
-            delete dd;
-        }
-    }
 
     // Flush and close trace DB (skip if never initialized — callback-only mode)
     if (trace_db::is_trace_ready()) {
@@ -756,11 +787,24 @@ extern "C" bool OnLoad(void* pTable,
     HsaApiTable* table = reinterpret_cast<HsaApiTable*>(pTable);
     g_orig_table = table;
     g_orig_core = *table->core_;
-    g_orig_ext = *table->amd_ext_;
+    // A newer SDK can describe more extension slots than an older runtime
+    // supplies. Never read past the runtime's versioned table.
+    g_orig_ext = {};
+    const size_t ext_bytes = table->amd_ext_->version.minor_id;
+    memcpy(&g_orig_ext, table->amd_ext_,
+           ext_bytes < sizeof(g_orig_ext) ? ext_bytes : sizeof(g_orig_ext));
 
     // Replace queue creation and executable freeze
     table->core_->hsa_queue_create_fn = my_hsa_queue_create;
     table->core_->hsa_executable_freeze_fn = my_hsa_executable_freeze;
+#ifdef HSA_AMD_QUEUE_CREATE_DESC_VERSION
+    if (table->amd_ext_->version.minor_id >=
+            offsetof(AmdExtTable, hsa_amd_queue_create_fn) +
+                sizeof(table->amd_ext_->hsa_amd_queue_create_fn) &&
+        g_orig_ext.hsa_amd_queue_create_fn) {
+        table->amd_ext_->hsa_amd_queue_create_fn = my_hsa_amd_queue_create;
+    }
+#endif
 
     // Discover GPU agents (immutable after this point)
     hsa_iterate_agents(agent_iterate_cb, nullptr);

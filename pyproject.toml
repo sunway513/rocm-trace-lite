@@ -4,10 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rocm-trace-lite"
-version = "0.3.7"
+version = "0.4.0rc1"
 description = "Self-contained GPU kernel profiler for ROCm. Zero roctracer dependency."
+readme = "README.md"
+keywords = ["rocm", "profiling", "gpu", "perfetto"]
 license = {text = "MIT"}
 requires-python = ">=3.8"
+
+[project.urls]
+Homepage = "https://github.com/sunway513/rocm-trace-lite"
+Documentation = "https://sunway513.github.io/rocm-trace-lite/"
+Issues = "https://github.com/sunway513/rocm-trace-lite/issues"
 
 [project.scripts]
 rtl-legacy = "rocm_trace_lite.cli:main"
@@ -16,6 +23,7 @@ profiler-bench = "profiler_perf_bench.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["rocm_trace_lite*", "profiler_perf_bench*"]
+exclude = ["profiler_perf_bench.tests*"]
 
 [tool.setuptools.package-data]
 rocm_trace_lite = ["lib/*.so"]

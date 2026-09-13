@@ -17,15 +17,18 @@ class TorchProfilerAdapter(ProfilerAdapter):
     """
 
     name = "torch_profiler"
-    execution_model = ExecutionModel.IN_PROCESS_PYTHON
+    execution_model = ExecutionModel.EXTERNAL_WRAPPER
 
     def __init__(self):
         self._prof: Optional[Any] = None
         self._tmpdir: Optional[Path] = None
 
     def prepare_run(self, cmd: list, env: dict, tmpdir: Path) -> tuple:
-        # In-process adapter: no cmd/env modification
-        return cmd, env
+        # Run the Python entrypoint in the same interpreter as the profiler.
+        if not cmd or not Path(cmd[0]).name.startswith('python'):
+            raise ValueError('torch_profiler requires a Python workload; native binaries are unsupported')
+        bootstrap = str(Path(__file__).with_name('_torch_child.py'))
+        return [cmd[0], bootstrap, str(tmpdir / 'torch_profiler_trace'), *cmd[1:]], env
 
     def start(self, tmpdir: Path) -> None:
         try:
@@ -38,7 +41,7 @@ class TorchProfilerAdapter(ProfilerAdapter):
         trace_dir = str(tmpdir / "torch_profiler_trace")
 
         self._prof = profile(
-            activities=[ProfilerActivity.CPU],
+            activities=[ProfilerActivity.CPU] + ([ProfilerActivity.CUDA] if torch.cuda.is_available() else []),
             on_trace_ready=tensorboard_trace_handler(trace_dir),
             record_shapes=False,
             with_stack=False,
@@ -54,4 +57,4 @@ class TorchProfilerAdapter(ProfilerAdapter):
         return "torch_profiler_trace/**/*.json"
 
     def config_hash(self) -> str:
-        return hashlib.md5(b"torch_profiler:cpu").hexdigest()
+        return hashlib.md5(b"torch_profiler:child:cpu+available_gpu:v2").hexdigest()
