@@ -112,4 +112,7 @@ def test_check(harness_results, name):
     verdict, detail = harness_results[name]
     if verdict == "SKIP":
         pytest.skip(detail)
+    if verdict == "XFAIL":
+        # Known gap, tracked upstream; the harness carries the reason.
+        pytest.xfail(detail)
     assert verdict == "PASS", detail

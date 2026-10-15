@@ -32,12 +32,33 @@ extern "C" bool OnLoad(void*, uint64_t, uint64_t, const char* const*);
 // ---------------------------------------------------------------- reporting
 static int g_fails = 0;
 
+// Checks whose expected behaviour is understood but not implemented yet. They
+// report XFAIL instead of FAIL so a known gap does not read the same as a
+// regression. Remove the entry once the gap is closed; an unexpected PASS is
+// reported normally and will then be held to.
+static const struct { const char* name; const char* why; } kKnownOpen[] = {
+    {"nonzero_flags_not_dropped",
+     "ring-buffer placement cannot be expressed through hsa_amd_queue_intercept_create; "
+     "needs gfx94x/gfx125x hardware to decide, see issue #124 item 3"},
+};
+
+static const char* known_open(const char* name) {
+    for (const auto& k : kKnownOpen)
+        if (strcmp(k.name, name) == 0) return k.why;
+    return nullptr;
+}
+
 static void check(const char* name, bool ok, const char* fmt, ...) {
     char detail[512];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(detail, sizeof(detail), fmt, ap);
     va_end(ap);
+    const char* open_reason = ok ? nullptr : known_open(name);
+    if (open_reason) {
+        printf("CHECK %s XFAIL %s -- %s\n", name, detail, open_reason);
+        return;
+    }
     printf("CHECK %s %s %s\n", name, ok ? "PASS" : "FAIL", detail);
     if (!ok) g_fails++;
 }

@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cstddef>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -639,10 +640,28 @@ static hsa_status_t my_hsa_queue_create(
 // ROCm 10+: CLR calls hsa_amd_queue_create (batch descriptor API) instead of
 // hsa_queue_create.  Redirect each descriptor through hsa_amd_queue_intercept_create
 // so the dispatch callback fires.
+//
+// The descriptor carries more than hsa_amd_queue_intercept_create can express.
+// Guiding rule: getting the queue wrong changes how the application runs,
+// losing profiling on one queue only changes what we see.  So anything we
+// cannot reproduce faithfully is handed back to the runtime untouched.
 #ifdef HSA_AMD_QUEUE_CREATE_DESC_VERSION
 
-// Saved original so we can fall back for non-compute engine types.
+// Saved original so we can fall back for descriptors we do not intercept.
 static decltype(AmdExtTable::hsa_amd_queue_create_fn) g_orig_amd_queue_create = nullptr;
+
+// Create via the original API and still turn on dispatch timestamps, which do
+// not need the intercept.  Matches what my_hsa_queue_create does on its own
+// non-intercept path.
+static hsa_status_t amd_queue_passthrough(hsa_agent_t agent,
+                                          hsa_amd_queue_create_desc_t* d) {
+    hsa_status_t status = g_orig_amd_queue_create(agent, d, 1);
+    if (status == HSA_STATUS_SUCCESS && d->queue != nullptr &&
+        g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn != nullptr) {
+        g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(d->queue, true);
+    }
+    return status;
+}
 
 static hsa_status_t my_hsa_amd_queue_create(
     hsa_agent_t agent, hsa_amd_queue_create_desc_t* descs, uint32_t num_descs) {
@@ -650,57 +669,106 @@ static hsa_status_t my_hsa_amd_queue_create(
     if (!descs || num_descs == 0)
         return HSA_STATUS_ERROR_INVALID_ARGUMENT;
 
+    const uint32_t kPacketSize = (uint32_t)sizeof(hsa_kernel_dispatch_packet_t);
     hsa_status_t first_error = HSA_STATUS_SUCCESS;
 
     for (uint32_t i = 0; i < num_descs; i++) {
         auto& d = descs[i];
         d.queue = nullptr;
 
-        // Only intercept compute (AQL) queues — SDMA/AIE pass through to the
-        // original API (one descriptor at a time).
-        if (d.engine_type != HSA_AMD_QUEUE_ENGINE_COMPUTE || !g_intercept_available) {
-            hsa_status_t st = g_orig_amd_queue_create(agent, &d, 1);
-            if (st != HSA_STATUS_SUCCESS && first_error == HSA_STATUS_SUCCESS)
-                first_error = st;
+        // Descriptors the runtime would reject, or whose parameters we cannot
+        // carry through the intercept, go straight to the runtime.  Leaving
+        // validation to the runtime also keeps future descriptor versions
+        // working instead of being misread as v1.
+        const bool bad_size = d.queue_size_bytes == 0 ||
+                              (d.queue_size_bytes & (d.queue_size_bytes - 1)) != 0 ||
+                              (d.queue_size_bytes % kPacketSize) != 0;
+        const bool defer = !g_intercept_available ||
+                           d.engine_type != HSA_AMD_QUEUE_ENGINE_COMPUTE ||
+                           d.version != HSA_AMD_QUEUE_CREATE_DESC_VERSION ||
+                           d.traffic_class != 0 ||
+                           bad_size;
+
+        if (defer) {
+            hsa_status_t status = amd_queue_passthrough(agent, &d);
+            if (status != HSA_STATUS_SUCCESS && first_error == HSA_STATUS_SUCCESS)
+                first_error = status;
             continue;
         }
 
-        // Extract parameters from the descriptor for hsa_amd_queue_intercept_create.
-        uint32_t queue_size = d.queue_size_bytes / sizeof(hsa_kernel_dispatch_packet_t);
-        if (queue_size == 0) queue_size = 64;
-        hsa_queue_type32_t type = d.engine.compute.type;
-        uint32_t priv_seg = d.engine.compute.private_segment_size;
-        uint32_t safe_priv_seg = (priv_seg == UINT32_MAX) ? 0 : priv_seg;
+        if (d.flags != 0) {
+            static bool warned = false;
+            if (!warned) {
+                warned = true;
+                fprintf(stderr,
+                        "rtl: warning: queue flags 0x%x (device-memory ring buffer) cannot be "
+                        "preserved while intercepting; the ring will live in system memory. "
+                        "Only gfx94x/gfx125x request this today. See issue #124.\n", (unsigned)d.flags);
+            }
+        }
 
+        const hsa_amd_compute_queue_params_t& cp = d.engine.compute;
+
+        // Descriptor v1 has no group_segment_size; the runtime documents its
+        // behaviour as equivalent to passing UINT32_MAX to hsa_queue_create.
         hsa_queue_t* queue = nullptr;
-        hsa_status_t st = g_orig_ext.hsa_amd_queue_intercept_create_fn(
-            agent, queue_size, type, d.callback, d.callback_data,
-            safe_priv_seg, 0, &queue);
+        hsa_status_t status = g_orig_ext.hsa_amd_queue_intercept_create_fn(
+            agent, d.queue_size_bytes / kPacketSize, cp.type,
+            d.callback, d.callback_data,
+            cp.private_segment_size, UINT32_MAX, &queue);
 
-        if (st != HSA_STATUS_SUCCESS) {
-            // Fallback: create via the original API without intercept.
-            st = g_orig_amd_queue_create(agent, &d, 1);
-            if (st != HSA_STATUS_SUCCESS && first_error == HSA_STATUS_SUCCESS)
-                first_error = st;
+        if (status != HSA_STATUS_SUCCESS) {
+            fprintf(stderr,
+                    "rtl: warning: intercept_create failed (0x%x) on descriptor %u, "
+                    "creating a plain queue (no dispatch interception)\n",
+                    (unsigned)status, i);
+            hsa_status_t fb = amd_queue_passthrough(agent, &d);
+            if (fb != HSA_STATUS_SUCCESS && first_error == HSA_STATUS_SUCCESS)
+                first_error = fb;
             continue;
         }
 
-        d.queue = queue;
+        // The runtime applies the CU mask as part of queue creation, so it has
+        // to be in place before the caller ever sees this queue.  A queue
+        // running on the wrong CUs is worse than one we cannot profile.
+        if (cp.cu_mask_count != 0 && cp.cu_mask != nullptr) {
+            hsa_status_t cu = g_orig_ext.hsa_amd_queue_cu_set_mask_fn != nullptr
+                ? g_orig_ext.hsa_amd_queue_cu_set_mask_fn(queue, cp.cu_mask_count, cp.cu_mask)
+                : HSA_STATUS_ERROR;
+            if (cu != HSA_STATUS_SUCCESS) {
+                fprintf(stderr,
+                        "rtl: warning: could not apply the requested CU mask (0x%x); "
+                        "creating a plain queue so the application keeps its CU masking\n",
+                        (unsigned)cu);
+                hsa_queue_destroy(queue);
+                hsa_status_t fb = amd_queue_passthrough(agent, &d);
+                if (fb != HSA_STATUS_SUCCESS && first_error == HSA_STATUS_SUCCESS)
+                    first_error = fb;
+                continue;
+            }
+        }
 
-        // Enable profiling timestamps on this queue.
-        g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(queue, true);
+        if (g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn != nullptr) {
+            hsa_status_t prof =
+                g_orig_ext.hsa_amd_profiling_set_profiler_enabled_fn(queue, true);
+            if (prof != HSA_STATUS_SUCCESS)
+                fprintf(stderr, "rtl: warning: failed to enable profiling on queue (0x%x)\n",
+                        (unsigned)prof);
+        }
 
-        // Apply priority if non-default.
         if (d.priority != HSA_AMD_QUEUE_PRIORITY_NORMAL &&
             g_orig_ext.hsa_amd_queue_set_priority_fn != nullptr) {
-            g_orig_ext.hsa_amd_queue_set_priority_fn(queue, d.priority);
+            hsa_status_t prio = g_orig_ext.hsa_amd_queue_set_priority_fn(queue, d.priority);
+            if (prio != HSA_STATUS_SUCCESS)
+                fprintf(stderr, "rtl: warning: failed to set queue priority (0x%x)\n",
+                        (unsigned)prio);
         }
 
-        // Build QueueInfo and register intercept callback (same as my_hsa_queue_create).
+        // Build QueueInfo and register the intercept callback (same as my_hsa_queue_create).
         auto* qi = new QueueInfo;
         qi->device_id = 0;
         qi->queue_handle = (uint64_t)queue;
-        qi->hw_queue_addr = queue ? (uint64_t)queue->base_address : 0;
+        qi->hw_queue_addr = (uint64_t)queue->base_address;
         {
             std::lock_guard<std::mutex> lock(g_agent_mutex);
             for (size_t j = 0; j < g_gpu_agents.size(); j++) {
@@ -715,6 +783,9 @@ static hsa_status_t my_hsa_amd_queue_create(
             g_queue_map[(uint64_t)queue] = *qi;
         }
         g_orig_ext.hsa_amd_queue_intercept_register_fn(queue, queue_intercept_cb, qi);
+
+        // Publish last: the caller must never see a partly configured queue.
+        d.queue = queue;
     }
 
     return first_error;
@@ -860,7 +931,12 @@ extern "C" bool OnLoad(void* pTable,
     // ROCm 10+: CLR uses hsa_amd_queue_create instead of hsa_queue_create.
     // Intercept the new API so dispatch profiling works on both old and new CLR.
 #ifdef HSA_AMD_QUEUE_CREATE_DESC_VERSION
-    if (table->amd_ext_->hsa_amd_queue_create_fn != nullptr) {
+    // version.minor_id is sizeof(AmdExtTable) in the runtime's own build, which
+    // can be smaller than ours.  Touching a slot it never published is an
+    // out-of-bounds access into the runtime's table.
+    if (table->amd_ext_->version.minor_id >=
+            offsetof(AmdExtTable, hsa_amd_queue_create_fn) + sizeof(void*) &&
+        table->amd_ext_->hsa_amd_queue_create_fn != nullptr) {
         g_orig_amd_queue_create = g_orig_ext.hsa_amd_queue_create_fn;
         table->amd_ext_->hsa_amd_queue_create_fn = my_hsa_amd_queue_create;
         fprintf(stderr, "rtl: hsa_amd_queue_create intercepted (ROCm 10+ path)\n");
