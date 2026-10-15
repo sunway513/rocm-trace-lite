@@ -89,6 +89,9 @@ jobs:
       - name: Build librtl.so
         run: make -j$(nproc)
 
+      - name: HSA interception conformance (mock table, no GPU)
+        run: make test-mock-hsa
+
       - name: Verify no forbidden deps
         run: |
           ldd librtl.so

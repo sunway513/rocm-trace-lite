@@ -841,8 +841,17 @@ extern "C" bool OnLoad(void* pTable,
     // Save original API tables
     HsaApiTable* table = reinterpret_cast<HsaApiTable*>(pTable);
     g_orig_table = table;
-    g_orig_core = *table->core_;
-    g_orig_ext = *table->amd_ext_;
+    // Copy only as far as the runtime says its tables extend.  minor_id is
+    // sizeof(<table>) in the runtime's own build, which can be smaller than
+    // ours when RTL is built against newer headers than the installed ROCm.
+    auto save_table = [](void* dst, const void* src, size_t published, size_t ours) {
+        memset(dst, 0, ours);
+        memcpy(dst, src, published < ours ? published : ours);
+    };
+    save_table(&g_orig_core, table->core_,
+               table->core_->version.minor_id, sizeof(CoreApiTable));
+    save_table(&g_orig_ext, table->amd_ext_,
+               table->amd_ext_->version.minor_id, sizeof(AmdExtTable));
 
     // Replace queue creation and executable freeze
     table->core_->hsa_queue_create_fn = my_hsa_queue_create;
