@@ -22,7 +22,7 @@ SRCS = trace_db.cpp hip_api_intercept.cpp roctx_shim.cpp hsa_intercept.cpp
 OBJS = $(addprefix $(SRCDIR)/,$(SRCS:.cpp=.o))
 TARGET = librtl.so
 
-.PHONY: all clean install test test-cpu test-gpu
+.PHONY: all clean install test test-cpu test-gpu test-mock-hsa
 
 all: $(TARGET)
 
@@ -50,11 +50,26 @@ $(GPU_WORKLOAD): tests/gpu_workload.hip
 	hipcc -O2 -o $@ $< -lpthread
 
 clean:
-	rm -f $(OBJS) $(TARGET) $(GPU_WORKLOAD)
+	rm -f $(OBJS) $(TARGET) $(GPU_WORKLOAD) $(MOCK_HSA)
 
 # Non-GPU tests (runs in CI)
 test-cpu:
 	cd tests && python3 -m pytest -v --tb=short
+
+# HSA table interception conformance — no GPU, no real HSA runtime.
+# Drives librtl.so's OnLoad through a synthetic HsaApiTable of recording stubs.
+MOCK_HSA = tests/mock_hsa_table
+
+$(MOCK_HSA): tests/mock_hsa_table.cpp $(TARGET)
+	$(CXX) -O0 -g -std=c++17 -rdynamic \
+	    -I$(HIP_PATH)/include -I$(HIP_PATH)/include/hsa \
+	    -D__HIP_PLATFORM_AMD__ -DAMD_INTERNAL_BUILD \
+	    -o $@ $< -L$(CURDIR) -Wl,-rpath,$(CURDIR) -lrtl \
+	    -L$(HIP_PATH)/lib -Wl,-rpath,$(HIP_PATH)/lib -lhsa-runtime64
+
+test-mock-hsa: $(MOCK_HSA)
+	RTL_OUTPUT=$(CURDIR)/mock_hsa_trace.db ./$(MOCK_HSA)
+	@rm -f $(CURDIR)/mock_hsa_trace.db*
 
 test: test-cpu
 

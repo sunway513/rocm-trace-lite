@@ -6,3 +6,5 @@ __pycache__/
 tests/gpu_workload
 docs/_build/
 repro_hipgraph_stress
+tests/mock_hsa_table
+mock_hsa_trace.db*
