@@ -33,9 +33,19 @@ jobs:
         timeout-minutes: 15
         run: |
           set -o pipefail
+          # Resolve the host's GIDs and pass them numerically.  `--group-add render`
+          # resolves the name against the *container's* /etc/group, and the ROCm 10
+          # images no longer ship a render group, so the name form fails the run
+          # outright with exit 125.  Numeric GIDs work regardless of what the image
+          # happens to define, and are the ones that actually gate /dev/kfd and
+          # /dev/dri on the host.
+          RENDER_GID=$(getent group render | cut -d: -f3)
+          VIDEO_GID=$(getent group video | cut -d: -f3)
+          echo "host GIDs: render=${RENDER_GID:-none} video=${VIDEO_GID:-none}"
           docker run --rm \
             --device=/dev/kfd --device=/dev/dri \
-            --group-add render --group-add video \
+            ${RENDER_GID:+--group-add "$RENDER_GID"} \
+            ${VIDEO_GID:+--group-add "$VIDEO_GID"} \
             --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
@@ -94,9 +104,19 @@ jobs:
         timeout-minutes: 30
         run: |
           set -o pipefail
+          # Resolve the host's GIDs and pass them numerically.  `--group-add render`
+          # resolves the name against the *container's* /etc/group, and the ROCm 10
+          # images no longer ship a render group, so the name form fails the run
+          # outright with exit 125.  Numeric GIDs work regardless of what the image
+          # happens to define, and are the ones that actually gate /dev/kfd and
+          # /dev/dri on the host.
+          RENDER_GID=$(getent group render | cut -d: -f3)
+          VIDEO_GID=$(getent group video | cut -d: -f3)
+          echo "host GIDs: render=${RENDER_GID:-none} video=${VIDEO_GID:-none}"
           docker run --rm \
             --device=/dev/kfd --device=/dev/dri \
-            --group-add render --group-add video \
+            ${RENDER_GID:+--group-add "$RENDER_GID"} \
+            ${VIDEO_GID:+--group-add "$VIDEO_GID"} \
             --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
