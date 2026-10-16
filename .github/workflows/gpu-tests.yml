@@ -6,22 +6,46 @@ on:
   workflow_dispatch:
 
 env:
-  GPU_CONTAINER: rocm/dev-ubuntu-24.04:latest
+  # Pinned deliberately, not :latest.  That tag was republished on 2026-10-05 and
+  # now resolves to the same ~22 GB image as 10.1.0-full.  Both GPU jobs on #122
+  # spent their whole window pulling it and ended cancelled with no test output
+  # and no artifact, which reads as a test failure.  A fixed tag also keeps CI,
+  # releases and the wheel matrix on versions we picked on purpose.
+  GPU_CONTAINER: rocm/dev-ubuntu-24.04:10.1.0-full
 
 jobs:
   gpu-single:
     name: GPU tests (single MI355X)
     runs-on: linux-rocm-trace-lite-mi355-1
-    timeout-minutes: 15
+    # Covers pull + tests; each phase is bounded by its own step timeout below.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
+      # Separate step so transfer time is not charged against the test budget,
+      # and so a slow pull is distinguishable from a hanging test.  Cached on the
+      # self-hosted runner after the first run.
+      - name: Pull ROCm container
+        timeout-minutes: 40
+        run: docker pull ${{ env.GPU_CONTAINER }}
+
       - name: Run GPU tests in container
+        timeout-minutes: 15
         run: |
           set -o pipefail
+          # Resolve the host's GIDs and pass them numerically.  `--group-add render`
+          # resolves the name against the *container's* /etc/group, and the ROCm 10
+          # images no longer ship a render group, so the name form fails the run
+          # outright with exit 125.  Numeric GIDs work regardless of what the image
+          # happens to define, and are the ones that actually gate /dev/kfd and
+          # /dev/dri on the host.
+          RENDER_GID=$(getent group render | cut -d: -f3)
+          VIDEO_GID=$(getent group video | cut -d: -f3)
+          echo "host GIDs: render=${RENDER_GID:-none} video=${VIDEO_GID:-none}"
           docker run --rm \
             --device=/dev/kfd --device=/dev/dri \
-            --group-add render --group-add video \
+            ${RENDER_GID:+--group-add "$RENDER_GID"} \
+            ${VIDEO_GID:+--group-add "$VIDEO_GID"} \
             --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
@@ -65,16 +89,34 @@ jobs:
     name: GPU tests (8x MI355X, optional)
     runs-on: linux-rocm-trace-lite-mi355-8
     continue-on-error: true
-    timeout-minutes: 30
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
 
+      # Separate step so transfer time is not charged against the test budget,
+      # and so a slow pull is distinguishable from a hanging test.  Cached on the
+      # self-hosted runner after the first run.
+      - name: Pull ROCm container
+        timeout-minutes: 40
+        run: docker pull ${{ env.GPU_CONTAINER }}
+
       - name: Run GPU tests in container
+        timeout-minutes: 30
         run: |
           set -o pipefail
+          # Resolve the host's GIDs and pass them numerically.  `--group-add render`
+          # resolves the name against the *container's* /etc/group, and the ROCm 10
+          # images no longer ship a render group, so the name form fails the run
+          # outright with exit 125.  Numeric GIDs work regardless of what the image
+          # happens to define, and are the ones that actually gate /dev/kfd and
+          # /dev/dri on the host.
+          RENDER_GID=$(getent group render | cut -d: -f3)
+          VIDEO_GID=$(getent group video | cut -d: -f3)
+          echo "host GIDs: render=${RENDER_GID:-none} video=${VIDEO_GID:-none}"
           docker run --rm \
             --device=/dev/kfd --device=/dev/dri \
-            --group-add render --group-add video \
+            ${RENDER_GID:+--group-add "$RENDER_GID"} \
+            ${VIDEO_GID:+--group-add "$VIDEO_GID"} \
             --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
