@@ -1,5 +1,6 @@
 import glob
 import os
+import signal
 import sys
 import subprocess
 import sqlite3
@@ -165,7 +166,32 @@ def run_trace(args):
         except OSError:
             pass
 
-    result = subprocess.run(cmd, env=env)
+    proc = subprocess.Popen(cmd, env=env)
+    interrupted = False
+
+    def _sigint_handler(sig, frame):
+        nonlocal interrupted
+        if interrupted:
+            proc.kill()
+        else:
+            interrupted = True
+            print("\nInterrupted! Waiting for trace flush (Ctrl+C again to force)...")
+
+    original_sigint = signal.signal(signal.SIGINT, _sigint_handler)
+    try:
+        while True:
+            try:
+                returncode = proc.wait(timeout=5)
+                break
+            except subprocess.TimeoutExpired:
+                if interrupted:
+                    print("Child did not exit within 5s of SIGINT, sending SIGKILL...")
+                    proc.kill()
+                    returncode = proc.wait()
+                    break
+        result = subprocess.CompletedProcess(cmd, returncode)
+    finally:
+        signal.signal(signal.SIGINT, original_sigint)
 
     # Collect per-process trace files
     # Collect per-process files (strict PID pattern: trace_DIGITS.db)
